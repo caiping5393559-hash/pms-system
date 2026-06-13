@@ -1,118 +1,156 @@
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-import urllib.parse
 import json
 import os
+import urllib.parse
+import urllib.request
+from datetime import datetime
+
+# =========================
+# Firebase
+# =========================
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 BASE = Path(__file__).resolve().parent
-STATIC = BASE / "static"
 
-# ======================
-# 登录账号（固定版，最稳定）
-# ======================
-USERS = {
-    "admin": {"password": "admin123", "role": "admin"},
-    "cleaner": {"password": "cleaner123", "role": "cleaner"}
-}
+cred = credentials.Certificate(str(BASE / "firebase-key.json"))
+firebase_admin.initialize_app(cred)
+db = firestore.client()
 
-# ======================
-# 登录解析
-# ======================
-def auth(query):
-    params = urllib.parse.parse_qs(query)
-    u = params.get("user", [""])[0]
-    p = params.get("pass", [""])[0]
+# =========================
+# PMS 核心数据操作
+# =========================
 
-    if u == "admin" and p == "admin123":
-        return "admin"
+class PMS:
 
-    if u == "cleaner" and p == "cleaner123":
-        return "cleaner"
+    # ---------------- rooms ----------------
+    @staticmethod
+    def get_rooms():
+        docs = db.collection("rooms").stream()
+        return [{**d.to_dict(), "id": d.id} for d in docs]
 
-    return None
+    @staticmethod
+    def save_rooms(data):
+        for r in data.get("rooms", []):
+            if "id" in r:
+                db.collection("rooms").document(r["id"]).set(r)
+
+    # ---------------- bookings ----------------
+    @staticmethod
+    def get_bookings():
+        docs = db.collection("bookings").stream()
+        return [{**d.to_dict(), "id": d.id} for d in docs]
+
+    # ---------------- settings ----------------
+    @staticmethod
+    def get_settings():
+        docs = db.collection("settings").stream()
+        out = {}
+        for d in docs:
+            out.update(d.to_dict())
+        return out
+
+    # ---------------- iCal 同步（关键功能） ----------------
+    @staticmethod
+    def sync_ical():
+        rooms = PMS.get_rooms()
+
+        for room in rooms:
+            urls = [
+                room.get("airbnb_ical"),
+                room.get("booking_ical"),
+                room.get("vrbo_ical")
+            ]
+
+            for url in urls:
+                if not url:
+                    continue
+
+                try:
+                    raw = urllib.request.urlopen(url, timeout=10).read().decode()
+
+                    db.collection("bookings").add({
+                        "room_id": room.get("id"),
+                        "source": "ical",
+                        "data": raw[:2000],
+                        "created_at": str(datetime.now())
+                    })
+
+                except Exception as e:
+                    print("ICAL ERROR:", e)
 
 
-# ======================
+# =========================
 # HTTP SERVER
-# ======================
+# =========================
+
 class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-        query = parsed.query
+        path = urllib.parse.urlparse(self.path).path
 
-        role = auth(query)
+        # PMS首页
+        if path == "/":
+            return self.text("PMS V8 RUNNING (FIXED API)")
 
-        # ----------------------
-        # 登录页
-        # ----------------------
-        if path == "/login":
-            html = """
-            <html>
-            <body style="font-family:Arial">
-                <h2>PMS Login</h2>
-                <form action="/owner">
-                    User: <input name="user"><br><br>
-                    Pass: <input name="pass" type="password"><br><br>
-                    <button type="submit">Login</button>
-                </form>
-            </body>
-            </html>
-            """
-            return self.send_html(html)
+        # rooms
+        if path == "/api/rooms":
+            return self.json(PMS.get_rooms())
 
-        # ----------------------
-        # 管理员页面（UI入口）
-        # ----------------------
-        if path == "/owner":
-            if role != "admin":
-                return self.send_html("❌ 没有权限或登录失败")
+        # bookings
+        if path == "/api/bookings":
+            return self.json(PMS.get_bookings())
 
-            file_path = STATIC / "index.html"
-            if file_path.exists():
-                return self.send_file(file_path)
+        # settings
+        if path == "/api/settings":
+            return self.json(PMS.get_settings())
 
-            return self.send_html("❌ UI不存在：static/index.html")
+        return self.text("NOT FOUND")
 
-        # ----------------------
-        # 保洁页面
-        # ----------------------
-        if path == "/cleaner":
-            if role not in ["cleaner", "admin"]:
-                return self.send_html("❌ 没有权限")
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length)
+        data = json.loads(body.decode() or "{}")
 
-            return self.send_html("<h2>🧹 Cleaner Dashboard</h2>")
+        # =========================
+        # 保存房间（解决 save state failed）
+        # =========================
+        if self.path == "/api/state":
+            PMS.save_rooms(data)
+            return self.json({"ok": True})
 
-        # ----------------------
-        # API
-        # ----------------------
-        if path == "/health":
-            return self.send_html("PMS OK")
+        # =========================
+        # 手动同步 iCal
+        # =========================
+        if self.path == "/api/sync":
+            PMS.sync_ical()
+            return self.json({"ok": True})
 
-        return self.send_html("404 NOT FOUND")
+        return self.json({"ok": False})
 
-    # ======================
-    # 工具函数
-    # ======================
-    def send_html(self, content):
+    # =========================
+    # tools
+    # =========================
+    def json(self, data):
+        raw = json.dumps(data, ensure_ascii=False).encode()
         self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(content.encode())
+        self.wfile.write(raw)
 
-    def send_file(self, path):
+    def text(self, t):
         self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
-        self.wfile.write(path.read_bytes())
+        self.wfile.write(t.encode())
 
 
-# ======================
+# =========================
 # 启动
-# ======================
+# =========================
+
 PORT = int(os.environ.get("PORT", 10000))
 
 if __name__ == "__main__":
-    print("PMS FINAL RUNNING")
+    print("🔥 PMS FIXED API STARTED")
     HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
