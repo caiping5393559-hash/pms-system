@@ -1,5 +1,1 @@
-flask
-pymysql
-gunicorn
-requests
-icalendar
+firebase-admin
