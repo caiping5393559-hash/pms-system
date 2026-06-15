@@ -1,12 +1,11 @@
 {
-  "port": 8080,
   "owner_key": "owner123",
   "cleaner_key": "cleaner123",
-  "mysql": {
-    "host": "rm-2ze25zlli8l8desb8do.mysql.rds.aliyuncs.com",
-    "port": 3306,
-    "user": "hotel_pdty",
-    "password": "hotel_pdty1234",
-    "database": "ar_hotel"
+  "owner_user": "admin",
+  "owner_pass": "admin123",
+  "firebase": {
+    "project_id": "pms-system-aee0d",
+    "state_collection": "settings",
+    "state_document": "system"
   }
 }
