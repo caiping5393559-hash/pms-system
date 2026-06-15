@@ -41,6 +41,19 @@ OWNER_USER = str(os.environ.get("OWNER_USER") or CONFIG.get("owner_user") or "ad
 OWNER_PASS = str(os.environ.get("OWNER_PASS") or CONFIG.get("owner_pass") or "admin123")
 STATE_COLLECTION = FIREBASE_CONFIG.get("state_collection", "settings")
 STATE_DOCUMENT = FIREBASE_CONFIG.get("state_document", "system")
+ROOM_FIELDS = [
+    "name",
+    "type",
+    "cleaning_fee",
+    "airbnb_ical",
+    "booking_ical",
+    "vrbo_ical",
+    "other_ical",
+    "airbnb_public_url",
+    "booking_public_url",
+    "vrbo_public_url",
+    "other_public_url",
+]
 
 
 def default_state():
@@ -205,6 +218,35 @@ def save_state(state):
     payload = {"fields": {"state_json": {"stringValue": json.dumps(state, ensure_ascii=False, separators=(",", ":"))}, "updated_at": {"timestampValue": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")}}}
     firestore_request("PATCH", firestore_doc_url(), payload=payload)
     return state
+
+
+def save_room(room_id, payload):
+    room_id = str(room_id or "").strip()
+    if not room_id:
+        raise RuntimeError("room_id is required")
+    if not isinstance(payload, dict):
+        raise RuntimeError("room payload must be an object")
+    state = normalize_state(load_state())
+    room = next((item for item in state["rooms"] if item.get("id") == room_id), None)
+    if room is None:
+        room = {"id": room_id, "type": "room"}
+        state["rooms"].append(room)
+    for field in ROOM_FIELDS:
+        if field not in payload:
+            continue
+        if field == "cleaning_fee":
+            try:
+                value = float(payload.get(field) or 0)
+                room[field] = int(value) if value.is_integer() else value
+            except Exception:
+                room[field] = 0
+        else:
+            room[field] = str(payload.get(field) or "")
+    room["id"] = room_id
+    room["type"] = "room"
+    saved = save_state(state)
+    saved_room = next((item for item in saved["rooms"] if item.get("id") == room_id), room)
+    return saved, saved_room
 
 
 def parse_query(path):
@@ -381,6 +423,130 @@ function pmsTodayString(){
 const TODAY = pmsTodayString();"""
     text = text.replace("const TODAY = new Date().toISOString().slice(0,10);", local_date_js)
     text = text.replace("function fmtDate(d){return d.toISOString().slice(0,10);}", "function fmtDate(d){return datePartsString(d);}")
+    room_save_js = """const ROOM_SAVE_FIELDS = ['airbnb_ical','booking_ical','vrbo_ical','other_ical','airbnb_public_url','booking_public_url','vrbo_public_url','other_public_url'];
+function applyServerState(state){
+  rooms = state.rooms || [];
+  commonAreas = state.commonAreas || [];
+  bookings = state.bookings || [];
+  manualChanges = state.manualChanges || [];
+  cleaningNotes = state.cleaningNotes || [];
+  roomDateNotes = state.roomDateNotes || [];
+  lastSync = state.last_sync || '';
+  syncErrors = state.sync_errors || [];
+}
+function roomSaveStatusId(roomId){
+  return 'roomSaveStatus_' + String(roomId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+function markRoomDirty(roomId){
+  const el = document.getElementById(roomSaveStatusId(roomId));
+  if(el){ el.textContent = '未保存'; }
+}
+async function saveRoom(roomId, btn, options){
+  const room = rooms.find(r => r.id === roomId);
+  if(!room){ alert('找不到这个房间'); return null; }
+  const oldText = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = '保存中...'; }
+  try{
+    const res = await fetch(withKey('/api/room/' + encodeURIComponent(roomId)), {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(room)
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || data.ok === false){ throw new Error(data.error || 'save room failed'); }
+    applyServerState(data.state || data);
+    if(!options || options.rerender !== false){
+      renderCleaner(); renderOwner(); applyRoleMode();
+    }
+    const status = document.getElementById(roomSaveStatusId(roomId));
+    if(status){ status.textContent = '已保存到数据库'; }
+    return data;
+  }catch(e){
+    const status = document.getElementById(roomSaveStatusId(roomId));
+    if(status){ status.textContent = '保存失败'; }
+    alert('保存房间失败：' + e.message);
+    return null;
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = oldText || '保存房间设置'; }
+  }
+}
+async function saveRoomAndSync(roomId, btn){
+  const oldText = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = '同步中...'; }
+  try{
+    const saved = await saveRoom(roomId, null, {rerender:false});
+    if(!saved){ return; }
+    const res = await fetch(withKey('/api/sync'), {method:'POST'});
+    const state = await res.json();
+    if(!res.ok || state.ok === false){ throw new Error(state.error || 'sync failed'); }
+    applyServerState(state);
+    renderCleaner(); renderOwner(); applyRoleMode();
+    const status = document.getElementById(roomSaveStatusId(roomId));
+    if(status){ status.textContent = syncErrors.length ? `已保存，同步完成但失败 ${syncErrors.length} 个链接` : '已保存并同步'; }
+  }catch(e){
+    alert('保存并同步失败：' + e.message);
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = oldText || '保存并同步 iCal'; }
+  }
+}
+function bindRoomSaveControls(){
+  const holder = document.getElementById('roomSettings');
+  if(!holder) return;
+  Array.from(holder.children).forEach((card, i) => {
+    const room = rooms[i];
+    if(!room) return;
+    const top = card.querySelector('.room-card');
+    if(!top) return;
+    if(!card.querySelector('.room-save-toolbar')){
+      const toolbar = document.createElement('div');
+      toolbar.className = 'toolbar room-save-toolbar';
+      toolbar.style.marginTop = '10px';
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'smallbtn primary';
+      saveBtn.type = 'button';
+      saveBtn.textContent = '保存房间设置';
+      saveBtn.onclick = () => saveRoom(room.id, saveBtn);
+      const syncBtn = document.createElement('button');
+      syncBtn.className = 'smallbtn';
+      syncBtn.type = 'button';
+      syncBtn.textContent = '保存并同步 iCal';
+      syncBtn.onclick = () => saveRoomAndSync(room.id, syncBtn);
+      const status = document.createElement('span');
+      status.className = 'small';
+      status.id = roomSaveStatusId(room.id);
+      status.textContent = '已载入数据库';
+      toolbar.appendChild(saveBtn);
+      toolbar.appendChild(syncBtn);
+      toolbar.appendChild(status);
+      top.insertAdjacentElement('afterend', toolbar);
+    }
+    const mainInputs = top.querySelectorAll('input');
+    if(mainInputs[0]){
+      mainInputs[0].onchange = null;
+      mainInputs[0].removeAttribute('onchange');
+      mainInputs[0].addEventListener('change', () => { rooms[i].name = mainInputs[0].value; markRoomDirty(room.id); });
+    }
+    if(mainInputs[1]){
+      mainInputs[1].onchange = null;
+      mainInputs[1].removeAttribute('onchange');
+      mainInputs[1].addEventListener('change', () => { rooms[i].cleaning_fee = Number(mainInputs[1].value || 0); markRoomDirty(room.id); });
+    }
+    card.querySelectorAll('.ical-input').forEach((input, index) => {
+      const field = ROOM_SAVE_FIELDS[index];
+      if(!field) return;
+      input.onchange = null;
+      input.removeAttribute('onchange');
+      input.addEventListener('change', () => { rooms[i][field] = input.value; markRoomDirty(room.id); });
+    });
+  });
+}
+const originalRenderRoomSettings = renderRoomSettings;
+renderRoomSettings = function(){
+  originalRenderRoomSettings();
+  bindRoomSaveControls();
+};
+"""
+    text = text.replace("function refreshAll(){renderCleaner();renderOwner();scheduleSave();}", room_save_js + "\nfunction refreshAll(){renderCleaner();renderOwner();scheduleSave();}")
     return text.encode("utf-8")
 
 
@@ -443,6 +609,14 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 payload = json.loads(raw.decode("utf-8") or "{}")
                 json_response(self, {"ok": True, "state": save_state(payload)})
+                return
+            if path.startswith("/api/room/"):
+                if not require_owner(self):
+                    return
+                room_id = urllib.parse.unquote(path[len("/api/room/") :])
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                state, room = save_room(room_id, payload)
+                json_response(self, {"ok": True, "state": state, "room": room})
                 return
             if path == "/api/sync":
                 if not require_owner(self):
