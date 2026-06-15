@@ -1,0 +1,12 @@
+# Local secrets
+.env
+firebase-key.json
+firebase-adminsdk.json
+xxxx-firebase-adminsdk.json
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Logs
+*.log
