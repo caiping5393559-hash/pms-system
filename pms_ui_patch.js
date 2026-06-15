@@ -24,15 +24,20 @@ function backToPropertyList(){
 }
 function setupPropertyRoomUi(){
   const tab = document.querySelector('button[onclick*="ownerRooms"]');
-  if(tab) tab.textContent = '房源 / 房间设置';
+  if(tab){
+    tab.textContent = '房源 / 房间设置';
+    tab.setAttribute('onclick', "showOwnerTab('ownerRooms', this); backToPropertyList();");
+  }
   const section = document.getElementById('ownerRooms');
   if(section){
     const h2 = section.querySelector(':scope > .card h2');
-    if(h2) h2.textContent = selectedPropertyId ? '房源下的房间管理' : '房源管理';
+    const selectedProp = activeProperty();
+    if(h2) h2.textContent = selectedProp ? `${selectedProp.name || selectedProp.id}房源的房间管理` : '房源管理';
     const p = section.querySelector(':scope > .card p.small');
-    if(p) p.textContent = selectedPropertyId
+    if(p) p.textContent = selectedProp
       ? '公区设置置顶；下面管理该房源的房间、iCal、保洁绑定和平台防超卖链接。'
       : '先看到所有房源。可以添加、重命名、删除房源；点进入后再设置这个房源下面的房间和公区。';
+    section.querySelectorAll(':scope > .card > button[onclick="addRoom()"], :scope > .card > .toolbar button[onclick="addRoom()"], :scope > .card > button[onclick="addRoom()"]').forEach(btn => { btn.style.display = 'none'; });
   }
   const syncBtn = document.getElementById('syncIcalBtn');
   if(syncBtn){
@@ -54,8 +59,11 @@ function setupPropertyRoomUi(){
     .property-cards{display:grid;gap:10px}
     .property-card-row{border:1px solid var(--line);border-radius:8px;background:#fff;padding:12px;display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:12px;align-items:end}
     .property-card-row label{margin-bottom:6px}
+    .property-name-edit{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .property-name-edit input{max-width:360px}
     .property-card-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
     .property-meta-line{color:var(--muted);font-size:12px;margin-top:6px}
+    .property-cleaner-list{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
     .property-room-shell{display:grid;gap:12px}
     .property-detail-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px}
     .property-actions{display:flex;gap:8px;flex-wrap:wrap}
@@ -80,17 +88,38 @@ function setupPropertyRoomUi(){
 function propertyNameInputId(propertyId){ return 'propertyName_' + safeDomId(propertyId); }
 async function savePropertyName(propertyId, btn){
   const prop = properties.find(item => item.id === propertyId);
-  if(!prop){ alert('找不到这个房源'); return; }
+  if(!prop){ alert('找不到这个房源'); return null; }
   const input = document.getElementById(propertyNameInputId(propertyId));
   if(input) prop.name = input.value.trim() || prop.name || '未命名房源';
-  return saveProperty(propertyId, btn);
+  const oldText = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = '保存中...'; }
+  try{
+    const res = await fetch(withKey('/api/property/' + encodeURIComponent(propertyId)), {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(prop)
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || data.ok === false){ throw new Error(data.error || 'save property failed'); }
+    const keepDetail = selectedPropertyId === propertyId;
+    applyServerState(data.state || data);
+    selectedPropertyId = keepDetail && properties.some(item => item.id === propertyId) ? propertyId : '';
+    renderCleaner(); renderOwner(); applyRoleMode(); renderAccountBar();
+    if(selectedPropertyId) renderRoomSettings();
+    return data;
+  }catch(e){
+    alert('保存房源名字失败：' + e.message);
+    return null;
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = oldText || '保存名字'; }
+  }
 }
 function addProperty(){
   const prop = {id:'property' + Date.now(), group_id: currentGroupId(), name:'新房源'};
   properties.push(prop);
   selectedPropertyId = '';
   renderRoomSettings();
-  saveProperty(prop.id, null).then(data => {
+  savePropertyName(prop.id, null).then(data => {
     if(data){ applyServerState(data.state || data); selectedPropertyId = ''; renderRoomSettings(); }
   });
 }
@@ -287,7 +316,12 @@ function renderCleanerPanel(prop){
   const sid = safeDomId(prop.id);
   const bindings = propertyCleanerBindings(prop.id);
   const cleaners = bindings.length ? bindings.map(item => `<div class="toolbar" style="margin-bottom:4px"><span class="badge green">${esc(cleanerLabel(item.cleaner_code))}</span><button class="smallbtn" onclick="unbindPropertyCleaner('${esc(prop.id)}','${esc(item.cleaner_code)}',this)">删除绑定</button></div>`).join('') : '<div class="small">这个房源还没有绑定保洁。</div>';
-  return `<div class="optional-box"><h3>保洁绑定</h3><div class="small">保洁先去 <a href="/cleaner-register" target="_blank">保洁注册页</a> 注册，把编号发给房东。这里填编号即可绑定。</div><div class="toolbar" style="margin-top:8px"><input id="cleanerCode_${sid}" placeholder="例如：CLN-1234"><button class="smallbtn primary" onclick="bindPropertyCleaner('${esc(prop.id)}',this)">绑定保洁</button></div>${cleaners}</div>`;
+  return `<div class="property-subcard"><h3>保洁绑定</h3><div class="small">保洁先去 <a href="/cleaner-register" target="_blank">保洁注册页</a> 注册，把编号发给房东。这里填编号即可绑定。</div><div class="toolbar" style="margin-top:8px"><input id="cleanerCode_${sid}" placeholder="例如：CLN-1234"><button class="smallbtn primary" onclick="bindPropertyCleaner('${esc(prop.id)}',this)">绑定保洁</button></div>${cleaners}</div>`;
+}
+function propertyCleanerSummary(propertyId){
+  const bindings = propertyCleanerBindings(propertyId);
+  if(!bindings.length) return '<div class="property-meta-line">保洁：未绑定</div>';
+  return `<div class="property-cleaner-list">${bindings.map(item => `<span class="badge green">${esc(cleanerLabel(item.cleaner_code))}</span>`).join('')}</div>`;
 }
 function renderRoomCard(room, prop){
   return `<div class="room-setting-card">
@@ -315,12 +349,12 @@ function renderPropertyList(){
     return `<div class="property-card-row">
       <div>
         <label>房源名字</label>
-        <input id="${propertyNameInputId(prop.id)}" value="${esc(prop.name || '')}" placeholder="例如：洛杉矶市中心 1 号房源">
+        <div class="property-name-edit"><input id="${propertyNameInputId(prop.id)}" value="${esc(prop.name || '')}" placeholder="例如：洛杉矶市中心 1 号房源"><button class="smallbtn" onclick="savePropertyName('${esc(prop.id)}',this)">保存名字</button></div>
         <div class="property-meta-line">${roomCount} 个房间 · ${commonCount} 个公区 · ${cleanerCount} 个保洁绑定</div>
+        ${propertyCleanerSummary(prop.id)}
       </div>
       <div class="property-card-actions">
         <button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">进入房间设置</button>
-        <button class="smallbtn" onclick="savePropertyName('${esc(prop.id)}',this)">保存名字</button>
         <button class="smallbtn" onclick="deletePropertyUi('${esc(prop.id)}',this)">删除房源</button>
       </div>
     </div>`;
@@ -339,15 +373,10 @@ function renderPropertyDetail(prop){
   const syncText = (lastSync ? `上次同步：${lastSync}` : '上次同步：未同步') + (syncErrors.length ? ` · 失败 ${syncErrors.length} 个链接` : '');
   return `<div class="property-room-shell">
     <div class="property-detail-head">
-      <div><h2 style="margin:0">${esc(prop.name || prop.id)}</h2><div class="small">${propRoomsList.length} 个房间 · ${propCommonAreas(prop.id).length} 个公区 · 房源 ID：${esc(prop.id)}</div></div>
+      <div><h2 style="margin:0">${esc(prop.name || prop.id)}房源的房间管理</h2><div class="small">${propRoomsList.length} 个房间 · ${propCommonAreas(prop.id).length} 个公区 · 房源 ID：${esc(prop.id)}</div></div>
       <div class="property-actions"><button class="smallbtn" onclick="backToPropertyList()">返回房源列表</button><button class="smallbtn primary" onclick="syncPropertyIcal('${esc(prop.id)}',this)">同步当前房源 iCal</button><span class="small">${syncText}</span></div>
     </div>
-    <div class="property-subcard">
-      <h3>房源信息</h3>
-      <div class="formgrid"><div><label>房源名字</label><input id="${propertyNameInputId(prop.id)}" value="${esc(prop.name || '')}"></div><div><label>房间数量</label><input value="${propRoomsList.length}" disabled></div></div>
-      <div class="toolbar" style="margin-top:10px"><button class="smallbtn primary" onclick="savePropertyName('${esc(prop.id)}',this)">保存房源</button><button class="smallbtn" onclick="deletePropertyUi('${esc(prop.id)}',this)">删除房源</button></div>
-      ${renderCleanerPanel(prop)}
-    </div>
+    ${renderCleanerPanel(prop)}
     ${renderCommonAreaPanel(prop)}
     <div class="property-subcard">
       <div class="property-detail-head"><div><h3 style="margin:0">房间设置</h3><div class="small">每个房间默认只填 Airbnb iCal；需要其他平台时再展开。</div></div><button class="smallbtn primary" onclick="addRoom()">添加房间</button></div>
@@ -360,10 +389,10 @@ function renderCommonSettings(){
   if(commonHolder) commonHolder.innerHTML = '';
 }
 function renderRoomSettings(){
+  if(selectedPropertyId && !properties.some(prop => prop.id === selectedPropertyId)) selectedPropertyId = '';
   setupPropertyRoomUi();
   const holder = document.getElementById('roomSettings');
   if(!holder) return;
-  if(selectedPropertyId && !properties.some(prop => prop.id === selectedPropertyId)) selectedPropertyId = '';
   if(!properties.length){
     holder.innerHTML = `<div class="empty-panel"><strong>还没有房源</strong><div style="margin-top:10px"><button class="smallbtn primary" onclick="addProperty()">添加房源</button></div></div>`;
     return;
