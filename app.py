@@ -365,16 +365,22 @@ def make_feed(room_id):
 
 def patch_index_html(raw):
     text = raw.decode("utf-8")
-    local_date_js = """function localDateString(d){
+    local_date_js = """const PMS_TIME_ZONE = 'America/Los_Angeles';
+function datePartsString(d){
   const dt = d || new Date();
   const y = dt.getFullYear();
   const m = String(dt.getMonth() + 1).padStart(2, '0');
   const day = String(dt.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
-const TODAY = localDateString();"""
+function pmsTodayString(){
+  const parts = new Intl.DateTimeFormat('en-US', {timeZone:PMS_TIME_ZONE, year:'numeric', month:'2-digit', day:'2-digit'}).formatToParts(new Date());
+  const pick = type => parts.find(part => part.type === type).value;
+  return `${pick('year')}-${pick('month')}-${pick('day')}`;
+}
+const TODAY = pmsTodayString();"""
     text = text.replace("const TODAY = new Date().toISOString().slice(0,10);", local_date_js)
-    text = text.replace("function fmtDate(d){return d.toISOString().slice(0,10);}", "function fmtDate(d){return localDateString(d);}")
+    text = text.replace("function fmtDate(d){return d.toISOString().slice(0,10);}", "function fmtDate(d){return datePartsString(d);}")
     return text.encode("utf-8")
 
 
