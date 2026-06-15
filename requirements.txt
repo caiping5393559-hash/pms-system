@@ -1,1 +1,1 @@
-firebase-admin
+# No external Python packages required.
