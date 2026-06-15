@@ -54,6 +54,49 @@ if new_get_start not in source_text:
         raise RuntimeError("GET route hook not found")
     source_text = source_text.replace(old_get_start, new_get_start, 1)
 
+old_sync_function = """def sync_icals(actor=None):
+    state = normalize_state(load_state())
+    allowed_room_ids = actor_room_ids(actor, state) if actor else {room.get("id") for room in state.get("rooms", []) if isinstance(room, dict)}
+"""
+new_sync_function = """def sync_icals(actor=None, property_id=None):
+    state = normalize_state(load_state())
+    allowed_property_ids = actor_property_ids(actor, state) if actor else {prop.get("id") for prop in state.get("properties", []) if isinstance(prop, dict)}
+    requested_property_id = str(property_id or "").strip()
+    if requested_property_id:
+        if requested_property_id not in allowed_property_ids:
+            raise RuntimeError("property permission required")
+        allowed_property_ids = {requested_property_id}
+    allowed_room_ids = {
+        room.get("id")
+        for room in state.get("rooms", [])
+        if isinstance(room, dict) and room.get("property_id") in allowed_property_ids
+    }
+"""
+if new_sync_function not in source_text:
+    if old_sync_function not in source_text:
+        raise RuntimeError("iCal sync hook not found")
+    source_text = source_text.replace(old_sync_function, new_sync_function, 1)
+
+old_sync_route = """            if path == "/api/sync":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                json_response(self, filter_state_for_user(sync_icals(actor=user), user))
+                return
+"""
+new_sync_route = """            if path == "/api/sync":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}") if raw else {}
+                json_response(self, filter_state_for_user(sync_icals(actor=user, property_id=payload.get("property_id")), user))
+                return
+"""
+if new_sync_route not in source_text:
+    if old_sync_route not in source_text:
+        raise RuntimeError("iCal sync route hook not found")
+    source_text = source_text.replace(old_sync_route, new_sync_route, 1)
+
 handler_marker = "class Handler(BaseHTTPRequestHandler):\n    def do_OPTIONS"
 if handler_marker in source_text:
     source_text = source_text.replace(
