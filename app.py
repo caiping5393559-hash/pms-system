@@ -37,6 +37,23 @@ if old_room_wrapper not in source_text:
     raise RuntimeError("room settings hook not found")
 source_text = source_text.replace(old_room_wrapper, new_room_wrapper, 1)
 
+old_get_start = """            parsed, _ = parse_query(self.path)
+            path = parsed.path
+"""
+new_get_start = """            parsed, _ = parse_query(self.path)
+            path = parsed.path
+            if urllib.parse.parse_qs(parsed.query).get("key"):
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.send_header("Set-Cookie", f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
+                self.end_headers()
+                return
+"""
+if new_get_start not in source_text:
+    if old_get_start not in source_text:
+        raise RuntimeError("GET route hook not found")
+    source_text = source_text.replace(old_get_start, new_get_start, 1)
+
 handler_marker = "class Handler(BaseHTTPRequestHandler):\n    def do_OPTIONS"
 if handler_marker in source_text:
     source_text = source_text.replace(
