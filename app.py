@@ -23,6 +23,44 @@ if actual != EXPECTED_SOURCE_SHA256:
 
 source_text = source.decode("utf-8")
 ui_patch = (BASE / "pms_ui_patch.js").read_text(encoding="utf-8")
+ui_patch += r'''
+(function(){
+  const baseOpenPropertyRooms = openPropertyRooms;
+  openPropertyRooms = function(propertyId){
+    selectedPropertyId = String(propertyId || '');
+    renderRoomSettings();
+  };
+  const baseSetupPropertyRoomUi = setupPropertyRoomUi;
+  setupPropertyRoomUi = function(){
+    baseSetupPropertyRoomUi();
+    const tab = document.querySelector('button[onclick*="ownerRooms"]');
+    if(tab){
+      tab.textContent = '房源 / 房间设置';
+      tab.setAttribute('onclick', "showOwnerTab('ownerRooms', this); backToPropertyList();");
+    }
+    const section = document.getElementById('ownerRooms');
+    if(section){
+      section.querySelectorAll('button[onclick="addRoom()"]').forEach(btn => { btn.style.display = 'none'; });
+    }
+    if(document.body && !document.body.dataset.propertyRoomEntryBound){
+      document.body.dataset.propertyRoomEntryBound = '1';
+      document.addEventListener('click', function(event){
+        const opener = event.target.closest && event.target.closest('[data-open-property]');
+        if(!opener) return;
+        event.preventDefault();
+        openPropertyRooms(opener.getAttribute('data-open-property'));
+      });
+    }
+  };
+  const baseRenderPropertyList = renderPropertyList;
+  renderPropertyList = function(){
+    return baseRenderPropertyList().replace(
+      /<button class="smallbtn primary" onclick="openPropertyRooms\('([^']*)'\)">进入房间设置<\/button>/g,
+      '<button type="button" class="smallbtn primary" data-open-property="$1">进入房间设置</button>'
+    );
+  };
+})();
+'''
 old_room_wrapper = """const originalRenderRoomSettings = renderRoomSettings;
 renderRoomSettings = function(){
   originalRenderRoomSettings();
