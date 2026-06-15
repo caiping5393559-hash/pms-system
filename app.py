@@ -64,15 +64,6 @@ STATE_KEYS = [
     "roomDateNotes",
 ]
 
-COLLECTION_ALIASES = {
-    "rooms": ["rooms"],
-    "commonAreas": ["commonAreas", "common_areas"],
-    "bookings": ["bookings"],
-    "manualChanges": ["manualChanges", "manual_changes"],
-    "cleaningNotes": ["cleaningNotes", "cleaning_notes"],
-    "roomDateNotes": ["roomDateNotes", "room_date_notes"],
-}
-
 FIRESTORE_CLIENT = None
 
 
@@ -203,78 +194,20 @@ def load_seed_state():
 
 
 def load_state():
-    db = get_db()
-    snap = state_doc_ref().get()
+    snap = state_doc_ref().get(timeout=10)
     if snap.exists:
         data = plain_value(snap.to_dict() or {})
         if isinstance(data.get("state"), dict):
             return normalize_state(data["state"])
         if any(key in data for key in STATE_KEYS):
             return normalize_state(data)
-
-    state = default_state()
-    found_collection_data = False
-    for key, aliases in COLLECTION_ALIASES.items():
-        rows = []
-        for collection_name in aliases:
-            docs = list(db.collection(collection_name).stream())
-            if docs:
-                for doc in docs:
-                    row = plain_value(doc.to_dict() or {})
-                    if isinstance(row, dict):
-                        row.setdefault("id", doc.id)
-                        rows.append(row)
-                found_collection_data = True
-                break
-        state[key] = rows
-
-    if found_collection_data:
-        state = normalize_state(state)
-        save_state(state)
-        return state
-
-    state = load_seed_state()
-    save_state(state)
-    return state
-
-
-def safe_doc_id(value, fallback):
-    text = str(value or fallback).strip() or str(fallback)
-    text = text.replace("/", "_").replace("\\", "_")
-    return text[:140]
-
-
-def item_doc_id(key, item, index):
-    if isinstance(item, dict):
-        if item.get("id"):
-            return safe_doc_id(item["id"], f"{key}-{index}")
-        if key == "bookings":
-            raw = "-".join(
-                str(item.get(part, ""))
-                for part in ["room_id", "platform", "checkin", "checkout", "guest"]
-            )
-            return safe_doc_id(raw, f"booking-{index}")
-        if item.get("date"):
-            raw = "-".join(
-                str(item.get(part, ""))
-                for part in ["date", "target_id", "target_type", "type"]
-            )
-            return safe_doc_id(raw, f"{key}-{index}")
-    return safe_doc_id("", f"{key}-{index}")
+    return load_seed_state()
 
 
 def save_state(state):
     state = normalize_state(state)
-    doc_payload = {**state, "updated_at": firestore.SERVER_TIMESTAMP}
-    state_doc_ref().set(doc_payload)
-
-    db = get_db()
-    for key, aliases in COLLECTION_ALIASES.items():
-        collection = db.collection(aliases[0])
-        for index, item in enumerate(state.get(key, []), start=1):
-            if isinstance(item, dict):
-                doc_id = item_doc_id(key, item, index)
-                collection.document(doc_id).set(item)
+    payload = {**state, "updated_at": firestore.SERVER_TIMESTAMP}
+    state_doc_ref().set(payload, timeout=10)
     return state
 
 
