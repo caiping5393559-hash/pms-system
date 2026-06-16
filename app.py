@@ -260,6 +260,63 @@ if new_sync_function not in source_text:
         raise RuntimeError("iCal sync hook not found")
     source_text = source_text.replace(old_sync_function, new_sync_function, 1)
 
+old_sync_bookings_start = """    state["bookings"] = [
+        booking
+"""
+new_sync_bookings_start = """    sync_time = datetime.now().isoformat(timespec="seconds")
+    state["bookings"] = [
+        booking
+"""
+if new_sync_bookings_start not in source_text:
+    if old_sync_bookings_start not in source_text:
+        raise RuntimeError("iCal sync timestamp hook not found")
+    source_text = source_text.replace(old_sync_bookings_start, new_sync_bookings_start, 1)
+
+old_sync_room_start = """        room_id = room.get("id")
+        for platform, url in [("Airbnb", room.get("airbnb_ical", "")), ("Booking", room.get("booking_ical", "")), ("Vrbo", room.get("vrbo_ical", "")), ("Other", room.get("other_ical", ""))]:
+"""
+new_sync_room_start = """        room_id = room.get("id")
+        room["last_sync"] = sync_time
+        room["sync_error"] = ""
+        room["synced_booking_count"] = 0
+        for platform, url in [("Airbnb", room.get("airbnb_ical", "")), ("Booking", room.get("booking_ical", "")), ("Vrbo", room.get("vrbo_ical", "")), ("Other", room.get("other_ical", ""))]:
+"""
+if new_sync_room_start not in source_text:
+    if old_sync_room_start not in source_text:
+        raise RuntimeError("iCal sync room log hook not found")
+    source_text = source_text.replace(old_sync_room_start, new_sync_room_start, 1)
+
+old_sync_import = """                state["bookings"].extend(parse_ics(fetch_text(url), platform, room_id))
+"""
+new_sync_import = """                imported = parse_ics(fetch_text(url), platform, room_id)
+                room["synced_booking_count"] = int(room.get("synced_booking_count") or 0) + len(imported)
+                state["bookings"].extend(imported)
+"""
+if new_sync_import not in source_text:
+    if old_sync_import not in source_text:
+        raise RuntimeError("iCal sync import count hook not found")
+    source_text = source_text.replace(old_sync_import, new_sync_import, 1)
+
+old_sync_error = """                errors.append({"room_id": room_id, "platform": platform, "error": str(exc)})
+"""
+new_sync_error = """                message = str(exc)
+                room["sync_error"] = (room.get("sync_error") + "；" if room.get("sync_error") else "") + f"{platform}: {message}"
+                errors.append({"room_id": room_id, "platform": platform, "error": message})
+"""
+if new_sync_error not in source_text:
+    if old_sync_error not in source_text:
+        raise RuntimeError("iCal sync error log hook not found")
+    source_text = source_text.replace(old_sync_error, new_sync_error, 1)
+
+old_sync_last_sync = """    state["last_sync"] = datetime.now().isoformat(timespec="seconds")
+"""
+new_sync_last_sync = """    state["last_sync"] = sync_time
+"""
+if new_sync_last_sync not in source_text:
+    if old_sync_last_sync not in source_text:
+        raise RuntimeError("iCal sync last_sync hook not found")
+    source_text = source_text.replace(old_sync_last_sync, new_sync_last_sync, 1)
+
 old_sync_route = """            if path == "/api/sync":
                 user = require_user(self, ("admin", "owner"))
                 if not user:
