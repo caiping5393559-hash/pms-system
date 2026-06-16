@@ -358,6 +358,33 @@ if new_common_save not in source_text:
         raise RuntimeError("common area save scope hook not found")
     source_text = source_text.replace(old_common_save, new_common_save, 1)
 
+old_save_scope_ids = """        property_ids = actor_property_ids(actor, current)
+        room_ids = actor_room_ids(actor, current)
+"""
+new_save_scope_ids = """        property_ids = actor_property_ids(actor, current)
+        room_ids = actor_room_ids(actor, current)
+        common_area_ids = {
+            area.get("id")
+            for area in current.get("commonAreas", [])
+            if isinstance(area, dict)
+            and (area.get("property_id") or first_actor_property_id(actor, current)) in property_ids
+        }
+"""
+if new_save_scope_ids not in source_text:
+    if old_save_scope_ids not in source_text:
+        raise RuntimeError("save scoped common area ids hook not found")
+    source_text = source_text.replace(old_save_scope_ids, new_save_scope_ids, 1)
+
+old_manual_note_scope = """                lambda item: item.get("target_type") != "room" or item.get("target_id") not in room_ids,
+"""
+new_manual_note_scope = """                lambda item: (
+                    (item.get("target_type") == "common" and item.get("target_id") not in common_area_ids)
+                    or (item.get("target_type") != "common" and item.get("target_id") not in room_ids)
+                ),
+"""
+if old_manual_note_scope in source_text:
+    source_text = source_text.replace(old_manual_note_scope, new_manual_note_scope, 2)
+
 owner_register_backend = r'''
 def normalized_property_name(value):
     return re.sub(r"\s+", "", str(value or "").strip()).lower()
