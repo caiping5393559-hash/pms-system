@@ -22,6 +22,12 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
+if "import threading\nimport time\n" not in source_text:
+    source_text = source_text.replace(
+        "import urllib.error\n",
+        "import urllib.error\nimport threading\nimport time\n",
+        1,
+    )
 ui_patch = (BASE / "pms_ui_patch.js").read_text(encoding="utf-8")
 ui_patch += r'''
 (function(){
@@ -809,5 +815,42 @@ if handler_marker in source_text:
         "class Handler(BaseHTTPRequestHandler):\n    def do_HEAD(self):\n        if urllib.parse.urlparse(self.path).path in ('/', '/login', '/owner-register', '/cleaner-register', '/health', '/api/health'):\n            self.send_response(200)\n            self.end_headers()\n            return\n        self.send_response(404)\n        self.end_headers()\n\n    def do_OPTIONS",
         1,
     )
+
+auto_sync_marker = '''if __name__ == "__main__":
+    print(f"PMS Firebase REST backend started on port {PORT}")
+    HTTPServer((HOST, PORT), Handler).serve_forever()
+'''
+auto_sync_block = '''_pms_ical_sync_lock = threading.Lock()
+
+def _pms_run_scheduled_ical_sync():
+    if not _pms_ical_sync_lock.acquire(blocking=False):
+        return
+    try:
+        sync_icals()
+    except Exception:
+        traceback.print_exc()
+    finally:
+        _pms_ical_sync_lock.release()
+
+def _pms_start_ical_auto_sync():
+    interval = int(os.environ.get("PMS_ICAL_SYNC_INTERVAL_SECONDS", "3600"))
+    if interval <= 0:
+        return
+    def worker():
+        time.sleep(min(60, interval))
+        while True:
+            _pms_run_scheduled_ical_sync()
+            time.sleep(interval)
+    threading.Thread(target=worker, daemon=True, name="pms-ical-auto-sync").start()
+
+if __name__ == "__main__":
+    _pms_start_ical_auto_sync()
+    print(f"PMS Firebase REST backend started on port {PORT}")
+    HTTPServer((HOST, PORT), Handler).serve_forever()
+'''
+if "_pms_start_ical_auto_sync" not in source_text:
+    if auto_sync_marker not in source_text:
+        raise RuntimeError("auto iCal sync startup hook not found")
+    source_text = source_text.replace(auto_sync_marker, auto_sync_block, 1)
 
 exec(compile(source_text, __file__, "exec"))
