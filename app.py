@@ -29,6 +29,10 @@ ui_patch += r'''
   function pmsPropertyNameKey(value){
     return String(value || '').trim().replace(/\s+/g, '').toLowerCase();
   }
+  function pmsDisplayPropertyName(value, id){
+    const raw = String(value || id || '').trim();
+    return raw ? `房源：${raw}` : '未分配房源';
+  }
   function pmsPropertyNameDuplicate(propertyId, name){
     const prop = properties.find(item => item.id === propertyId);
     const groupId = (prop && prop.group_id) || currentGroupId();
@@ -174,7 +178,7 @@ ui_patch += r'''
         <label>房源名字</label>
         <div class="property-name-edit"><input id="${propertyNameInputId(prop.id)}" value="${esc(prop.name || '')}" placeholder="例如：洛杉矶市中心 1 号房源"><button class="smallbtn" onclick="savePropertyName('${esc(prop.id)}',this)">保存名字</button><button class="smallbtn" onclick="cancelPropertyNameEdit('${esc(prop.id)}')">取消</button></div>
       ` : `
-        <div class="property-title-line">${esc(prop.name || prop.id)}</div>
+        <div class="property-title-line">${esc(pmsDisplayPropertyName(prop.name, prop.id))}</div>
         <button class="smallbtn" onclick="editPropertyName('${esc(prop.id)}')">修改名字</button>
       `;
       return `<div class="property-card-row">
