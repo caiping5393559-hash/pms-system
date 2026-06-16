@@ -237,6 +237,121 @@ if new_get_start not in source_text:
         raise RuntimeError("GET route hook not found")
     source_text = source_text.replace(old_get_start, new_get_start, 1)
 
+locked_ical_parser = r'''
+def ical_clean_text(value):
+    return (
+        str(value or "")
+        .replace("\\n", " ")
+        .replace("\\N", " ")
+        .replace("\\,", ",")
+        .replace("\\;", ";")
+        .strip()
+    )
+
+
+def ical_lock_reason(summary="", description="", status=""):
+    text = " ".join([ical_clean_text(summary), ical_clean_text(description), ical_clean_text(status)]).lower()
+    if not text:
+        return ""
+    if ("reserved" in text or "reservation" in text) and not any(word in text for word in ["not available", "unavailable", "blocked", "closed"]):
+        return ""
+    patterns = [
+        "not available",
+        "unavailable",
+        "blocked",
+        "calendar blocked",
+        "closed",
+        "not open",
+        "不开放",
+        "锁定",
+        "关闭",
+        "不可订",
+        "不可预订",
+        "已阻止",
+    ]
+    if any(pattern in text for pattern in patterns):
+        return ical_clean_text(summary) or ical_clean_text(description) or "平台关闭日历或关联房源占用"
+    return ""
+
+
+def parse_ics(text, platform, room_id):
+    events, in_event, current = [], False, {}
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    unfolded = []
+    for line in lines:
+        if (line.startswith(" ") or line.startswith("\t")) and unfolded:
+            unfolded[-1] += line[1:]
+        else:
+            unfolded.append(line)
+    for line in unfolded:
+        line = line.strip("\ufeff")
+        if line == "BEGIN:VEVENT":
+            in_event, current = True, {}
+            continue
+        if line == "END:VEVENT":
+            checkin, checkout = current.get("checkin"), current.get("checkout")
+            if in_event and checkin:
+                if not checkout:
+                    checkout = (datetime.strptime(checkin, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+                if checkout > checkin:
+                    summary = ical_clean_text(current.get("summary"))
+                    description = ical_clean_text(current.get("description"))
+                    reason = ical_lock_reason(summary, description, current.get("status"))
+                    if reason:
+                        events.append({
+                            "room_id": room_id,
+                            "platform": platform,
+                            "guest": "",
+                            "checkin": checkin,
+                            "checkout": checkout,
+                            "status": "不开放锁定",
+                            "source": "ical",
+                            "booking_type": "lock",
+                            "is_locked": True,
+                            "lock_reason": reason,
+                            "summary": summary,
+                        })
+                    else:
+                        events.append({
+                            "room_id": room_id,
+                            "platform": platform,
+                            "guest": "",
+                            "checkin": checkin,
+                            "checkout": checkout,
+                            "status": summary or f"{platform} iCal",
+                            "source": "ical",
+                            "booking_type": "booking",
+                            "is_locked": False,
+                            "summary": summary,
+                        })
+            in_event = False
+            continue
+        if not in_event or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.split(";", 1)[0].upper()
+        if key == "DTSTART":
+            current["checkin"] = parse_date_value(value)
+        elif key == "DTEND":
+            current["checkout"] = parse_date_value(value)
+        elif key == "SUMMARY":
+            current["summary"] = value.strip()
+        elif key == "DESCRIPTION":
+            current["description"] = value.strip()
+        elif key == "STATUS":
+            current["status"] = value.strip()
+    return events
+'''
+source_text, locked_ical_count = re.subn(
+    r'def parse_ics\(text, platform, room_id\):.*?\n\n\ndef fetch_text',
+    lambda match: locked_ical_parser + "\n\ndef fetch_text",
+    source_text,
+    count=1,
+    flags=re.S,
+)
+if locked_ical_count != 1:
+    raise RuntimeError("iCal lock parser hook not found")
+
 old_sync_function = """def sync_icals(actor=None):
     state = normalize_state(load_state())
     allowed_room_ids = actor_room_ids(actor, state) if actor else {room.get("id") for room in state.get("rooms", []) if isinstance(room, dict)}
