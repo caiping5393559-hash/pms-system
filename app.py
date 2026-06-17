@@ -28,12 +28,89 @@ if "import threading\nimport time\n" not in source_text:
         "import urllib.error\nimport threading\nimport time\n",
         1,
     )
+
+old_service_account_paths = '''    for path in [Path(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")), BASE / "firebase-key.json", BASE / "firebase-adminsdk.json"]:
+        if path and path.exists():
+            SERVICE_ACCOUNT_CACHE = json.loads(path.read_text(encoding="utf-8"))
+            return SERVICE_ACCOUNT_CACHE
+'''
+new_service_account_paths = '''    credential_path = str(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
+    candidates = []
+    if credential_path:
+        candidates.append(Path(credential_path))
+    candidates.extend([BASE / "firebase-key.json", BASE / "firebase-adminsdk.json"])
+    for path in candidates:
+        if path and path.is_file():
+            SERVICE_ACCOUNT_CACHE = json.loads(path.read_text(encoding="utf-8"))
+            return SERVICE_ACCOUNT_CACHE
+'''
+if new_service_account_paths not in source_text:
+    if old_service_account_paths not in source_text:
+        raise RuntimeError("Firebase credential path hook not found")
+    source_text = source_text.replace(old_service_account_paths, new_service_account_paths, 1)
+
+old_state_io = '''def load_state():
+    doc = firestore_request("GET", firestore_doc_url())
+    if not doc:
+        return load_seed_state()
+    fields = doc.get("fields", {})
+    if "state_json" in fields:
+        return normalize_state(json.loads(fields["state_json"].get("stringValue") or "{}"))
+    raw = {key: from_firestore_value(value) for key, value in fields.items()}
+    return normalize_state(raw) if any(key in raw for key in STATE_KEYS) else load_seed_state()
+
+
+def save_state(state):
+    state = normalize_state(state)
+    payload = {"fields": {"state_json": {"stringValue": json.dumps(state, ensure_ascii=False, separators=(",", ":"))}, "updated_at": {"timestampValue": now_utc_iso()}}}
+    firestore_request("PATCH", firestore_doc_url(), payload=payload)
+    return state
+'''
+new_state_io = '''def firebase_credentials_configured():
+    if os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON") or os.environ.get("FIREBASE_ADMINSDK_JSON") or os.environ.get("FIREBASE_SERVICE_ACCOUNT_BASE64"):
+        return True
+    credential_path = str(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
+    if credential_path and Path(credential_path).is_file():
+        return True
+    return (BASE / "firebase-key.json").is_file() or (BASE / "firebase-adminsdk.json").is_file()
+
+
+def write_local_state(state):
+    STATE_PATH.write_text(json.dumps(normalize_state(state), ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_state():
+    if not firebase_credentials_configured():
+        return load_seed_state()
+    doc = firestore_request("GET", firestore_doc_url())
+    if not doc:
+        return load_seed_state()
+    fields = doc.get("fields", {})
+    if "state_json" in fields:
+        return normalize_state(json.loads(fields["state_json"].get("stringValue") or "{}"))
+    raw = {key: from_firestore_value(value) for key, value in fields.items()}
+    return normalize_state(raw) if any(key in raw for key in STATE_KEYS) else load_seed_state()
+
+
+def save_state(state):
+    state = normalize_state(state)
+    if not firebase_credentials_configured():
+        write_local_state(state)
+        return state
+    payload = {"fields": {"state_json": {"stringValue": json.dumps(state, ensure_ascii=False, separators=(",", ":"))}, "updated_at": {"timestampValue": now_utc_iso()}}}
+    firestore_request("PATCH", firestore_doc_url(), payload=payload)
+    return state
+'''
+if new_state_io not in source_text:
+    if old_state_io not in source_text:
+        raise RuntimeError("state IO fallback hook not found")
+    source_text = source_text.replace(old_state_io, new_state_io, 1)
 ui_patch = (BASE / "pms_ui_patch.js").read_text(encoding="utf-8")
 ui_patch += r'''
 (function(){
   var propertyNameEditors = {};
   function pmsPropertyNameKey(value){
-    return String(value || '').trim().replace(/\s+/g, '').toLowerCase();
+    return String(value || '').trim().replace(/\\s+/g, '').toLowerCase();
   }
   function pmsDisplayPropertyName(value, id){
     const raw = String(value || id || '').trim();

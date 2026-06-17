@@ -288,6 +288,8 @@ async function loadState(){
   roomDateNotes = state.roomDateNotes || [];
   lastSync = state.last_sync || '';
   syncErrors = state.sync_errors || [];
+  if(window.applyServerState) window.applyServerState(state);
+  return state;
 }
 
 async function saveState(){
@@ -296,9 +298,12 @@ async function saveState(){
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({rooms, commonAreas, bookings, manualChanges, cleaningNotes, roomDateNotes, last_sync: lastSync, sync_errors: syncErrors})
   });
+  const data = await res.json().catch(() => ({}));
   if(!res.ok){
-    throw new Error('save state failed');
+    throw new Error(data.error || '保存失败');
   }
+  if(window.applyServerState) window.applyServerState(data.state || data);
+  return data;
 }
 
 async function syncIcal(){
@@ -316,9 +321,11 @@ async function syncIcal(){
     roomDateNotes = state.roomDateNotes || [];
     lastSync = state.last_sync || '';
     syncErrors = state.sync_errors || [];
+    if(window.applyServerState) window.applyServerState(state);
     renderCleaner(); renderOwner(); applyRoleMode();
     const message = syncErrors.length ? `iCal 同步完成，但有 ${syncErrors.length} 个链接失败` : 'iCal 同步完成';
     alert(message);
+    return state;
   }catch(e){
     alert('同步失败：' + e);
   }finally{
