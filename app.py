@@ -256,11 +256,33 @@ admin_ui_patch = r'''
     if(!cleaners.length)return '<tr><td colspan="7">暂无保洁注册账号</td></tr>';
     return cleaners.map(u=>{const code=String(u.cleaner_code||'').toUpperCase(), links=adminCleaners().filter(x=>String(x.cleaner_code||'').toUpperCase()===code), props=links.map(x=>adminProperties().find(p=>p.id===x.property_id)).filter(Boolean);return `<tr><td><strong>${adminEsc(adminUserName(u))}</strong><div class="small">${adminEsc(u.id||'')}</div></td><td>${adminEsc(u.username||'')}</td><td>${adminEsc(code||'未生成')}</td><td>${adminEsc(u.phone||'')}</td><td>${props.length}</td><td>${adminEsc(props.map(p=>adminPropName(p)).join('、')||'未绑定')}</td><td>${adminEsc(u.created_at||'')}</td></tr>`;}).join('');
   }
+  function adminOwnerCleanerRows(){
+    const owners=adminOwners();
+    if(!owners.length)return '<tr><td colspan="6">暂无房东账号</td></tr>';
+    return owners.map(owner=>{
+      const gids=adminUserGroups(owner), ownerProps=adminProperties().filter(p=>gids.includes(p.group_id));
+      const links=ownerProps.flatMap(p=>adminPropCleaners(p.id).map(link=>({property:p,code:String(link.cleaner_code||'').toUpperCase()}))).filter(x=>x.code);
+      const uniqueCodes=[...new Set(links.map(x=>x.code))];
+      const relation=uniqueCodes.length?uniqueCodes.map(code=>{const linkedProps=links.filter(x=>x.code===code).map(x=>adminPropName(x.property)).join('、');return `<div><strong>${adminEsc(adminCleanerLabel(code))}</strong><div class="small">${adminEsc(linkedProps)}</div></div>`;}).join(''):'未绑定保洁';
+      const rooms=ownerProps.reduce((s,p)=>s+adminPropRooms(p.id).length,0), areas=ownerProps.reduce((s,p)=>s+adminPropAreas(p.id).length,0);
+      return `<tr><td><strong>${adminEsc(adminUserName(owner))}</strong><div class="small">${adminEsc(owner.username||owner.id||'')}</div></td><td>${adminEsc(gids.map(adminGroupName).join('、')||'未分组')}</td><td>${ownerProps.length}</td><td>${rooms} / ${areas}</td><td>${uniqueCodes.length}</td><td>${relation}</td></tr>`;
+    }).join('');
+  }
+  function adminCleanerOwnerRows(){
+    const cleaners=adminCleanerUsers();
+    if(!cleaners.length)return '<tr><td colspan="6">暂无保洁账号</td></tr>';
+    return cleaners.map(cleaner=>{
+      const code=String(cleaner.cleaner_code||'').toUpperCase(), links=adminCleaners().filter(x=>String(x.cleaner_code||'').toUpperCase()===code), linkedProps=links.map(x=>adminProperties().find(p=>p.id===x.property_id)).filter(Boolean);
+      const ownerNames=[...new Set(linkedProps.flatMap(p=>adminOwnerForProperty(p).map(adminUserName)))];
+      const propNames=linkedProps.map(adminPropName);
+      return `<tr><td><strong>${adminEsc(adminUserName(cleaner))}</strong><div class="small">${adminEsc(code||cleaner.id||'未生成编号')}</div></td><td>${adminEsc(cleaner.username||'')}</td><td>${ownerNames.length}</td><td>${adminEsc(ownerNames.join('、')||'未绑定房东')}</td><td>${linkedProps.length}</td><td>${adminEsc(propNames.join('、')||'未绑定房源')}</td></tr>`;
+    }).join('');
+  }
   function renderAdminDashboard(){
     const el=document.getElementById('owner');if(!el)return;
     const owners=adminOwners(), cleaners=adminCleanerUsers(), ps=adminProperties(), rs=adminRooms(), areas=adminAreas();
     const boundCleaners=new Set(adminCleaners().map(x=>String(x.cleaner_code||'').toUpperCase()).filter(Boolean));
-    el.innerHTML=`<div class="admin-shell admin-dashboard"><div class="admin-panel"><h2>注册用户管理后台</h2><div class="small">管理员只看全局注册用户、房东分组、房源房间配置、保洁账号和绑定关系；不显示房东/保洁业务操作页。</div></div><div class="admin-metric-grid"><div class="admin-metric"><div class="small">房东注册用户</div><div class="num">${owners.length}</div></div><div class="admin-metric"><div class="small">保洁注册用户</div><div class="num">${cleaners.length}</div></div><div class="admin-metric"><div class="small">房源</div><div class="num">${ps.length}</div></div><div class="admin-metric"><div class="small">房间</div><div class="num">${rs.length}</div></div><div class="admin-metric"><div class="small">公区/特殊房间</div><div class="num">${areas.length}</div></div><div class="admin-metric"><div class="small">已绑定保洁编号</div><div class="num">${boundCleaners.size}</div></div></div><div class="admin-panel"><h2>房东注册用户列表</h2><table class="admin-table"><tr><th>用户</th><th>登录账号</th><th>房东组</th><th>房源</th><th>房间</th><th>公区</th><th>绑定保洁</th><th>注册时间</th></tr>${adminOwnerRows()}</table></div><div class="admin-panel"><h2>保洁注册列表</h2><table class="admin-table"><tr><th>保洁</th><th>登录账号</th><th>保洁编号</th><th>电话</th><th>绑定房源数</th><th>绑定房源</th><th>注册时间</th></tr>${adminCleanerRows()}</table></div><div class="admin-panel"><h2>房源 / 房间配置明细</h2><div class="admin-property-list">${ps.map(adminPropertySummary).join('')||'<p class="small">暂无房源</p>'}</div></div></div>`;
+    el.innerHTML=`<div class="admin-shell admin-dashboard"><div class="admin-panel"><h2>注册用户管理后台</h2><div class="small">管理员只看全局注册用户、房东分组、房源房间配置、保洁账号和绑定关系；不显示房东/保洁业务操作页。</div></div><div class="admin-metric-grid"><div class="admin-metric"><div class="small">房东注册用户</div><div class="num">${owners.length}</div></div><div class="admin-metric"><div class="small">保洁注册用户</div><div class="num">${cleaners.length}</div></div><div class="admin-metric"><div class="small">房源</div><div class="num">${ps.length}</div></div><div class="admin-metric"><div class="small">房间</div><div class="num">${rs.length}</div></div><div class="admin-metric"><div class="small">公区/特殊房间</div><div class="num">${areas.length}</div></div><div class="admin-metric"><div class="small">房源保洁绑定</div><div class="num">${adminCleaners().length}</div></div></div><div class="admin-panel"><h2>房东 / 保洁绑定关系</h2><div class="small">房东和保洁不是直接一对一绑定，而是通过“房源绑定保洁编号”形成关系；这里按房东汇总。</div><table class="admin-table"><tr><th>房东</th><th>房东组</th><th>房源数</th><th>房间/公区</th><th>保洁数</th><th>绑定保洁与覆盖房源</th></tr>${adminOwnerCleanerRows()}</table></div><div class="admin-panel"><h2>保洁 / 房东覆盖关系</h2><div class="small">同一个保洁可以服务多个房东，多个房源；这里按保洁汇总。</div><table class="admin-table"><tr><th>保洁</th><th>登录账号</th><th>房东数</th><th>服务房东</th><th>房源数</th><th>服务房源</th></tr>${adminCleanerOwnerRows()}</table></div><div class="admin-panel"><h2>房东注册用户列表</h2><table class="admin-table"><tr><th>用户</th><th>登录账号</th><th>房东组</th><th>房源</th><th>房间</th><th>公区</th><th>绑定保洁</th><th>注册时间</th></tr>${adminOwnerRows()}</table></div><div class="admin-panel"><h2>保洁注册列表</h2><table class="admin-table"><tr><th>保洁</th><th>登录账号</th><th>保洁编号</th><th>电话</th><th>绑定房源数</th><th>绑定房源</th><th>注册时间</th></tr>${adminCleanerRows()}</table></div><div class="admin-panel"><h2>房源 / 房间配置明细</h2><div class="admin-property-list">${ps.map(adminPropertySummary).join('')||'<p class="small">暂无房源</p>'}</div></div></div>`;
   }
   function applyAdminMode(){
     const user=adminCurrent();
