@@ -212,6 +212,100 @@ ui_patch += r'''
   document.head.appendChild(style);
 })();
 '''
+admin_ui_patch = r'''
+(function(){
+  function adminEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
+  function adminList(name){try{const value=eval(name);return Array.isArray(value)?value:[];}catch(e){return Array.isArray(window[name])?window[name]:[];}}
+  function adminCurrent(){try{return currentUser||window.currentUser||null;}catch(e){return window.currentUser||null;}}
+  function adminGroups(){return adminList('groups');}
+  function adminUsers(){return adminList('users');}
+  function adminProperties(){return adminList('properties');}
+  function adminRooms(){return adminList('rooms');}
+  function adminAreas(){return adminList('commonAreas');}
+  function adminCleaners(){return adminList('propertyCleaners');}
+  function adminUserName(user){return user?(user.name||user.username||user.cleaner_code||user.id||'未命名用户'):'未分配';}
+  function adminGroupName(id){const g=adminGroups().find(x=>x&&x.id===id);return g?(g.name||g.id):id;}
+  function adminUserGroups(user){return (user&&Array.isArray(user.group_ids)?user.group_ids:[]).filter(Boolean);}
+  function adminPropName(prop){return '房源：' + (prop&&(prop.name||prop.id)||'未命名房源');}
+  function adminRoomName(room){return room&&(room.name||room.id)||'未命名房间';}
+  function adminAreaName(area){return area&&(area.name||area.id)||'未命名公区';}
+  function adminPropRooms(propertyId){return adminRooms().filter(r=>(r.property_id||'property_default')===propertyId);}
+  function adminPropAreas(propertyId){return adminAreas().filter(a=>(a.property_id||'property_default')===propertyId);}
+  function adminPropCleaners(propertyId){return adminCleaners().filter(x=>x.property_id===propertyId);}
+  function adminOwners(){return adminUsers().filter(u=>u&&u.role==='owner');}
+  function adminCleanerUsers(){return adminUsers().filter(u=>u&&u.role==='cleaner');}
+  function adminOwnerForProperty(prop){const gid=prop&&prop.group_id;return adminOwners().filter(u=>adminUserGroups(u).includes(gid));}
+  function adminCleanerLabel(code){const normalized=String(code||'').trim().toUpperCase();const user=adminCleanerUsers().find(u=>String(u.cleaner_code||'').trim().toUpperCase()===normalized);return user?`${adminUserName(user)}（${normalized}）`:(normalized||'未知保洁');}
+  function adminPlatformBadges(room){const items=[['Airbnb',room&&room.airbnb_ical],['Booking',room&&room.booking_ical],['Vrbo',room&&room.vrbo_ical],['其他平台',room&&room.other_ical],['公开链接',room&&(room.airbnb_public_url||room.booking_public_url||room.vrbo_public_url||room.other_public_url)]];
+    return items.map(([label,val])=>`<span class="badge ${val?'green':''}">${adminEsc(label)}：${val?'已设置':'未设置'}</span>`).join(' ');
+  }
+  function adminPropertySummary(prop){
+    const owners=adminOwnerForProperty(prop), rooms=adminPropRooms(prop.id), areas=adminPropAreas(prop.id), cleanerLinks=adminPropCleaners(prop.id);
+    const cleanerText=cleanerLinks.length?cleanerLinks.map(x=>adminCleanerLabel(x.cleaner_code)).join('、'):'未绑定';
+    const roomRows=rooms.length?rooms.map(r=>`<tr><td>${adminEsc(adminRoomName(r))}</td><td>$${Number(r.cleaning_fee||0)}</td><td>${adminPlatformBadges(r)}</td></tr>`).join(''):`<tr><td colspan="3">暂无房间</td></tr>`;
+    const areaRows=areas.length?areas.map(a=>`<span class="badge orange">${adminEsc(adminAreaName(a))} $${Number(a.cleaning_fee||0)}</span>`).join(' '):'未设置公区';
+    return `<div class="admin-panel admin-property-card"><div class="property-detail-head"><div><h3>${adminEsc(adminPropName(prop))}</h3><div class="small">房东：${adminEsc(owners.map(adminUserName).join('、')||'未分配')} ｜ 分组：${adminEsc(adminGroupName(prop.group_id))}</div></div><div class="small">房间 ${rooms.length} ｜ 公区 ${areas.length} ｜ 保洁 ${cleanerLinks.length}</div></div><div class="admin-property-meta"><div><strong>保洁绑定</strong><div>${adminEsc(cleanerText)}</div></div><div><strong>公区/特殊房间</strong><div>${areaRows}</div></div></div><table class="admin-table"><tr><th>房间</th><th>清洁费</th><th>房间设置</th></tr>${roomRows}</table></div>`;
+  }
+  function adminOwnerRows(){
+    const owners=adminOwners();
+    if(!owners.length)return '<tr><td colspan="8">暂无房东注册账号</td></tr>';
+    return owners.map(u=>{const gids=adminUserGroups(u), props=adminProperties().filter(p=>gids.includes(p.group_id)), rooms=props.reduce((s,p)=>s+adminPropRooms(p.id).length,0), areas=props.reduce((s,p)=>s+adminPropAreas(p.id).length,0), cleaners=new Set(props.flatMap(p=>adminPropCleaners(p.id).map(x=>String(x.cleaner_code||'').toUpperCase()).filter(Boolean)));return `<tr><td><strong>${adminEsc(adminUserName(u))}</strong><div class="small">${adminEsc(u.id||'')}</div></td><td>${adminEsc(u.username||'未设置')}</td><td>${adminEsc(gids.map(adminGroupName).join('、')||'未分组')}</td><td>${props.length}</td><td>${rooms}</td><td>${areas}</td><td>${cleaners.size}</td><td>${adminEsc(u.created_at||'')}</td></tr>`;}).join('');
+  }
+  function adminCleanerRows(){
+    const cleaners=adminCleanerUsers();
+    if(!cleaners.length)return '<tr><td colspan="7">暂无保洁注册账号</td></tr>';
+    return cleaners.map(u=>{const code=String(u.cleaner_code||'').toUpperCase(), links=adminCleaners().filter(x=>String(x.cleaner_code||'').toUpperCase()===code), props=links.map(x=>adminProperties().find(p=>p.id===x.property_id)).filter(Boolean);return `<tr><td><strong>${adminEsc(adminUserName(u))}</strong><div class="small">${adminEsc(u.id||'')}</div></td><td>${adminEsc(u.username||'')}</td><td>${adminEsc(code||'未生成')}</td><td>${adminEsc(u.phone||'')}</td><td>${props.length}</td><td>${adminEsc(props.map(p=>adminPropName(p)).join('、')||'未绑定')}</td><td>${adminEsc(u.created_at||'')}</td></tr>`;}).join('');
+  }
+  function renderAdminDashboard(){
+    const el=document.getElementById('owner');if(!el)return;
+    const owners=adminOwners(), cleaners=adminCleanerUsers(), ps=adminProperties(), rs=adminRooms(), areas=adminAreas();
+    const boundCleaners=new Set(adminCleaners().map(x=>String(x.cleaner_code||'').toUpperCase()).filter(Boolean));
+    el.innerHTML=`<div class="admin-shell admin-dashboard"><div class="admin-panel"><h2>注册用户管理后台</h2><div class="small">管理员只看全局注册用户、房东分组、房源房间配置、保洁账号和绑定关系；不显示房东/保洁业务操作页。</div></div><div class="admin-metric-grid"><div class="admin-metric"><div class="small">房东注册用户</div><div class="num">${owners.length}</div></div><div class="admin-metric"><div class="small">保洁注册用户</div><div class="num">${cleaners.length}</div></div><div class="admin-metric"><div class="small">房源</div><div class="num">${ps.length}</div></div><div class="admin-metric"><div class="small">房间</div><div class="num">${rs.length}</div></div><div class="admin-metric"><div class="small">公区/特殊房间</div><div class="num">${areas.length}</div></div><div class="admin-metric"><div class="small">已绑定保洁编号</div><div class="num">${boundCleaners.size}</div></div></div><div class="admin-panel"><h2>房东注册用户列表</h2><table class="admin-table"><tr><th>用户</th><th>登录账号</th><th>房东组</th><th>房源</th><th>房间</th><th>公区</th><th>绑定保洁</th><th>注册时间</th></tr>${adminOwnerRows()}</table></div><div class="admin-panel"><h2>保洁注册列表</h2><table class="admin-table"><tr><th>保洁</th><th>登录账号</th><th>保洁编号</th><th>电话</th><th>绑定房源数</th><th>绑定房源</th><th>注册时间</th></tr>${adminCleanerRows()}</table></div><div class="admin-panel"><h2>房源 / 房间配置明细</h2><div class="admin-property-list">${ps.map(adminPropertySummary).join('')||'<p class="small">暂无房源</p>'}</div></div></div>`;
+  }
+  function applyAdminMode(){
+    const user=adminCurrent();
+    if(!user||user.role!=='admin')return false;
+    const title=document.querySelector('header h1'), subtitle=document.querySelector('header h1 + .small');
+    if(title)title.textContent='PMS 管理员后台';
+    if(subtitle)subtitle.textContent='管理注册用户、房东分组、保洁账号、房源房间配置和绑定关系。';
+    document.title='PMS 管理员后台';
+    const cleaner=document.getElementById('cleaner'), owner=document.getElementById('owner');
+    if(cleaner)cleaner.classList.remove('active');
+    if(owner)owner.classList.add('active');
+    const nav=document.querySelector('.nav');
+    if(nav){
+      nav.style.display='flex';
+      nav.innerHTML='<button class="active" type="button">注册用户管理</button><button id="logoutBtn" type="button">退出登录</button>';
+      const logoutBtn=document.getElementById('logoutBtn');
+      if(logoutBtn)logoutBtn.onclick=typeof logout==='function'?logout:function(){location.href='/login';};
+    }
+    renderAdminDashboard();
+    return true;
+  }
+  function installAdminOverrides(){
+    if(window.applyRoleMode!==adminApplyRoleMode){
+      adminApplyRoleMode.base=window.applyRoleMode;
+      window.applyRoleMode=adminApplyRoleMode;
+    }
+    if(window.renderOwner!==adminRenderOwner){
+      adminRenderOwner.base=window.renderOwner;
+      window.renderOwner=adminRenderOwner;
+    }
+    if(window.renderAccountBar!==adminRenderAccountBar){
+      adminRenderAccountBar.base=window.renderAccountBar;
+      window.renderAccountBar=adminRenderAccountBar;
+    }
+    applyAdminMode();
+  }
+  function adminApplyRoleMode(){if(applyAdminMode())return;if(typeof adminApplyRoleMode.base==='function')adminApplyRoleMode.base();}
+  function adminRenderOwner(){if(applyAdminMode())return;if(typeof adminRenderOwner.base==='function')adminRenderOwner.base();}
+  function adminRenderAccountBar(){if(applyAdminMode())return;if(typeof adminRenderAccountBar.base==='function')adminRenderAccountBar.base();const btn=document.getElementById('logoutBtn');if(btn)btn.textContent='退出登录';}
+  window.renderAdminDashboard=renderAdminDashboard;
+  window.__pmsApplyAdminMode=applyAdminMode;
+  [0,80,250,700,1600,3200].forEach(t=>setTimeout(installAdminOverrides,t));
+})();
+'''
+ui_patch += admin_ui_patch
 old_room_wrapper = """const originalRenderRoomSettings = renderRoomSettings;
 renderRoomSettings = function(){
   originalRenderRoomSettings();
