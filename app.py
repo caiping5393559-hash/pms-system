@@ -1009,10 +1009,164 @@ if handler_marker in source_text:
         1,
     )
 
+email_state_backend = r'''
+if "emailInboxConfig" not in STATE_KEYS:
+    STATE_KEYS.extend(["emailInboxConfig", "ownerEmailSettings", "emailMessages"])
+
+_pms_email_base_default_state = default_state
+def default_state():
+    state = _pms_email_base_default_state()
+    state.setdefault("emailInboxConfig", [])
+    state.setdefault("ownerEmailSettings", [])
+    state.setdefault("emailMessages", [])
+    return state
+
+def _pms_email_clean_text(value, limit=500):
+    text = str(value or "").strip()
+    return text[:limit]
+
+def _pms_email_bool(value):
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+def _pms_email_clean_inbox_config(item):
+    if not isinstance(item, dict):
+        item = {}
+    return {
+        "id": _pms_email_clean_text(item.get("id") or "gmail_primary", 80),
+        "gmail_address": _pms_email_clean_text(item.get("gmail_address"), 200),
+        "forwarding_address": _pms_email_clean_text(item.get("forwarding_address"), 200),
+        "gmail_label": _pms_email_clean_text(item.get("gmail_label") or "PMS-Airbnb", 100),
+        "oauth_status": _pms_email_clean_text(item.get("oauth_status") or "not_connected", 40),
+        "plus_alias_enabled": _pms_email_bool(item.get("plus_alias_enabled", True)),
+        "last_checked": _pms_email_clean_text(item.get("last_checked"), 80),
+        "updated_at": _pms_email_clean_text(item.get("updated_at") or now_utc_iso(), 80),
+    }
+
+def _pms_email_public_inbox_config(item):
+    clean = _pms_email_clean_inbox_config(item)
+    return {
+        "id": clean.get("id"),
+        "gmail_address": clean.get("gmail_address"),
+        "forwarding_address": clean.get("forwarding_address"),
+        "gmail_label": clean.get("gmail_label"),
+        "oauth_status": clean.get("oauth_status"),
+        "plus_alias_enabled": clean.get("plus_alias_enabled"),
+        "last_checked": clean.get("last_checked"),
+    }
+
+def _pms_email_clean_owner_setting(item, owner=None, state=None):
+    if not isinstance(item, dict):
+        item = {}
+    owner_id = _pms_email_clean_text(item.get("owner_id") or ((owner or {}).get("id")), 100)
+    group_ids = user_group_ids(owner) if owner else set()
+    group_id = _pms_email_clean_text(item.get("group_id") or (next(iter(group_ids), "") if group_ids else (state or {}).get("current_group_id") or DEFAULT_GROUP_ID), 100)
+    row_id = _pms_email_clean_text(item.get("id") or ("email_" + (owner_id or group_id or "owner")), 120)
+    return {
+        "id": row_id,
+        "owner_id": owner_id,
+        "group_id": group_id,
+        "airbnb_email": _pms_email_clean_text(item.get("airbnb_email"), 200),
+        "forwarding_address": _pms_email_clean_text(item.get("forwarding_address"), 200),
+        "forwarding_status": _pms_email_clean_text(item.get("forwarding_status") or "not_set", 60),
+        "notes": _pms_email_clean_text(item.get("notes"), 500),
+        "updated_at": _pms_email_clean_text(item.get("updated_at") or now_utc_iso(), 80),
+    }
+
+def _pms_email_clean_message(item):
+    if not isinstance(item, dict):
+        item = {}
+    return {
+        "id": _pms_email_clean_text(item.get("id") or f"mail_{secrets.token_hex(6)}", 120),
+        "owner_id": _pms_email_clean_text(item.get("owner_id"), 100),
+        "group_id": _pms_email_clean_text(item.get("group_id") or DEFAULT_GROUP_ID, 100),
+        "received_at": _pms_email_clean_text(item.get("received_at") or now_utc_iso(), 80),
+        "from": _pms_email_clean_text(item.get("from"), 250),
+        "to": _pms_email_clean_text(item.get("to"), 250),
+        "subject": _pms_email_clean_text(item.get("subject"), 300),
+        "category": _pms_email_clean_text(item.get("category") or "普通通知", 80),
+        "priority": _pms_email_clean_text(item.get("priority") or "普通", 40),
+        "summary": _pms_email_clean_text(item.get("summary"), 1000),
+        "action_required": _pms_email_bool(item.get("action_required")),
+        "processed": _pms_email_bool(item.get("processed")),
+    }
+
+_pms_email_base_normalize_state = normalize_state
+def normalize_state(raw):
+    state = _pms_email_base_normalize_state(raw)
+    state["emailInboxConfig"] = [_pms_email_clean_inbox_config(item) for item in state.get("emailInboxConfig", []) if isinstance(item, dict)]
+    state["ownerEmailSettings"] = [_pms_email_clean_owner_setting(item, state=state) for item in state.get("ownerEmailSettings", []) if isinstance(item, dict)]
+    state["emailMessages"] = [_pms_email_clean_message(item) for item in state.get("emailMessages", []) if isinstance(item, dict)]
+    return state
+
+_pms_email_base_filter_state_for_user = filter_state_for_user
+def filter_state_for_user(state, user):
+    full = normalize_state(state)
+    visible = _pms_email_base_filter_state_for_user(full, user)
+    role = (user or {}).get("role")
+    if role == "admin":
+        visible["emailInboxConfig"] = full.get("emailInboxConfig", [])
+        visible["ownerEmailSettings"] = full.get("ownerEmailSettings", [])
+        visible["emailMessages"] = full.get("emailMessages", [])
+        return visible
+    if role == "owner":
+        owner_id = (user or {}).get("id")
+        group_ids = user_group_ids(user)
+        visible["emailInboxConfig"] = [_pms_email_public_inbox_config(item) for item in full.get("emailInboxConfig", [])]
+        visible["ownerEmailSettings"] = [
+            item for item in full.get("ownerEmailSettings", [])
+            if item.get("owner_id") == owner_id or item.get("group_id") in group_ids
+        ]
+        visible["emailMessages"] = [
+            item for item in full.get("emailMessages", [])
+            if item.get("owner_id") == owner_id or item.get("group_id") in group_ids
+        ]
+        return visible
+    visible["emailInboxConfig"] = []
+    visible["ownerEmailSettings"] = []
+    visible["emailMessages"] = []
+    return visible
+
+_pms_email_base_save_state_from_payload = save_state_from_payload
+def save_state_from_payload(payload, actor=None):
+    if not isinstance(payload, dict):
+        raise RuntimeError("state payload must be an object")
+    working = dict(payload)
+    if actor and actor.get("role") != "admin":
+        owner_settings = working.pop("ownerEmailSettings", None)
+        working.pop("emailInboxConfig", None)
+        working.pop("emailMessages", None)
+        saved = _pms_email_base_save_state_from_payload(working, actor) if working else normalize_state(load_state())
+        if owner_settings is None:
+            return saved
+        current = normalize_state(load_state())
+        owner_id = actor.get("id")
+        group_ids = user_group_ids(actor)
+        incoming = [_pms_email_clean_owner_setting(item, owner=actor, state=current) for item in owner_settings if isinstance(item, dict)]
+        current["ownerEmailSettings"] = [
+            item for item in current.get("ownerEmailSettings", [])
+            if not (item.get("owner_id") == owner_id or item.get("group_id") in group_ids)
+        ] + incoming
+        return save_state(current)
+    if "emailInboxConfig" in working:
+        working["emailInboxConfig"] = [_pms_email_clean_inbox_config(item) for item in working.get("emailInboxConfig", []) if isinstance(item, dict)]
+    if "ownerEmailSettings" in working:
+        current = normalize_state(load_state())
+        working["ownerEmailSettings"] = [_pms_email_clean_owner_setting(item, state=current) for item in working.get("ownerEmailSettings", []) if isinstance(item, dict)]
+    if "emailMessages" in working:
+        working["emailMessages"] = [_pms_email_clean_message(item) for item in working.get("emailMessages", []) if isinstance(item, dict)]
+    return _pms_email_base_save_state_from_payload(working, actor)
+'''
 auto_sync_marker = '''if __name__ == "__main__":
     print(f"PMS Firebase REST backend started on port {PORT}")
     HTTPServer((HOST, PORT), Handler).serve_forever()
 '''
+if "_pms_email_base_default_state" not in source_text:
+    if auto_sync_marker in source_text:
+        source_text = source_text.replace(auto_sync_marker, email_state_backend + "\n" + auto_sync_marker, 1)
+    else:
+        source_text += "\n" + email_state_backend + "\n"
 auto_sync_block = '''_pms_ical_sync_lock = threading.Lock()
 
 def _pms_run_scheduled_ical_sync():
