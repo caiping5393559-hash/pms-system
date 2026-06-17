@@ -1162,11 +1162,622 @@ auto_sync_marker = '''if __name__ == "__main__":
     print(f"PMS Firebase REST backend started on port {PORT}")
     HTTPServer((HOST, PORT), Handler).serve_forever()
 '''
-if "_pms_email_base_default_state" not in source_text:
+if False and "_pms_email_base_default_state" not in source_text:
     if auto_sync_marker in source_text:
         source_text = source_text.replace(auto_sync_marker, email_state_backend + "\n" + auto_sync_marker, 1)
     else:
         source_text += "\n" + email_state_backend + "\n"
+email_property_scope_backend = r'''
+_pms_email_property_scope_v2 = True
+
+if "emailInboxConfig" not in STATE_KEYS:
+    STATE_KEYS.extend(["emailInboxConfig", "ownerEmailSettings", "emailMessages"])
+
+_pms_email_property_prev_default_state = default_state
+def default_state():
+    state = _pms_email_property_prev_default_state()
+    state.setdefault("emailInboxConfig", [])
+    state.setdefault("ownerEmailSettings", [])
+    state.setdefault("emailMessages", [])
+    return state
+
+def _pms_email_clean_text(value, limit=500):
+    text = str(value or "").strip()
+    return text[:limit]
+
+def _pms_email_bool(value):
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+def _pms_email_clean_inbox_config(item):
+    if not isinstance(item, dict):
+        item = {}
+    return {
+        "id": _pms_email_clean_text(item.get("id") or "gmail_primary", 80),
+        "gmail_address": _pms_email_clean_text(item.get("gmail_address"), 200),
+        "forwarding_address": _pms_email_clean_text(item.get("forwarding_address"), 200),
+        "gmail_label": _pms_email_clean_text(item.get("gmail_label") or "PMS-Airbnb", 100),
+        "oauth_status": _pms_email_clean_text(item.get("oauth_status") or "not_connected", 40),
+        "plus_alias_enabled": _pms_email_bool(item.get("plus_alias_enabled", True)),
+        "last_checked": _pms_email_clean_text(item.get("last_checked"), 80),
+        "updated_at": _pms_email_clean_text(item.get("updated_at") or now_utc_iso(), 80),
+    }
+
+def _pms_email_public_inbox_config(item):
+    clean = _pms_email_clean_inbox_config(item)
+    return {
+        "id": clean.get("id"),
+        "gmail_address": clean.get("gmail_address"),
+        "forwarding_address": clean.get("forwarding_address"),
+        "gmail_label": clean.get("gmail_label"),
+        "oauth_status": clean.get("oauth_status"),
+        "plus_alias_enabled": clean.get("plus_alias_enabled"),
+        "last_checked": clean.get("last_checked"),
+    }
+
+def _pms_email_group_ids_for_owner(owner):
+    ids = []
+    if owner and isinstance(owner.get("group_ids"), list):
+        ids.extend(owner.get("group_ids"))
+    if owner and owner.get("group_id"):
+        ids.append(owner.get("group_id"))
+    try:
+        ids.extend(user_group_ids(owner))
+    except Exception:
+        pass
+    return {str(item) for item in ids if item}
+
+def _pms_email_properties_by_id(state):
+    return {
+        str(prop.get("id")): prop
+        for prop in (state or {}).get("properties", [])
+        if isinstance(prop, dict) and prop.get("id")
+    }
+
+def _pms_email_owner_property_ids(owner, state):
+    try:
+        return {str(item) for item in actor_property_ids(owner, state) if item}
+    except Exception:
+        group_ids = _pms_email_group_ids_for_owner(owner)
+        return {
+            str(prop.get("id"))
+            for prop in (state or {}).get("properties", [])
+            if isinstance(prop, dict) and str(prop.get("group_id") or DEFAULT_GROUP_ID) in group_ids
+        }
+
+def _pms_email_first_owner_id_for_group(group_id, state):
+    group_id = str(group_id or "")
+    for user in (state or {}).get("users", []):
+        if not isinstance(user, dict) or user.get("role") != "owner":
+            continue
+        if group_id in _pms_email_group_ids_for_owner(user):
+            return _pms_email_clean_text(user.get("id"), 100)
+    return ""
+
+def _pms_email_find_legacy_property(item, owner=None, state=None):
+    state = state or {}
+    properties = list(_pms_email_properties_by_id(state).values())
+    property_id = _pms_email_clean_text((item or {}).get("property_id"), 100)
+    if property_id:
+        prop = _pms_email_properties_by_id(state).get(property_id)
+        if prop:
+            return prop
+    group_ids = set()
+    if item and item.get("group_id"):
+        group_ids.add(str(item.get("group_id")))
+    owner_id = _pms_email_clean_text((item or {}).get("owner_id") or ((owner or {}).get("id")), 100)
+    if owner:
+        group_ids.update(_pms_email_group_ids_for_owner(owner))
+    elif owner_id:
+        for user in state.get("users", []):
+            if isinstance(user, dict) and user.get("id") == owner_id:
+                group_ids.update(_pms_email_group_ids_for_owner(user))
+                break
+    for prop in properties:
+        if str(prop.get("group_id") or DEFAULT_GROUP_ID) in group_ids:
+            return prop
+    return properties[0] if properties else None
+
+def _pms_email_clean_owner_setting(item, owner=None, state=None):
+    if not isinstance(item, dict):
+        item = {}
+    state = state or {}
+    prop = _pms_email_find_legacy_property(item, owner=owner, state=state)
+    property_id = _pms_email_clean_text(item.get("property_id") or ((prop or {}).get("id")), 100)
+    group_id = _pms_email_clean_text(item.get("group_id") or ((prop or {}).get("group_id")) or DEFAULT_GROUP_ID, 100)
+    owner_id = _pms_email_clean_text(item.get("owner_id") or ((owner or {}).get("id")) or _pms_email_first_owner_id_for_group(group_id, state), 100)
+    row_id = "email_property_" + property_id if property_id else _pms_email_clean_text(item.get("id") or ("email_" + (owner_id or group_id or "owner")), 120)
+    return {
+        "id": row_id,
+        "property_id": property_id,
+        "owner_id": owner_id,
+        "group_id": group_id,
+        "airbnb_email": _pms_email_clean_text(item.get("airbnb_email"), 200),
+        "forwarding_address": _pms_email_clean_text(item.get("forwarding_address"), 200),
+        "forwarding_status": _pms_email_clean_text(item.get("forwarding_status") or "not_set", 60),
+        "notes": _pms_email_clean_text(item.get("notes"), 500),
+        "updated_at": _pms_email_clean_text(item.get("updated_at") or now_utc_iso(), 80),
+    }
+
+def _pms_email_clean_message(item, state=None):
+    if not isinstance(item, dict):
+        item = {}
+    state = state or {}
+    prop = _pms_email_find_legacy_property(item, state=state)
+    property_id = _pms_email_clean_text(item.get("property_id") or ((prop or {}).get("id")), 100)
+    group_id = _pms_email_clean_text(item.get("group_id") or ((prop or {}).get("group_id")) or DEFAULT_GROUP_ID, 100)
+    return {
+        "id": _pms_email_clean_text(item.get("id") or f"mail_{secrets.token_hex(6)}", 120),
+        "property_id": property_id,
+        "owner_id": _pms_email_clean_text(item.get("owner_id") or _pms_email_first_owner_id_for_group(group_id, state), 100),
+        "group_id": group_id,
+        "received_at": _pms_email_clean_text(item.get("received_at") or now_utc_iso(), 80),
+        "from": _pms_email_clean_text(item.get("from"), 250),
+        "to": _pms_email_clean_text(item.get("to"), 250),
+        "subject": _pms_email_clean_text(item.get("subject"), 300),
+        "category": _pms_email_clean_text(item.get("category") or "notice", 80),
+        "priority": _pms_email_clean_text(item.get("priority") or "normal", 40),
+        "summary": _pms_email_clean_text(item.get("summary"), 1000),
+        "action_required": _pms_email_bool(item.get("action_required")),
+        "processed": _pms_email_bool(item.get("processed")),
+    }
+
+_pms_email_property_base_normalize_state = globals().get("_pms_email_base_normalize_state", normalize_state)
+def normalize_state(raw):
+    state = _pms_email_property_base_normalize_state(raw)
+    state["emailInboxConfig"] = [_pms_email_clean_inbox_config(item) for item in state.get("emailInboxConfig", []) if isinstance(item, dict)]
+    dedup_settings = {}
+    for item in state.get("ownerEmailSettings", []):
+        if not isinstance(item, dict):
+            continue
+        clean = _pms_email_clean_owner_setting(item, state=state)
+        key = clean.get("property_id") or clean.get("id")
+        dedup_settings[key] = clean
+    state["ownerEmailSettings"] = list(dedup_settings.values())
+    state["emailMessages"] = [_pms_email_clean_message(item, state=state) for item in state.get("emailMessages", []) if isinstance(item, dict)]
+    return state
+
+_pms_email_property_base_filter_state_for_user = globals().get("_pms_email_base_filter_state_for_user", filter_state_for_user)
+def filter_state_for_user(state, user):
+    full = normalize_state(state)
+    visible = _pms_email_property_base_filter_state_for_user(full, user)
+    role = (user or {}).get("role")
+    if role == "admin":
+        visible["emailInboxConfig"] = full.get("emailInboxConfig", [])
+        visible["ownerEmailSettings"] = full.get("ownerEmailSettings", [])
+        visible["emailMessages"] = full.get("emailMessages", [])
+        return visible
+    if role == "owner":
+        property_ids = _pms_email_owner_property_ids(user, full)
+        group_ids = _pms_email_group_ids_for_owner(user)
+        owner_id = (user or {}).get("id")
+        visible["emailInboxConfig"] = [_pms_email_public_inbox_config(item) for item in full.get("emailInboxConfig", [])]
+        visible["ownerEmailSettings"] = [
+            item for item in full.get("ownerEmailSettings", [])
+            if item.get("property_id") in property_ids
+        ]
+        visible["emailMessages"] = [
+            item for item in full.get("emailMessages", [])
+            if item.get("property_id") in property_ids
+            or (not item.get("property_id") and (item.get("owner_id") == owner_id or item.get("group_id") in group_ids))
+        ]
+        return visible
+    visible["emailInboxConfig"] = []
+    visible["ownerEmailSettings"] = []
+    visible["emailMessages"] = []
+    return visible
+
+_pms_email_property_base_save_state_from_payload = globals().get("_pms_email_base_save_state_from_payload", save_state_from_payload)
+def save_state_from_payload(payload, actor=None):
+    if not isinstance(payload, dict):
+        raise RuntimeError("state payload must be an object")
+    working = dict(payload)
+    if actor and actor.get("role") != "admin":
+        owner_settings = working.pop("ownerEmailSettings", None)
+        working.pop("emailInboxConfig", None)
+        working.pop("emailMessages", None)
+        saved = _pms_email_property_base_save_state_from_payload(working, actor) if working else normalize_state(load_state())
+        if owner_settings is None:
+            return saved
+        current = normalize_state(load_state())
+        allowed_property_ids = _pms_email_owner_property_ids(actor, current)
+        incoming = []
+        incoming_property_ids = set()
+        for item in owner_settings:
+            if not isinstance(item, dict):
+                continue
+            clean = _pms_email_clean_owner_setting(item, owner=actor, state=current)
+            property_id = clean.get("property_id")
+            if not property_id or property_id not in allowed_property_ids:
+                raise RuntimeError("property permission required")
+            incoming.append(clean)
+            incoming_property_ids.add(property_id)
+        current["ownerEmailSettings"] = [
+            item for item in current.get("ownerEmailSettings", [])
+            if item.get("property_id") not in incoming_property_ids
+        ] + incoming
+        return save_state(current)
+    if "emailInboxConfig" in working:
+        working["emailInboxConfig"] = [_pms_email_clean_inbox_config(item) for item in working.get("emailInboxConfig", []) if isinstance(item, dict)]
+    if "ownerEmailSettings" in working:
+        current = normalize_state(load_state())
+        working["ownerEmailSettings"] = [_pms_email_clean_owner_setting(item, state=current) for item in working.get("ownerEmailSettings", []) if isinstance(item, dict)]
+    if "emailMessages" in working:
+        current = normalize_state(load_state())
+        working["emailMessages"] = [_pms_email_clean_message(item, state=current) for item in working.get("emailMessages", []) if isinstance(item, dict)]
+    return _pms_email_property_base_save_state_from_payload(working, actor)
+'''
+if "_pms_email_property_scope_v2" not in source_text:
+    if auto_sync_marker in source_text:
+        source_text = source_text.replace(auto_sync_marker, email_property_scope_backend + "\n" + auto_sync_marker, 1)
+    else:
+        source_text += "\n" + email_property_scope_backend + "\n"
+channel_listing_backend = r'''
+_pms_channel_listing_model_v1 = True
+
+if "channelListings" not in STATE_KEYS:
+    STATE_KEYS.append("channelListings")
+
+_pms_channel_base_default_state = default_state
+def default_state():
+    state = _pms_channel_base_default_state()
+    state.setdefault("channelListings", [])
+    return state
+
+
+def _pms_channel_safe_id(value):
+    text = str(value or "").strip()
+    safe = "".join(ch if (ch.isalnum() or ch in "-_") else "_" for ch in text)
+    return safe or "channel"
+
+
+def _pms_channel_text(value):
+    return str(value or "").strip()
+
+
+def _pms_channel_bool(value):
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "new", "是"}
+
+
+def _pms_channel_room_ids(state):
+    return {room.get("id") for room in state.get("rooms", []) if isinstance(room, dict) and room.get("id")}
+
+
+def _pms_channel_clean_listing(item, state=None):
+    raw = item if isinstance(item, dict) else {}
+    room_id = _pms_channel_text(raw.get("room_id") or raw.get("roomId"))
+    listing_id = _pms_channel_text(raw.get("id"))
+    if not listing_id:
+        seed = room_id + "_" + _pms_channel_text(raw.get("platform") or "channel") + "_" + _pms_channel_text(raw.get("ical_url") or raw.get("icalUrl") or raw.get("listing_url") or raw.get("listingUrl") or time.time())
+        listing_id = "channel_" + _pms_channel_safe_id(seed)[:80]
+    platform = _pms_channel_text(raw.get("platform") or "Airbnb") or "Airbnb"
+    if platform not in {"Airbnb", "Booking", "Vrbo", "Other"}:
+        platform = "Other"
+    now = datetime.utcnow().isoformat(timespec="seconds")
+    return {
+        "id": listing_id,
+        "room_id": room_id,
+        "platform": platform,
+        "is_new_listing": _pms_channel_bool(raw.get("is_new_listing", raw.get("isNewListing", False))),
+        "listing_url": _pms_channel_text(raw.get("listing_url") or raw.get("listingUrl")),
+        "ical_url": _pms_channel_text(raw.get("ical_url") or raw.get("icalUrl")),
+        "last_sync": _pms_channel_text(raw.get("last_sync") or raw.get("lastSync")),
+        "sync_error": _pms_channel_text(raw.get("sync_error") or raw.get("syncError")),
+        "synced_booking_count": int(raw.get("synced_booking_count") or raw.get("syncedBookingCount") or 0),
+        "created_at": _pms_channel_text(raw.get("created_at") or raw.get("createdAt")) or now,
+        "updated_at": now,
+    }
+
+
+def _pms_channel_migrate_legacy_listings(state):
+    listings = [_pms_channel_clean_listing(item, state) for item in state.get("channelListings", []) if isinstance(item, dict)]
+    by_id = {item.get("id"): item for item in listings}
+    legacy_fields = [
+        ("airbnb_ical", "Airbnb", "airbnb_public_url"),
+        ("booking_ical", "Booking", "booking_public_url"),
+        ("vrbo_ical", "Vrbo", "vrbo_public_url"),
+        ("other_ical", "Other", "public_url"),
+    ]
+    for room in state.get("rooms", []):
+        if not isinstance(room, dict) or not room.get("id"):
+            continue
+        for field, platform, url_field in legacy_fields:
+            ical_url = _pms_channel_text(room.get(field))
+            if not ical_url:
+                continue
+            listing_id = "channel_" + _pms_channel_safe_id(room.get("id")) + "_" + field
+            if listing_id in by_id:
+                if not by_id[listing_id].get("ical_url"):
+                    by_id[listing_id]["ical_url"] = ical_url
+                continue
+            item = _pms_channel_clean_listing({
+                "id": listing_id,
+                "room_id": room.get("id"),
+                "platform": platform,
+                "is_new_listing": False,
+                "listing_url": room.get(url_field) or "",
+                "ical_url": ical_url,
+            }, state)
+            listings.append(item)
+            by_id[listing_id] = item
+    state["channelListings"] = listings
+    return state
+
+
+_pms_channel_base_normalize_state = normalize_state
+def normalize_state(raw):
+    state = _pms_channel_base_normalize_state(raw)
+    state.setdefault("channelListings", [])
+    return _pms_channel_migrate_legacy_listings(state)
+
+
+def _pms_channel_unfold_ics(text):
+    raw_lines = str(text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    lines = []
+    for line in raw_lines:
+        if line.startswith(" ") or line.startswith("\t"):
+            if lines:
+                lines[-1] += line[1:]
+        else:
+            lines.append(line)
+    return lines
+
+
+def _pms_channel_field(event_lines, name):
+    target = str(name or "").upper()
+    for line in event_lines:
+        head, sep, tail = line.partition(":")
+        if not sep:
+            continue
+        if head.split(";", 1)[0].upper() == target:
+            return tail.strip()
+    return ""
+
+
+def _pms_channel_parse_ics(text, listing):
+    events = []
+    current = []
+    inside = False
+    for line in _pms_channel_unfold_ics(text):
+        token = line.strip().upper()
+        if token == "BEGIN:VEVENT":
+            inside = True
+            current = []
+            continue
+        if token == "END:VEVENT" and inside:
+            events.append(current)
+            current = []
+            inside = False
+            continue
+        if inside:
+            current.append(line)
+    rows = []
+    listing_id = listing.get("id")
+    room_id = listing.get("room_id")
+    platform = listing.get("platform") or "iCal"
+    for event in events:
+        checkin = parse_date_value(_pms_channel_field(event, "DTSTART"))
+        checkout = parse_date_value(_pms_channel_field(event, "DTEND"))
+        if not checkin or not checkout or checkout <= checkin:
+            continue
+        summary = ical_clean_text(_pms_channel_field(event, "SUMMARY"))
+        description = ical_clean_text(_pms_channel_field(event, "DESCRIPTION"))
+        status = ical_clean_text(_pms_channel_field(event, "STATUS"))
+        uid = _pms_channel_text(_pms_channel_field(event, "UID"))
+        if not uid:
+            uid = hashlib.sha1(("|".join([listing_id or "", checkin, checkout, summary, description])).encode("utf-8")).hexdigest()
+        lock_reason = ical_lock_reason(summary, description, status)
+        stable_id = hashlib.sha1((str(listing_id) + "|" + uid).encode("utf-8")).hexdigest()[:24]
+        rows.append({
+            "id": "ical_" + stable_id,
+            "room_id": room_id,
+            "channel_listing_id": listing_id,
+            "external_event_uid": uid,
+            "platform": platform,
+            "guest": "",
+            "checkin": checkin,
+            "checkout": checkout,
+            "status": "不开放锁定" if lock_reason else (summary or "iCal导入"),
+            "source": "ical",
+            "booking_type": "lock" if lock_reason else "booking",
+            "is_locked": bool(lock_reason),
+            "lock_reason": lock_reason or "",
+            "summary": summary,
+        })
+    return rows
+
+
+_pms_channel_base_filter_state_for_user = filter_state_for_user
+def filter_state_for_user(state, actor):
+    filtered = _pms_channel_base_filter_state_for_user(state, actor)
+    normalized = normalize_state(state)
+    if not actor or actor.get("role") == "admin":
+        filtered["channelListings"] = normalized.get("channelListings", [])
+        return filtered
+    room_ids = {room.get("id") for room in filtered.get("rooms", []) if isinstance(room, dict)}
+    filtered["channelListings"] = [
+        item for item in normalized.get("channelListings", [])
+        if item.get("room_id") in room_ids
+    ]
+    return filtered
+
+
+_pms_channel_base_save_state_from_payload = save_state_from_payload
+def save_state_from_payload(payload, actor=None):
+    working = dict(payload or {})
+    incoming_channels = working.pop("channelListings", None)
+    if incoming_channels is None:
+        return _pms_channel_base_save_state_from_payload(working, actor)
+    if not actor or actor.get("role") == "admin":
+        current = normalize_state(load_state())
+        room_ids = _pms_channel_room_ids(current)
+        working["channelListings"] = [
+            _pms_channel_clean_listing(item, current)
+            for item in incoming_channels
+            if isinstance(item, dict) and _pms_channel_text(item.get("room_id") or item.get("roomId")) in room_ids
+        ]
+        return _pms_channel_base_save_state_from_payload(working, actor)
+
+    saved = _pms_channel_base_save_state_from_payload(working, actor) if working else normalize_state(load_state())
+    current = normalize_state(load_state())
+    allowed_property_ids = actor_property_ids(actor, current)
+    allowed_room_ids = {
+        room.get("id") for room in current.get("rooms", [])
+        if isinstance(room, dict) and room.get("property_id") in allowed_property_ids
+    }
+    by_id = {item.get("id"): item for item in current.get("channelListings", []) if isinstance(item, dict)}
+    delete_ids = set()
+    incoming = []
+    incoming_ids = set()
+    for raw in incoming_channels:
+        if not isinstance(raw, dict):
+            continue
+        item_id = _pms_channel_text(raw.get("id"))
+        if raw.get("_delete"):
+            existing = by_id.get(item_id)
+            if existing and existing.get("room_id") in allowed_room_ids:
+                delete_ids.add(item_id)
+            continue
+        clean = _pms_channel_clean_listing(raw, current)
+        if clean.get("room_id") not in allowed_room_ids:
+            raise RuntimeError("room permission required")
+        existing = by_id.get(clean.get("id"))
+        if existing:
+            clean["created_at"] = existing.get("created_at") or clean.get("created_at")
+        incoming.append(clean)
+        incoming_ids.add(clean.get("id"))
+    current["channelListings"] = [
+        item for item in current.get("channelListings", [])
+        if item.get("id") not in delete_ids and item.get("id") not in incoming_ids
+    ] + incoming
+    return save_state(current)
+
+
+def _pms_channel_allowed_property_ids(actor, state):
+    if actor:
+        return actor_property_ids(actor, state)
+    return {prop.get("id") for prop in state.get("properties", []) if isinstance(prop, dict) and prop.get("id")}
+
+
+def sync_icals(actor=None, property_id=None):
+    state = normalize_state(load_state())
+    allowed_property_ids = _pms_channel_allowed_property_ids(actor, state)
+    if property_id:
+        if property_id not in allowed_property_ids:
+            raise RuntimeError("property permission required")
+        allowed_property_ids = {property_id}
+    allowed_room_ids = {
+        room.get("id") for room in state.get("rooms", [])
+        if isinstance(room, dict) and room.get("property_id") in allowed_property_ids
+    }
+    listings = [
+        item for item in state.get("channelListings", [])
+        if item.get("room_id") in allowed_room_ids
+    ]
+    listing_ids = {item.get("id") for item in listings if item.get("id")}
+    now = datetime.utcnow().isoformat(timespec="seconds")
+    state["bookings"] = [
+        b for b in state.get("bookings", [])
+        if not (
+            isinstance(b, dict)
+            and b.get("source") == "ical"
+            and (
+                b.get("channel_listing_id") in listing_ids
+                or (not b.get("channel_listing_id") and b.get("room_id") in allowed_room_ids)
+            )
+        )
+    ]
+    sync_errors = [
+        err for err in state.get("sync_errors", [])
+        if not (isinstance(err, dict) and err.get("room_id") in allowed_room_ids)
+    ]
+    new_bookings = []
+    for listing in listings:
+        listing["last_sync"] = now
+        listing["sync_error"] = ""
+        listing["synced_booking_count"] = 0
+        url = _pms_channel_text(listing.get("ical_url"))
+        if not url:
+            if listing.get("is_new_listing"):
+                continue
+            error = "请先填写这个渠道导出的 iCal，或确认这是平台新发布且没有订单"
+            listing["sync_error"] = error
+            sync_errors.append({"room_id": listing.get("room_id"), "channel_listing_id": listing.get("id"), "platform": listing.get("platform"), "error": error})
+            continue
+        try:
+            imported = _pms_channel_parse_ics(fetch_text(url), listing)
+            listing["synced_booking_count"] = len(imported)
+            new_bookings.extend(imported)
+        except Exception as exc:
+            error = str(exc)
+            listing["sync_error"] = error
+            sync_errors.append({"room_id": listing.get("room_id"), "channel_listing_id": listing.get("id"), "platform": listing.get("platform"), "error": error})
+    state["bookings"].extend(new_bookings)
+    state["sync_errors"] = sync_errors
+    state["last_sync"] = now
+    return save_state(state)
+
+
+def _pms_channel_feed_target(state, feed_id):
+    feed_id = str(feed_id or "").replace(".ics", "")
+    listing = next((item for item in state.get("channelListings", []) if item.get("id") == feed_id), None)
+    if listing:
+        return listing.get("room_id"), listing.get("id"), listing
+    room = next((item for item in state.get("rooms", []) if item.get("id") == feed_id), None)
+    if room:
+        return room.get("id"), "", None
+    return "", "", None
+
+
+def _pms_channel_ics_escape(text):
+    return str(text or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
+
+def make_feed(feed_id):
+    state = normalize_state(load_state())
+    room_id, target_channel_id, target_listing = _pms_channel_feed_target(state, feed_id)
+    if not room_id:
+        return None
+    events = []
+    seen = set()
+    for booking in state.get("bookings", []):
+        if not isinstance(booking, dict) or booking.get("room_id") != room_id:
+            continue
+        if target_channel_id and booking.get("channel_listing_id") == target_channel_id:
+            continue
+        checkin = booking.get("checkin")
+        checkout = booking.get("checkout")
+        if not checkin or not checkout or checkout <= checkin:
+            continue
+        kind = "lock" if (booking.get("is_locked") or booking.get("booking_type") == "lock") else "booking"
+        dedupe = (checkin, checkout, kind, booking.get("channel_listing_id") or booking.get("platform") or "")
+        if dedupe in seen:
+            continue
+        seen.add(dedupe)
+        platform = booking.get("platform") or "PMS"
+        summary = "Not available" if kind == "lock" else f"{platform} booked"
+        uid_seed = "|".join([str(feed_id), str(booking.get("channel_listing_id") or ""), str(booking.get("external_event_uid") or booking.get("id") or ""), checkin, checkout, kind])
+        uid = hashlib.sha1(uid_seed.encode("utf-8")).hexdigest() + "@pms-system"
+        events.append("BEGIN:VEVENT\r\n"
+                      f"UID:{uid}\r\n"
+                      f"DTSTART;VALUE=DATE:{checkin.replace('-', '')}\r\n"
+                      f"DTEND;VALUE=DATE:{checkout.replace('-', '')}\r\n"
+                      f"SUMMARY:{_pms_channel_ics_escape(summary)}\r\n"
+                      f"DESCRIPTION:{_pms_channel_ics_escape('Generated by PMS anti-overbooking feed')}\r\n"
+                      "END:VEVENT")
+    title = "PMS Anti Overbooking"
+    if target_listing:
+        title += " - " + (target_listing.get("platform") or "channel")
+    return "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//PMS System//Channel Feed//EN\r\nCALSCALE:GREGORIAN\r\n" + "\r\n".join(events) + "\r\nEND:VCALENDAR\r\n"
+'''
+if "_pms_channel_listing_model_v1" not in source_text:
+    if auto_sync_marker in source_text:
+        source_text = source_text.replace(auto_sync_marker, channel_listing_backend + "\n" + auto_sync_marker, 1)
+    else:
+        source_text += "\n" + channel_listing_backend + "\n"
 auto_sync_block = '''_pms_ical_sync_lock = threading.Lock()
 
 def _pms_run_scheduled_ical_sync():
