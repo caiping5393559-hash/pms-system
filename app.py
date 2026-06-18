@@ -1452,6 +1452,189 @@ if "_pms_channel_listing_model_v1" not in source_text:
     else:
         source_text += "\n" + channel_listing_backend + "\n"
 
+property_mail_backend = r'''
+_pms_property_mail_forwarding_v1 = True
+
+for _pms_mail_key in ("mailForwardingConfig", "propertyMailForwarding"):
+    if _pms_mail_key not in STATE_KEYS:
+        STATE_KEYS.append(_pms_mail_key)
+
+_pms_mail_base_default_state = default_state
+def default_state():
+    state = _pms_mail_base_default_state()
+    state.setdefault("mailForwardingConfig", [])
+    state.setdefault("propertyMailForwarding", [])
+    return state
+
+
+def _pms_mail_text(value, limit=500):
+    return str(value or "").strip()[:limit]
+
+
+def _pms_mail_bool(value):
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _pms_mail_safe_id(value):
+    text = _pms_mail_text(value, 120)
+    safe = "".join(ch if (ch.isalnum() or ch in "-_") else "_" for ch in text)
+    return safe or "property"
+
+
+def _pms_mail_status(value):
+    status = _pms_mail_text(value, 40)
+    return status if status in {"not_set", "verification_pending", "rule_created", "active", "paused"} else "not_set"
+
+
+def _pms_mail_property_ids(state):
+    return {prop.get("id") for prop in state.get("properties", []) if isinstance(prop, dict) and prop.get("id")}
+
+
+def _pms_mail_clean_config(item):
+    raw = item if isinstance(item, dict) else {}
+    now = datetime.utcnow().isoformat(timespec="seconds")
+    return {
+        "id": _pms_mail_text(raw.get("id") or "main", 80),
+        "inbox_email": _pms_mail_text(raw.get("inbox_email") or raw.get("gmail_address") or raw.get("forwarding_address"), 200),
+        "alias_prefix": _pms_mail_text(raw.get("alias_prefix") or "pms", 60),
+        "plus_alias_enabled": _pms_mail_bool(raw.get("plus_alias_enabled", True)),
+        "notes": _pms_mail_text(raw.get("notes"), 800),
+        "updated_at": _pms_mail_text(raw.get("updated_at")) or now,
+    }
+
+
+def _pms_mail_primary_config(state):
+    rows = state.get("mailForwardingConfig", [])
+    if rows and isinstance(rows[0], dict):
+        return _pms_mail_clean_config(rows[0])
+    return _pms_mail_clean_config({})
+
+
+def _pms_mail_forward_address(property_id, state):
+    cfg = _pms_mail_primary_config(state)
+    inbox = _pms_mail_text(cfg.get("inbox_email"), 200)
+    if not inbox or "@" not in inbox:
+        return ""
+    local, domain = inbox.rsplit("@", 1)
+    prefix = _pms_mail_safe_id(cfg.get("alias_prefix") or "pms")
+    prop = _pms_mail_safe_id(property_id)
+    if cfg.get("plus_alias_enabled", True):
+        return f"{local}+{prefix}_{prop}@{domain}"
+    return inbox
+
+
+def _pms_mail_clean_property_setting(item, state=None):
+    raw = item if isinstance(item, dict) else {}
+    state = state or {}
+    property_id = _pms_mail_text(raw.get("property_id") or raw.get("propertyId"), 100)
+    group_id = _pms_mail_text(raw.get("group_id") or raw.get("groupId"), 100)
+    prop = next((p for p in state.get("properties", []) if isinstance(p, dict) and p.get("id") == property_id), None)
+    if prop:
+        group_id = group_id or _pms_mail_text(prop.get("group_id"), 100)
+    now = datetime.utcnow().isoformat(timespec="seconds")
+    forward_address = _pms_mail_text(raw.get("pms_forward_address") or raw.get("pmsForwardAddress"), 220) or _pms_mail_forward_address(property_id, state)
+    return {
+        "id": _pms_mail_text(raw.get("id") or ("mail_property_" + _pms_mail_safe_id(property_id)), 140),
+        "property_id": property_id,
+        "owner_id": _pms_mail_text(raw.get("owner_id") or raw.get("ownerId"), 100),
+        "group_id": group_id,
+        "source_email": _pms_mail_text(raw.get("source_email") or raw.get("sourceEmail") or raw.get("airbnb_email"), 220),
+        "pms_forward_address": forward_address,
+        "forward_status": _pms_mail_status(raw.get("forward_status") or raw.get("forwardStatus")),
+        "notes": _pms_mail_text(raw.get("notes"), 1000),
+        "updated_at": now,
+    }
+
+
+_pms_mail_base_normalize_state = normalize_state
+def normalize_state(raw):
+    state = _pms_mail_base_normalize_state(raw)
+    configs = state.get("mailForwardingConfig", [])
+    state["mailForwardingConfig"] = [_pms_mail_clean_config(configs[0] if configs else {})]
+    valid_properties = _pms_mail_property_ids(state)
+    by_property = {}
+    for item in state.get("propertyMailForwarding", []):
+        if not isinstance(item, dict):
+            continue
+        clean = _pms_mail_clean_property_setting(item, state)
+        property_id = clean.get("property_id")
+        if property_id and (not valid_properties or property_id in valid_properties):
+            by_property[property_id] = clean
+    state["propertyMailForwarding"] = list(by_property.values())
+    return state
+
+
+_pms_mail_base_filter_state_for_user = filter_state_for_user
+def filter_state_for_user(state, actor):
+    normalized = normalize_state(state)
+    filtered = _pms_mail_base_filter_state_for_user(normalized, actor)
+    role = (actor or {}).get("role")
+    if role == "admin":
+        filtered["mailForwardingConfig"] = normalized.get("mailForwardingConfig", [])
+        filtered["propertyMailForwarding"] = normalized.get("propertyMailForwarding", [])
+        return filtered
+    if role == "owner":
+        property_ids = {prop.get("id") for prop in filtered.get("properties", []) if isinstance(prop, dict) and prop.get("id")}
+        filtered["mailForwardingConfig"] = normalized.get("mailForwardingConfig", [])
+        filtered["propertyMailForwarding"] = [
+            item for item in normalized.get("propertyMailForwarding", [])
+            if item.get("property_id") in property_ids
+        ]
+        return filtered
+    filtered["mailForwardingConfig"] = []
+    filtered["propertyMailForwarding"] = []
+    return filtered
+
+
+_pms_mail_base_save_state_from_payload = save_state_from_payload
+def save_state_from_payload(payload, actor=None):
+    working = dict(payload or {})
+    incoming_config = working.pop("mailForwardingConfig", None)
+    incoming_property_mail = working.pop("propertyMailForwarding", None)
+    if incoming_config is None and incoming_property_mail is None:
+        return _pms_mail_base_save_state_from_payload(working, actor)
+
+    if incoming_config is not None and (not actor or actor.get("role") != "admin"):
+        raise RuntimeError("admin permission required")
+
+    saved = _pms_mail_base_save_state_from_payload(working, actor) if working else normalize_state(load_state())
+    current = normalize_state(load_state())
+
+    if incoming_config is not None:
+        row = incoming_config[0] if isinstance(incoming_config, list) and incoming_config else {}
+        current["mailForwardingConfig"] = [_pms_mail_clean_config(row)]
+
+    if incoming_property_mail is not None:
+        allowed_property_ids = _pms_mail_property_ids(current) if (not actor or actor.get("role") == "admin") else actor_property_ids(actor, current)
+        by_property = {
+            item.get("property_id"): item
+            for item in current.get("propertyMailForwarding", [])
+            if isinstance(item, dict) and item.get("property_id")
+        }
+        rows = incoming_property_mail if isinstance(incoming_property_mail, list) else []
+        for raw in rows:
+            if not isinstance(raw, dict):
+                continue
+            property_id = _pms_mail_text(raw.get("property_id") or raw.get("propertyId"), 100)
+            if not property_id or property_id not in allowed_property_ids:
+                raise RuntimeError("property permission required")
+            if raw.get("_delete") or raw.get("_clear"):
+                by_property.pop(property_id, None)
+                continue
+            clean = _pms_mail_clean_property_setting(raw, current)
+            by_property[property_id] = clean
+        current["propertyMailForwarding"] = list(by_property.values())
+
+    return save_state(current)
+'''
+if "_pms_property_mail_forwarding_v1" not in source_text:
+    if auto_sync_marker in source_text:
+        source_text = source_text.replace(auto_sync_marker, property_mail_backend + "\n" + auto_sync_marker, 1)
+    else:
+        source_text += "\n" + property_mail_backend + "\n"
+
 auto_sync_block = '''_pms_ical_sync_lock = threading.Lock()
 
 def _pms_run_scheduled_ical_sync():
