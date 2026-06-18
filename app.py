@@ -1461,6 +1461,7 @@ def _pms_channel_clean_listing(item, state=None):
         "id": listing_id,
         "room_id": room_id,
         "platform": platform,
+        "channel_note": _pms_channel_text(raw.get("channel_note") or raw.get("channelNote") or raw.get("note") or raw.get("label")),
         "is_new_listing": _pms_channel_bool(raw.get("is_new_listing", raw.get("isNewListing", False))),
         "listing_url": _pms_channel_text(raw.get("listing_url") or raw.get("listingUrl")),
         "ical_url": _pms_channel_text(raw.get("ical_url") or raw.get("icalUrl")),
@@ -1479,7 +1480,7 @@ def _pms_channel_migrate_legacy_listings(state):
         ("airbnb_ical", "Airbnb", "airbnb_public_url"),
         ("booking_ical", "Booking", "booking_public_url"),
         ("vrbo_ical", "Vrbo", "vrbo_public_url"),
-        ("other_ical", "Other", "public_url"),
+        ("other_ical", "Other", "other_public_url"),
     ]
     for room in state.get("rooms", []):
         if not isinstance(room, dict) or not room.get("id"):
@@ -1492,6 +1493,9 @@ def _pms_channel_migrate_legacy_listings(state):
             if listing_id in by_id:
                 if not by_id[listing_id].get("ical_url"):
                     by_id[listing_id]["ical_url"] = ical_url
+                room[field] = ""
+                if url_field:
+                    room[url_field] = ""
                 continue
             item = _pms_channel_clean_listing({
                 "id": listing_id,
@@ -1503,8 +1507,22 @@ def _pms_channel_migrate_legacy_listings(state):
             }, state)
             listings.append(item)
             by_id[listing_id] = item
+            room[field] = ""
+            if url_field:
+                room[url_field] = ""
     state["channelListings"] = listings
     return state
+
+
+def _pms_channel_clear_room_legacy_fields(state, room_id):
+    for room in state.get("rooms", []):
+        if not isinstance(room, dict) or room.get("id") != room_id:
+            continue
+        for field in ["airbnb_ical", "booking_ical", "vrbo_ical", "other_ical", "airbnb_public_url", "booking_public_url", "vrbo_public_url", "other_public_url"]:
+            room[field] = ""
+        room["sync_error"] = ""
+        room["synced_booking_count"] = 0
+        return
 
 
 _pms_channel_base_normalize_state = normalize_state
@@ -1630,16 +1648,24 @@ def save_state_from_payload(payload, actor=None):
     }
     by_id = {item.get("id"): item for item in current.get("channelListings", []) if isinstance(item, dict)}
     delete_ids = set()
+    clear_room_ids = set()
     incoming = []
     incoming_ids = set()
     for raw in incoming_channels:
         if not isinstance(raw, dict):
+            continue
+        if raw.get("_clear_room_channels") or raw.get("_clearRoomChannels"):
+            room_id = _pms_channel_text(raw.get("room_id") or raw.get("roomId"))
+            if room_id in allowed_room_ids:
+                clear_room_ids.add(room_id)
+                _pms_channel_clear_room_legacy_fields(current, room_id)
             continue
         item_id = _pms_channel_text(raw.get("id"))
         if raw.get("_delete"):
             existing = by_id.get(item_id)
             if existing and existing.get("room_id") in allowed_room_ids:
                 delete_ids.add(item_id)
+                _pms_channel_clear_room_legacy_fields(current, existing.get("room_id"))
             continue
         clean = _pms_channel_clean_listing(raw, current)
         if clean.get("room_id") not in allowed_room_ids:
@@ -1651,7 +1677,7 @@ def save_state_from_payload(payload, actor=None):
         incoming_ids.add(clean.get("id"))
     current["channelListings"] = [
         item for item in current.get("channelListings", [])
-        if item.get("id") not in delete_ids and item.get("id") not in incoming_ids
+        if item.get("id") not in delete_ids and item.get("id") not in incoming_ids and item.get("room_id") not in clear_room_ids
     ] + incoming
     return save_state(current)
 
