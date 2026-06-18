@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-18-mail-save-v2"
+PMS_PATCH_VERSION = "2026-06-18-mail-save-v3"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -1961,7 +1961,7 @@ def _pms_mail_clean_property_setting(item, state=None):
         "pms_forward_address": forward_address,
         "forward_status": _pms_mail_status(raw.get("forward_status") or raw.get("forwardStatus")),
         "notes": _pms_mail_text(raw.get("notes"), 1000),
-        "updated_at": now,
+        "updated_at": _pms_mail_text(raw.get("updated_at")) or now,
     }
 
 
