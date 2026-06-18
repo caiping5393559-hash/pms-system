@@ -81,6 +81,8 @@ def write_local_state(state):
 
 def load_state():
     if not firebase_credentials_configured():
+        if STATE_PATH.is_file():
+            return normalize_state(json.loads(STATE_PATH.read_text(encoding="utf-8")))
         return load_seed_state()
     doc = firestore_request("GET", firestore_doc_url())
     if not doc:
