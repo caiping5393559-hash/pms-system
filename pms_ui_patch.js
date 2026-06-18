@@ -450,7 +450,22 @@ function renderCommonSettings(){if(window.__pmsInlineRenderCommonSettings)return
   function plusAlias(address,token){const raw=String(address||'').trim();const at=raw.lastIndexOf('@');if(at<1)return raw;const local=raw.slice(0,at).split('+')[0];return `${local}+${token}${raw.slice(at)}`;}
   function propertyToken(propertyId){return 'pms-'+safe(propertyId||'property').toLowerCase().slice(0,48);}
   function forwardingAddressForProperty(propertyId){const cfg=primaryConfig();const base=String(cfg.forwarding_address||cfg.gmail_address||'').trim();if(!base)return '';return cfg.plus_alias_enabled===false?base:plusAlias(base,propertyToken(propertyId));}
-  function settingForProperty(propertyId){return ownerEmailSettings().find(x=>x&&x.property_id===propertyId)||null;}
+  function settingForProperty(propertyId){
+    const pid=String(propertyId||'');
+    const exact=ownerEmailSettings().find(x=>x&&(String(x.property_id||'')===pid||String(x.id||'')===`email_property_${pid}`));
+    if(exact)return exact;
+    const p=propById(pid),gid=String((p&&p.group_id)||'');
+    return ownerEmailSettings().find(x=>x&&!x.property_id&&gid&&String(x.group_id||'')===gid)||null;
+  }
+  function hasPropertyEmailSetting(setting,propertyId){
+    if(!setting)return false;
+    const pid=String(propertyId||'');
+    return String(setting.property_id||'')===pid||String(setting.id||'')===`email_property_${pid}`||!!String(setting.airbnb_email||setting.notes||setting.forwarding_status||'').trim();
+  }
+  function emailDisplay(value,empty){const text=String(value||'').trim();return text?esc(text):`<span class="email-muted">${esc(empty||'未填写')}</span>`;}
+  function emailEditing(propertyId){return !!(P.emailEditing&&P.emailEditing[String(propertyId||'')]);}
+  function editPropertyEmailSetting(propertyId){P.emailEditing=P.emailEditing||{};P.emailEditing[String(propertyId||'')]=true;injectOwnerPropertyEmailPanel(true);}
+  function cancelPropertyEmailEdit(propertyId){P.emailEditing=P.emailEditing||{};delete P.emailEditing[String(propertyId||'')];injectOwnerPropertyEmailPanel(true);}
   function statusLabel(v){const value=String(v||'not_set');const map={not_set:'未设置',verification_pending:'等待确认',rule_created:'已建转发规则',active:'已生效',paused:'暂停'};return map[value]||value;}
   function oauthStatusLabel(v){const value=String(v||'not_connected');const map={not_connected:'未授权',connected:'已授权',error:'授权异常'};return map[value]||value;}
   function propertyName(p){return (p&&(p.name||p.title||p.id))||'未命名房源';}
@@ -484,9 +499,9 @@ function renderCommonSettings(){if(window.__pmsInlineRenderCommonSettings)return
     else{const ta=document.createElement('textarea');ta.value=value;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();done();}
   }
   function ensureEmailCss(){
-    let style=document.getElementById('pmsEmailAssistantStyles');
-    if(!style){style=document.createElement('style');style.id='pmsEmailAssistantStyles';document.head.appendChild(style);}
-    style.textContent+=`.email-property-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}.email-property-card{border:2px solid #38bdf8;border-radius:8px;background:#fff;padding:14px;box-shadow:0 8px 18px rgba(15,23,42,.05)}.email-property-card.active{border-color:#14b8a6;box-shadow:inset 5px 0 0 #0f766e,0 8px 18px rgba(15,23,42,.06)}.email-property-title{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.email-property-title h3{margin:0;font-size:22px;color:#0f172a}.email-mini-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}.email-copy-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}.email-address-line{border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;padding:10px;word-break:break-all;font-weight:800}.email-step-list{margin:10px 0 0;padding-left:20px;line-height:1.7}.email-message-list{display:grid;gap:10px}.email-message-card{border:1px solid #d8e1ef;border-left:5px solid #0f766e;border-radius:8px;background:#fff;padding:12px}.email-muted{color:#667085;font-size:13px;line-height:1.45}.email-status-pill{display:inline-flex;border-radius:999px;padding:3px 8px;background:#eef4ff;color:#075985;font-weight:900;font-size:12px}.email-status-pill.good{background:#dcfae6;color:#067647}.email-status-pill.warn{background:#fff7ed;color:#9a3412}@media(max-width:760px){.email-copy-row{grid-template-columns:1fr}}`;
+    let style=document.getElementById('pmsPropertyEmailAssistantStyles');
+    if(!style){style=document.createElement('style');style.id='pmsPropertyEmailAssistantStyles';document.head.appendChild(style);}
+    style.textContent=`.email-property-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}.email-property-card{border:2px solid #38bdf8;border-radius:8px;background:#fff;padding:14px;box-shadow:0 8px 18px rgba(15,23,42,.05)}.email-property-card.active{border-color:#14b8a6;box-shadow:inset 5px 0 0 #0f766e,0 8px 18px rgba(15,23,42,.06)}.email-property-title{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.email-property-title h3{margin:0;font-size:22px;color:#0f172a}.email-inline-panel{padding:14px!important}.email-inline-panel .property-detail-head{gap:12px;margin-bottom:10px}.email-mini-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}.email-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin-top:10px}.email-summary-item{min-width:0;border:1px solid #dbeafe;border-radius:8px;background:#f8fafc;padding:8px 10px}.email-summary-label{font-size:12px;color:#64748b;font-weight:900;margin-bottom:3px}.email-summary-value{font-weight:900;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.email-summary-wide{grid-column:1/-1}.email-inline-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}.email-copy-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}.email-address-line{border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;padding:10px;word-break:break-all;font-weight:800}.email-step-list{margin:10px 0 0;padding-left:20px;line-height:1.7}.email-message-list{display:grid;gap:10px}.email-message-card{border:1px solid #d8e1ef;border-left:5px solid #0f766e;border-radius:8px;background:#fff;padding:12px}.email-muted{color:#667085;font-size:13px;line-height:1.45}.email-status-pill{display:inline-flex;border-radius:999px;padding:3px 8px;background:#eef4ff;color:#075985;font-weight:900;font-size:12px}.email-status-pill.good{background:#dcfae6;color:#067647}.email-status-pill.warn{background:#fff7ed;color:#9a3412}.email-form-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}@media(max-width:760px){.email-copy-row{grid-template-columns:1fr}.email-summary-grid{grid-template-columns:1fr}}`;
   }
   function adminPropertyEmailRows(){
     const list=propsList();
@@ -568,7 +583,8 @@ function renderCommonSettings(){if(window.__pmsInlineRenderCommonSettings)return
     const id=safe(propertyId);
     const u=currentUserSafe()||{};
     const row={id:'email_property_'+propertyId,property_id:propertyId,owner_id:u.id||'',group_id:p.group_id||ownerGroupIds(u)[0]||'',airbnb_email:(document.getElementById('ownerAirbnbNoticeEmail_'+id)||{}).value||'',forwarding_address:forwardingAddressForProperty(propertyId),forwarding_status:(document.getElementById('ownerEmailForwardStatus_'+id)||{}).value||'not_set',notes:(document.getElementById('ownerEmailNotes_'+id)||{}).value||'',updated_at:nowIso()};
-    const next=ownerEmailSettings().filter(x=>x&&x.property_id!==propertyId).concat([row]);
+    const pid=String(propertyId||'');
+    const next=ownerEmailSettings().filter(x=>x&&String(x.property_id||'')!==pid&&String(x.id||'')!==`email_property_${pid}`).concat([row]);
     setOwnerEmailSettings(next);
     await persistEmailPayload({ownerEmailSettings:[row]},btn);
     renderOwnerEmailAssistant();
@@ -598,9 +614,28 @@ function renderCommonSettings(){if(window.__pmsInlineRenderCommonSettings)return
     if(!rows.length)return '<div class="email-muted">这个房源还没有收到 Airbnb 邮件。接好 Gmail 授权和转发规则后，这里会显示投诉、申诉、订单变更等摘要。</div>';
     return `<div class="email-message-list">${rows.map(m=>`<div class="email-message-card"><div><span class="badge blue">${esc(m.category||'通知')}</span> <span class="badge ${m.priority==='high'||m.priority==='重要'?'red':'green'}">${esc(m.priority||'普通')}</span></div><strong>${esc(m.subject||'无标题')}</strong><div class="email-muted">${esc(m.received_at||'')} · ${esc(m.from||'')}</div><div>${esc(m.summary||'')}</div></div>`).join('')}</div>`;
   }
+  function renderPropertyEmailSummary(p,setting,addr,status,configured){
+    const updated=setting&&setting.updated_at?String(setting.updated_at).replace('T',' ').slice(0,19):'未记录';
+    return `<div class="email-summary-grid">
+      <div class="email-summary-item"><div class="email-summary-label">Airbnb 通知邮箱</div><div class="email-summary-value" title="${esc(setting.airbnb_email||'')}">${emailDisplay(setting.airbnb_email,'未填写')}</div></div>
+      <div class="email-summary-item"><div class="email-summary-label">转发状态</div><div class="email-summary-value">${esc(statusLabel(status))}</div></div>
+      <div class="email-summary-item"><div class="email-summary-label">更新时间</div><div class="email-summary-value">${esc(updated)}</div></div>
+      <div class="email-summary-item email-summary-wide"><div class="email-summary-label">PMS 转发地址</div><div class="email-summary-value" title="${esc(addr||'')}">${configured?esc(addr):'<span class="email-muted">管理员还没有配置后台收件 Gmail</span>'}</div></div>
+      ${setting.notes?`<div class="email-summary-item email-summary-wide"><div class="email-summary-label">房源邮件备注</div><div>${esc(setting.notes)}</div></div>`:''}
+    </div>
+    <div class="email-inline-actions">
+      ${configured?`<button class="smallbtn" onclick="copyPmsEmailAddress('${esc(addr)}',this)">复制 PMS 转发地址</button>`:''}
+      <button class="smallbtn primary" onclick="editPropertyEmailSetting('${esc(p.id)}')">修改设置</button>
+    </div>
+    <details style="margin-top:10px"><summary style="font-weight:900;cursor:pointer">转发规则怎么设置</summary><ol class="email-step-list"><li>确认这个房源的 Airbnb 重要通知会发到这里保存的通知邮箱。</li><li>打开该邮箱的自动转发/过滤器设置。Gmail 路径：设置 → 查看所有设置 → 转发和 POP/IMAP。</li><li>添加转发地址时，粘贴这个房源的 PMS 转发地址。</li><li>过滤器只转发 Airbnb / 爱彼迎相关邮件，不要转发私人邮件。</li></ol></details>`;
+  }
+  function renderPropertyEmailForm(p,setting,addr,status,configured,saved){
+    const id=safe(p.id);
+    return `<div class="email-mini-grid"><div><label>该房源接收 Airbnb 通知的邮箱</label><input id="ownerAirbnbNoticeEmail_${id}" value="${esc(setting.airbnb_email||'')}" placeholder="例如：host@gmail.com"></div><div><label>转发状态</label><select id="ownerEmailForwardStatus_${id}"><option value="not_set"${!status||status==='not_set'?' selected':''}>未设置</option><option value="verification_pending"${status==='verification_pending'?' selected':''}>等待确认</option><option value="rule_created"${status==='rule_created'?' selected':''}>已建转发规则</option><option value="active"${status==='active'?' selected':''}>已生效</option><option value="paused"${status==='paused'?' selected':''}>暂停</option></select></div></div><label style="margin-top:10px">房源邮件备注</label><textarea id="ownerEmailNotes_${id}" placeholder="例如：这个房源的 Airbnb 通知来自哪个 Gmail，或暂时不转发。">${esc(setting.notes||'')}</textarea><h4 style="margin:12px 0 6px">这个房源的 PMS 转发地址</h4>${configured?`<div class="email-copy-row"><div class="email-address-line">${esc(addr)}</div><button class="smallbtn primary" onclick="copyPmsEmailAddress('${esc(addr)}',this)">复制</button></div>`:`<div class="empty-panel">管理员还没有配置 PMS 后台收件 Gmail。</div>`}<div class="email-form-actions"><button class="smallbtn primary" onclick="savePropertyEmailSetting('${esc(p.id)}',this)">保存这个房源</button>${saved?`<button class="smallbtn" onclick="cancelPropertyEmailEdit('${esc(p.id)}')">取消</button>`:''}</div><details style="margin-top:12px"><summary style="font-weight:900;cursor:pointer">转发规则怎么设置</summary><ol class="email-step-list"><li>确认这个房源的 Airbnb 重要通知会发到上面填写的邮箱。</li><li>打开该邮箱的自动转发/过滤器设置。Gmail 路径：设置 → 查看所有设置 → 转发和 POP/IMAP。</li><li>添加转发地址时，粘贴这个房源的 PMS 转发地址。</li><li>过滤器只转发 Airbnb / 爱彼迎相关邮件，不要转发私人邮件。</li></ol></details>`;
+  }
   function renderPropertyEmailInline(p){
-    const id=safe(p.id),setting=settingForProperty(p.id)||{},addr=forwardingAddressForProperty(p.id),configured=!!addr,status=setting.forwarding_status||'not_set';
-    return `<div class="property-subcard email-inline-panel" id="propertyEmailAssistantInline" data-property-id="${esc(p.id)}"><div class="property-detail-head"><div><h3 style="margin:0">该房源邮件助手</h3><div class="small">只配置当前房源的 Airbnb 通知邮箱和 PMS 转发地址；不是必填，不影响房间和 iCal。</div></div><span class="email-status-pill ${status==='active'?'good':status==='verification_pending'?'warn':''}">${esc(statusLabel(status))}</span></div><div class="email-mini-grid"><div><label>该房源接收 Airbnb 通知的邮箱</label><input id="ownerAirbnbNoticeEmail_${id}" value="${esc(setting.airbnb_email||'')}" placeholder="例如：host@gmail.com"></div><div><label>转发状态</label><select id="ownerEmailForwardStatus_${id}"><option value="not_set"${!status||status==='not_set'?' selected':''}>未设置</option><option value="verification_pending"${status==='verification_pending'?' selected':''}>等待确认</option><option value="rule_created"${status==='rule_created'?' selected':''}>已建转发规则</option><option value="active"${status==='active'?' selected':''}>已生效</option><option value="paused"${status==='paused'?' selected':''}>暂停</option></select></div></div><label style="margin-top:10px">房源邮件备注</label><textarea id="ownerEmailNotes_${id}" placeholder="例如：这个房源的 Airbnb 通知来自哪个 Gmail，或暂时不转发。">${esc(setting.notes||'')}</textarea><h4 style="margin:12px 0 6px">这个房源的 PMS 转发地址</h4>${configured?`<div class="email-copy-row"><div class="email-address-line">${esc(addr)}</div><button class="smallbtn primary" onclick="copyPmsEmailAddress('${esc(addr)}',this)">复制</button></div>`:`<div class="empty-panel">管理员还没有配置 PMS 后台收件 Gmail。</div>`}<div class="toolbar" style="margin-top:12px"><button class="smallbtn primary" onclick="savePropertyEmailSetting('${esc(p.id)}',this)">保存这个房源</button></div><div style="margin-top:14px"><h4 style="margin:0 0 8px">这个房源的邮件结果</h4>${renderInlinePropertyMessages(p.id)}</div><details style="margin-top:14px"><summary style="font-weight:900;cursor:pointer">转发规则怎么设置</summary><ol class="email-step-list"><li>确认这个房源的 Airbnb 重要通知会发到上面填写的邮箱。</li><li>打开该邮箱的自动转发/过滤器设置。Gmail 路径：设置 → 查看所有设置 → 转发和 POP/IMAP。</li><li>添加转发地址时，粘贴这个房源的 PMS 转发地址。</li><li>过滤器只转发 Airbnb / 爱彼迎相关邮件，不要转发私人邮件。</li></ol></details></div>`;
+    const setting=settingForProperty(p.id)||{},addr=forwardingAddressForProperty(p.id),configured=!!addr,status=setting.forwarding_status||'not_set',saved=hasPropertyEmailSetting(setting,p.id),editing=!saved||emailEditing(p.id);
+    return `<div class="property-subcard email-inline-panel" id="propertyEmailAssistantInline" data-property-id="${esc(p.id)}"><div class="property-detail-head"><div><h3 style="margin:0">该房源邮件助手</h3><div class="small">邮件设置按房源保存；保存后刷新回来会显示在这里，点修改设置才展开编辑。</div></div><span class="email-status-pill ${status==='active'?'good':status==='verification_pending'?'warn':''}">${saved?'已保存 · ':''}${esc(statusLabel(status))}</span></div>${editing?renderPropertyEmailForm(p,setting,addr,status,configured,saved):renderPropertyEmailSummary(p,setting,addr,status,configured)}<div style="margin-top:14px"><h4 style="margin:0 0 8px">这个房源的邮件结果</h4>${renderInlinePropertyMessages(p.id)}</div></div>`;
   }
   function injectOwnerPropertyEmailPanel(force){
     if(isAdmin())return;
@@ -652,15 +687,17 @@ function renderCommonSettings(){if(window.__pmsInlineRenderCommonSettings)return
       notes:(propertyEmailField(propertyId,'ownerEmailNotes')||{}).value||'',
       updated_at:nowIso()
     };
-    const next=ownerEmailSettings().filter(x=>x&&x.property_id!==propertyId).concat([row]);
+    const pid=String(propertyId||'');
+    const next=ownerEmailSettings().filter(x=>x&&String(x.property_id||'')!==pid&&String(x.id||'')!==`email_property_${pid}`).concat([row]);
     setOwnerEmailSettings(next);
     const result=await persistEmailPayload({ownerEmailSettings:[row]},btn);
+    if(P.emailEditing)delete P.emailEditing[String(propertyId||'')];
     hideOwnerEmailTab();
     injectOwnerPropertyEmailPanel(true);
     return result;
   };
   function emailApplyServerState(data){const result=typeof emailApplyServerState.base==='function'?emailApplyServerState.base.apply(this,arguments):data;applyEmailState(data);return result;}
-  function publishGlobals(){Object.assign(window,{saveAdminEmailConfig,savePropertyEmailSetting,saveOwnerEmailSettings,copyPmsEmailAddress:copyEmailText,renderOwnerEmailAssistant,injectAdminEmailPanel});}
+  function publishGlobals(){Object.assign(window,{saveAdminEmailConfig,savePropertyEmailSetting,saveOwnerEmailSettings,copyPmsEmailAddress:copyEmailText,renderOwnerEmailAssistant,injectAdminEmailPanel,editPropertyEmailSetting,cancelPropertyEmailEdit});}
   function refreshPanels(){publishGlobals();if(isAdmin())injectAdminEmailPanel();else{hideOwnerEmailTab();bindPropertyEmailObserver();injectOwnerPropertyEmailPanel(false);}}
   function renderOwnerScoped(){const result=typeof renderOwnerScoped.base==='function'?renderOwnerScoped.base.apply(this,arguments):undefined;refreshPanels();return result;}
   function renderAdminScoped(){const result=typeof renderAdminScoped.base==='function'?renderAdminScoped.base.apply(this,arguments):undefined;refreshPanels();return result;}
