@@ -1590,6 +1590,43 @@ def filter_state_for_user(state, actor):
     return filtered
 
 
+def save_mail_config_setting(payload, actor=None):
+    if not actor or actor.get("role") != "admin":
+        raise RuntimeError("admin permission required")
+    state = normalize_state(load_state())
+    state["mailForwardingConfig"] = [_pms_mail_clean_config(payload if isinstance(payload, dict) else {})]
+    return save_state(state)
+
+
+def save_property_mail_setting(payload, actor=None):
+    raw = payload if isinstance(payload, dict) else {}
+    state = normalize_state(load_state())
+    property_id = _pms_mail_text(raw.get("property_id") or raw.get("propertyId"), 100)
+    if not property_id:
+        raise RuntimeError("property required")
+    allowed_property_ids = _pms_mail_property_ids(state) if (actor and actor.get("role") == "admin") else actor_property_ids(actor, state)
+    if property_id not in allowed_property_ids:
+        raise RuntimeError("property permission required")
+    by_property = {
+        item.get("property_id"): item
+        for item in state.get("propertyMailForwarding", [])
+        if isinstance(item, dict) and item.get("property_id")
+    }
+    if raw.get("_delete") or raw.get("_clear"):
+        by_property.pop(property_id, None)
+        state["propertyMailForwarding"] = list(by_property.values())
+        return save_state(state), None
+    clean = _pms_mail_clean_property_setting(raw, state)
+    by_property[property_id] = clean
+    state["propertyMailForwarding"] = list(by_property.values())
+    saved = save_state(state)
+    saved_row = next(
+        (item for item in saved.get("propertyMailForwarding", []) if isinstance(item, dict) and item.get("property_id") == property_id),
+        clean,
+    )
+    return saved, saved_row
+
+
 _pms_mail_base_save_state_from_payload = save_state_from_payload
 def save_state_from_payload(payload, actor=None):
     working = dict(payload or {})
@@ -1636,6 +1673,30 @@ if "_pms_property_mail_forwarding_v1" not in source_text:
         source_text = source_text.replace(auto_sync_marker, property_mail_backend + "\n" + auto_sync_marker, 1)
     else:
         source_text += "\n" + property_mail_backend + "\n"
+
+if "_pms_property_mail_http_v1" not in source_text:
+    property_mail_route_hook = '''            if path.startswith("/api/property/"):'''
+    property_mail_routes = '''            # _pms_property_mail_http_v1
+            if path == "/api/mail-config":
+                user = require_user(self, ("admin",))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved = save_mail_config_setting(payload, user)
+                json_response(self, {"ok": True, "state": filter_state_for_user(saved, user)})
+                return
+            if path == "/api/property-mail":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved, row = save_property_mail_setting(payload, user)
+                json_response(self, {"ok": True, "propertyMail": row, "state": filter_state_for_user(saved, user)})
+                return
+'''
+    if property_mail_route_hook not in source_text:
+        raise RuntimeError("property mail route hook not found")
+    source_text = source_text.replace(property_mail_route_hook, property_mail_routes + property_mail_route_hook, 1)
 
 auto_sync_block = '''_pms_ical_sync_lock = threading.Lock()
 
