@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-18-mail-events-v5"
+PMS_PATCH_VERSION = "2026-06-18-mail-events-v6"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -2523,6 +2523,204 @@ if "_pms_mail_raw_parser_v1" not in source_text:
     else:
         source_text += "\n" + mail_raw_parser_backend + "\n"
 
+gmail_sync_backend = r'''
+_pms_gmail_sync_v1 = True
+GMAIL_TOKEN_CACHE = {"token": "", "expiry": 0}
+
+
+def _pms_gmail_setting(name, default=""):
+    return str(os.environ.get(name) or CONFIG.get(name.lower()) or default).strip()
+
+
+def _pms_gmail_enabled():
+    return bool(
+        _pms_gmail_setting("GMAIL_CLIENT_ID")
+        and _pms_gmail_setting("GMAIL_CLIENT_SECRET")
+        and _pms_gmail_setting("GMAIL_REFRESH_TOKEN")
+    )
+
+
+def _pms_gmail_http_json(url, method="GET", payload=None, headers=None):
+    data = None
+    if payload is not None:
+        if isinstance(payload, bytes):
+            data = payload
+        else:
+            data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(url, data=data, method=method)
+    for key, value in (headers or {}).items():
+        req.add_header(key, value)
+    if payload is not None and "Content-Type" not in (headers or {}):
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=25) as response:
+            raw = response.read().decode("utf-8")
+            return json.loads(raw or "{}")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "replace")
+        raise RuntimeError(f"Gmail API {exc.code}: {body[:500]}")
+
+
+def _pms_gmail_access_token():
+    if not _pms_gmail_enabled():
+        raise RuntimeError("后台 Gmail OAuth 未配置：需要 GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN")
+    now = time.time()
+    if GMAIL_TOKEN_CACHE.get("token") and GMAIL_TOKEN_CACHE.get("expiry", 0) > now + 60:
+        return GMAIL_TOKEN_CACHE["token"]
+    form = urllib.parse.urlencode({
+        "client_id": _pms_gmail_setting("GMAIL_CLIENT_ID"),
+        "client_secret": _pms_gmail_setting("GMAIL_CLIENT_SECRET"),
+        "refresh_token": _pms_gmail_setting("GMAIL_REFRESH_TOKEN"),
+        "grant_type": "refresh_token",
+    }).encode("utf-8")
+    data = _pms_gmail_http_json(
+        "https://oauth2.googleapis.com/token",
+        method="POST",
+        payload=form,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    token = str(data.get("access_token") or "")
+    if not token:
+        raise RuntimeError("Gmail OAuth 未返回 access_token")
+    GMAIL_TOKEN_CACHE["token"] = token
+    GMAIL_TOKEN_CACHE["expiry"] = now + int(data.get("expires_in") or 3000)
+    return token
+
+
+def _pms_gmail_auth_headers():
+    return {"Authorization": "Bearer " + _pms_gmail_access_token()}
+
+
+def _pms_gmail_decode_body(data):
+    text = str(data or "").strip()
+    if not text:
+        return ""
+    pad = "=" * (-len(text) % 4)
+    try:
+        return base64.urlsafe_b64decode((text + pad).encode("ascii")).decode("utf-8", "replace")
+    except Exception:
+        return ""
+
+
+def _pms_gmail_payload_text(payload):
+    payload = payload if isinstance(payload, dict) else {}
+    mime = str(payload.get("mimeType") or "").lower()
+    body = payload.get("body") if isinstance(payload.get("body"), dict) else {}
+    if mime.startswith("text/plain"):
+        text = _pms_gmail_decode_body(body.get("data"))
+        if text:
+            return text
+    parts = payload.get("parts") if isinstance(payload.get("parts"), list) else []
+    plain = []
+    html = []
+    for part in parts:
+        text = _pms_gmail_payload_text(part)
+        if not text:
+            continue
+        pmime = str((part or {}).get("mimeType") or "").lower()
+        if pmime.startswith("text/html"):
+            html.append(re.sub(r"<[^>]+>", " ", text))
+        else:
+            plain.append(text)
+    if plain:
+        return "\n".join(plain)
+    if html:
+        return "\n".join(html)
+    return _pms_gmail_decode_body(body.get("data"))
+
+
+def _pms_gmail_headers(message):
+    payload = message.get("payload") if isinstance(message, dict) else {}
+    headers = payload.get("headers") if isinstance(payload, dict) and isinstance(payload.get("headers"), list) else []
+    out = {}
+    for item in headers:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").lower()
+        if name:
+            out[name] = str(item.get("value") or "")
+    return out
+
+
+def _pms_gmail_message_to_raw(message):
+    headers = _pms_gmail_headers(message)
+    return {
+        "id": str(message.get("id") or ""),
+        "thread_id": str(message.get("threadId") or ""),
+        "from_": headers.get("from", ""),
+        "to": _pms_mail_raw_list(headers.get("to", "")),
+        "subject": headers.get("subject", ""),
+        "date": headers.get("date", ""),
+        "email_ts": datetime.utcfromtimestamp(int(message.get("internalDate") or "0") / 1000).isoformat(timespec="seconds") if message.get("internalDate") else "",
+        "snippet": str(message.get("snippet") or ""),
+        "body": _pms_gmail_payload_text(message.get("payload") or {}),
+        "target_mail": _pms_gmail_setting("GMAIL_INBOX_EMAIL") or _pms_gmail_setting("PMS_GMAIL_INBOX") or "",
+    }
+
+
+def _pms_gmail_search(query, max_results=20):
+    token_headers = _pms_gmail_auth_headers()
+    url = "https://gmail.googleapis.com/gmail/v1/users/me/messages?" + urllib.parse.urlencode({
+        "q": query,
+        "maxResults": max(1, min(int(max_results or 20), 50)),
+    })
+    data = _pms_gmail_http_json(url, headers=token_headers)
+    ids = [item.get("id") for item in data.get("messages", []) if isinstance(item, dict) and item.get("id")]
+    messages = []
+    for message_id in ids:
+        detail_url = "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + urllib.parse.quote(message_id) + "?format=full"
+        messages.append(_pms_gmail_http_json(detail_url, headers=token_headers))
+    return [_pms_gmail_message_to_raw(message) for message in messages]
+
+
+def _pms_mail_property_targets(state, actor, property_id=""):
+    normalized = normalize_state(state)
+    allowed = _pms_mail_event_property_ids(normalized) if (actor and actor.get("role") == "admin") else actor_property_ids(actor, normalized)
+    targets = []
+    for row in normalized.get("propertyMailForwarding", []):
+        if not isinstance(row, dict):
+            continue
+        pid = str(row.get("property_id") or "")
+        if property_id and pid != property_id:
+            continue
+        if pid not in allowed:
+            continue
+        source = str(row.get("source_email") or "").strip()
+        if not source:
+            continue
+        targets.append((pid, source))
+    return targets
+
+
+def sync_gmail_mail_events(payload, actor=None):
+    if not _pms_gmail_enabled():
+        raise RuntimeError("后台 Gmail OAuth 未配置，暂时只能用页面的“导入/解析邮件”手动导入")
+    payload = payload if isinstance(payload, dict) else {}
+    state = normalize_state(load_state())
+    property_id = _pms_mail_event_text(payload.get("property_id") or payload.get("propertyId"), 120)
+    days = max(1, min(int(payload.get("days") or 3), 30))
+    max_results = max(1, min(int(payload.get("max_results") or payload.get("maxResults") or 20), 50))
+    targets = _pms_mail_property_targets(state, actor, property_id)
+    if not targets:
+        raise RuntimeError("没有可同步的房源邮箱设置：请先在房源里保存 Airbnb 通知邮箱")
+    all_events = []
+    details = []
+    for pid, source_email in targets:
+        base_query = _pms_gmail_setting("GMAIL_SYNC_QUERY") or "(airbnb OR 爱彼迎 OR from:airbnb.com OR from:airbnbmail.com OR from:supportmessaging.airbnb.com OR from:automated@airbnb.com) -in:spam -in:trash"
+        query = f"newer_than:{days}d to:{source_email} {base_query}"
+        raw_rows = _pms_gmail_search(query, max_results=max_results)
+        parsed = [_pms_mail_event_from_raw(raw, pid, state) for raw in raw_rows]
+        all_events.extend(parsed)
+        details.append({"property_id": pid, "source_email": source_email, "query": query, "emails": len(raw_rows), "events": len(parsed)})
+    saved, rows = save_mail_events({"mailEvents": all_events}, actor)
+    return saved, rows, details
+'''
+if "_pms_gmail_sync_v1" not in source_text:
+    if auto_sync_marker in source_text:
+        source_text = source_text.replace(auto_sync_marker, gmail_sync_backend + "\n" + auto_sync_marker, 1)
+    else:
+        source_text += "\n" + gmail_sync_backend + "\n"
+
 cleaning_confirm_backend = r'''
 _pms_cleaning_confirm_v1 = True
 
@@ -2722,6 +2920,14 @@ if "_pms_property_mail_http_v1" not in source_text:
                 payload = json.loads(raw.decode("utf-8") or "{}")
                 saved, rows = parse_mail_events(payload, user)
                 json_response(self, {"ok": True, "mailEvents": rows, "state": filter_state_for_user(saved, user)})
+                return
+            if path == "/api/mail-events/sync":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved, rows, details = sync_gmail_mail_events(payload, user)
+                json_response(self, {"ok": True, "mailEvents": rows, "details": details, "state": filter_state_for_user(saved, user)})
                 return
 '''
     if property_mail_route_hook not in source_text:
