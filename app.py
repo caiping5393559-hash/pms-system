@@ -1599,7 +1599,7 @@ def save_mail_config_setting(payload, actor=None):
 
 
 def save_property_mail_setting(payload, actor=None):
-    raw = payload if isinstance(payload, dict) else {}
+    raw = dict(payload) if isinstance(payload, dict) else {}
     state = normalize_state(load_state())
     property_id = _pms_mail_text(raw.get("property_id") or raw.get("propertyId"), 100)
     if not property_id:
@@ -1607,6 +1607,8 @@ def save_property_mail_setting(payload, actor=None):
     allowed_property_ids = _pms_mail_property_ids(state) if (actor and actor.get("role") == "admin") else actor_property_ids(actor, state)
     if property_id not in allowed_property_ids:
         raise RuntimeError("property permission required")
+    if actor and actor.get("role") == "owner":
+        raw["owner_id"] = actor.get("id") or raw.get("owner_id") or raw.get("ownerId") or ""
     by_property = {
         item.get("property_id"): item
         for item in state.get("propertyMailForwarding", [])
