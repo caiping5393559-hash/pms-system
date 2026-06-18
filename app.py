@@ -1069,6 +1069,8 @@ def _pms_channel_clean_listing(item, state=None):
         "ical_url": _pms_channel_text(raw.get("ical_url") or raw.get("icalUrl")),
         "last_sync": _pms_channel_text(raw.get("last_sync") or raw.get("lastSync")),
         "sync_error": _pms_channel_text(raw.get("sync_error") or raw.get("syncError")),
+        "sync_warning": _pms_channel_text(raw.get("sync_warning") or raw.get("syncWarning")),
+        "availability_status": _pms_channel_text(raw.get("availability_status") or raw.get("availabilityStatus")),
         "synced_booking_count": int(raw.get("synced_booking_count") or raw.get("syncedBookingCount") or 0),
         "created_at": _pms_channel_text(raw.get("created_at") or raw.get("createdAt")) or now,
         "updated_at": now,
@@ -1353,6 +1355,13 @@ def sync_icals(actor=None, property_id=None):
         if item.get("room_id") in allowed_room_ids
     ]
     listing_ids = {item.get("id") for item in listings if item.get("id")}
+    previous_counts = {}
+    for booking in state.get("bookings", []):
+        if not isinstance(booking, dict) or booking.get("source") != "ical":
+            continue
+        listing_id = booking.get("channel_listing_id")
+        if listing_id in listing_ids:
+            previous_counts[listing_id] = previous_counts.get(listing_id, 0) + 1
     now = datetime.utcnow().isoformat(timespec="seconds")
     state["bookings"] = [
         b for b in state.get("bookings", [])
@@ -1373,6 +1382,9 @@ def sync_icals(actor=None, property_id=None):
     for listing in listings:
         listing["last_sync"] = now
         listing["sync_error"] = ""
+        listing["sync_warning"] = ""
+        listing["availability_status"] = ""
+        previous_count = max(previous_counts.get(listing.get("id"), 0), int(listing.get("synced_booking_count") or 0))
         listing["synced_booking_count"] = 0
         url = _pms_channel_text(listing.get("ical_url"))
         if not url:
@@ -1385,6 +1397,10 @@ def sync_icals(actor=None, property_id=None):
         try:
             imported = _pms_channel_parse_ics(fetch_text(url), listing)
             listing["synced_booking_count"] = len(imported)
+            if len(imported) == 0 and previous_count > 0 and not listing.get("is_new_listing"):
+                warning = f"iCal 本次返回 0 条，之前有 {previous_count} 条。可能是平台屏蔽、日历链接异常或订单被取消，请到平台确认后再判断是否可售。"
+                listing["sync_warning"] = warning
+                listing["availability_status"] = "needs_review"
             new_bookings.extend(imported)
         except Exception as exc:
             error = str(exc)
