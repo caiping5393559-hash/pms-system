@@ -1851,6 +1851,35 @@ if "_pms_channel_listing_model_v1" not in source_text:
         source_text = source_text.replace(auto_sync_marker, channel_listing_backend + "\n" + auto_sync_marker, 1)
     else:
         source_text += "\n" + channel_listing_backend + "\n"
+html_state_hydration_patch = r'''
+_pms_html_state_hydration_v1 = True
+_pms_html_state_base_patch_index_html = patch_index_html
+
+def patch_index_html(raw):
+    data = _pms_html_state_base_patch_index_html(raw)
+    text = data.decode("utf-8") if isinstance(data, (bytes, bytearray)) else str(data)
+    declaration_old = "let syncErrors = [];\nlet groups = [];\nlet users = [];\nlet properties = [];\nlet propertyCleaners = [];\nlet currentUser = null;\nlet saveTimer = null;"
+    declaration_new = "let syncErrors = [];\nlet groups = [];\nlet users = [];\nlet properties = [];\nlet propertyCleaners = [];\nlet currentUser = null;\nlet emailInboxConfig = [];\nlet ownerEmailSettings = [];\nlet emailMessages = [];\nlet channelListings = [];\nlet saveTimer = null;"
+    if "let ownerEmailSettings" not in text:
+        if declaration_old in text:
+            text = text.replace(declaration_old, declaration_new, 1)
+        else:
+            text = text.replace("let saveTimer = null;", "let emailInboxConfig = [];\nlet ownerEmailSettings = [];\nlet emailMessages = [];\nlet channelListings = [];\nlet saveTimer = null;", 1)
+
+    hydration_old = "  currentUser = state.current_user || currentUser;\n  rooms = state.rooms || [];"
+    hydration_new = "  currentUser = state.current_user || currentUser;\n  emailInboxConfig = state.emailInboxConfig || [];\n  ownerEmailSettings = state.ownerEmailSettings || [];\n  emailMessages = state.emailMessages || [];\n  channelListings = state.channelListings || [];\n  rooms = state.rooms || [];"
+    if "ownerEmailSettings = state.ownerEmailSettings" not in text:
+        if hydration_old in text:
+            text = text.replace(hydration_old, hydration_new, 1)
+        else:
+            text = text.replace("  rooms = state.rooms || [];", "  emailInboxConfig = state.emailInboxConfig || [];\n  ownerEmailSettings = state.ownerEmailSettings || [];\n  emailMessages = state.emailMessages || [];\n  channelListings = state.channelListings || [];\n  rooms = state.rooms || [];", 1)
+    return text.encode("utf-8")
+'''
+if "_pms_html_state_hydration_v1" not in source_text:
+    if auto_sync_marker in source_text:
+        source_text = source_text.replace(auto_sync_marker, html_state_hydration_patch + "\n" + auto_sync_marker, 1)
+    else:
+        source_text += "\n" + html_state_hydration_patch + "\n"
 auto_sync_block = '''_pms_ical_sync_lock = threading.Lock()
 
 def _pms_run_scheduled_ical_sync():
