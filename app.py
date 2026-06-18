@@ -1624,8 +1624,55 @@ def filter_state_for_user(state, actor):
 
 
 _pms_channel_base_save_state_from_payload = save_state_from_payload
+def _pms_channel_room_has_sync(state, room_id):
+    room = next((item for item in state.get("rooms", []) if isinstance(item, dict) and item.get("id") == room_id), {})
+    legacy_fields = ("airbnb_ical", "booking_ical", "vrbo_ical", "other_ical")
+    if any(_pms_channel_text(room.get(field)) for field in legacy_fields):
+        return True
+    for item in state.get("channelListings", []):
+        if not isinstance(item, dict) or item.get("room_id") != room_id:
+            continue
+        if _pms_channel_text(item.get("ical_url")) or _pms_channel_text(item.get("listing_url")) or item.get("is_new_listing"):
+            return True
+    return False
+
+def _pms_channel_room_property_id(room):
+    if not isinstance(room, dict):
+        return ""
+    return room.get("property_id") or "property_default"
+
+def _pms_channel_guard_structural_delete(payload, actor=None):
+    current = normalize_state(load_state())
+    if actor and actor.get("role") != "admin":
+        allowed_property_ids = actor_property_ids(actor, current)
+    else:
+        allowed_property_ids = {prop.get("id") for prop in current.get("properties", []) if isinstance(prop, dict) and prop.get("id")}
+    if "properties" in payload:
+        incoming_property_ids = {
+            item.get("id") for item in payload.get("properties", [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        for prop in current.get("properties", []):
+            if not isinstance(prop, dict) or prop.get("id") not in allowed_property_ids or prop.get("id") in incoming_property_ids:
+                continue
+            room_count = sum(1 for room in current.get("rooms", []) if isinstance(room, dict) and _pms_channel_room_property_id(room) == prop.get("id"))
+            if room_count:
+                raise RuntimeError("这个房源下面还有房间，不能删除房源。请先进入房间管理处理房间。")
+    if "rooms" in payload:
+        incoming_room_ids = {
+            item.get("id") for item in payload.get("rooms", [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        for room in current.get("rooms", []):
+            if not isinstance(room, dict) or _pms_channel_room_property_id(room) not in allowed_property_ids or room.get("id") in incoming_room_ids:
+                continue
+            if _pms_channel_room_has_sync(current, room.get("id")):
+                raise RuntimeError("这个房间还有 iCal/渠道同步，不能删除。请先清空 iCal/渠道后再删除房间。")
+
 def save_state_from_payload(payload, actor=None):
     working = dict(payload or {})
+    if "properties" in working or "rooms" in working:
+        _pms_channel_guard_structural_delete(working, actor)
     incoming_channels = working.pop("channelListings", None)
     if incoming_channels is None:
         return _pms_channel_base_save_state_from_payload(working, actor)
