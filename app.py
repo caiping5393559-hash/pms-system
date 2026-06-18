@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-18-mail-save-v3"
+PMS_PATCH_VERSION = "2026-06-18-mail-events-v1"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -2091,6 +2091,151 @@ if "_pms_property_mail_forwarding_v1" not in source_text:
     else:
         source_text += "\n" + property_mail_backend + "\n"
 
+mail_events_backend = r'''
+_pms_mail_events_v1 = True
+
+if "mailEvents" not in STATE_KEYS:
+    STATE_KEYS.append("mailEvents")
+
+_pms_mail_events_base_default_state = default_state
+def default_state():
+    state = _pms_mail_events_base_default_state()
+    state.setdefault("mailEvents", [])
+    return state
+
+
+def _pms_mail_event_text(value, limit=1000):
+    return str(value or "").strip()[:limit]
+
+
+def _pms_mail_event_property_ids(state):
+    return {prop.get("id") for prop in state.get("properties", []) if isinstance(prop, dict) and prop.get("id")}
+
+
+def _pms_mail_event_room_property(room_id, state):
+    for room in state.get("rooms", []):
+        if isinstance(room, dict) and room.get("id") == room_id:
+            return room.get("property_id") or next(iter(_pms_mail_event_property_ids(state)), "")
+    return ""
+
+
+def _pms_mail_event_clean(item, state=None):
+    raw = item if isinstance(item, dict) else {}
+    state = state or {}
+    now = datetime.utcnow().isoformat(timespec="seconds")
+    room_id = _pms_mail_event_text(raw.get("room_id") or raw.get("roomId"), 120)
+    property_id = _pms_mail_event_text(raw.get("property_id") or raw.get("propertyId"), 120)
+    if not property_id and room_id:
+        property_id = _pms_mail_event_room_property(room_id, state)
+    message_id = _pms_mail_event_text(raw.get("message_id") or raw.get("messageId"), 160)
+    event_id = _pms_mail_event_text(raw.get("id"), 180) or ("mail_" + hashlib.sha1((message_id or (property_id + "|" + now)).encode("utf-8")).hexdigest()[:18])
+    return {
+        "id": event_id,
+        "message_id": message_id,
+        "thread_id": _pms_mail_event_text(raw.get("thread_id") or raw.get("threadId"), 160),
+        "received_at": _pms_mail_event_text(raw.get("received_at") or raw.get("receivedAt") or raw.get("date"), 40),
+        "source_email": _pms_mail_event_text(raw.get("source_email") or raw.get("sourceEmail"), 220),
+        "target_mail": _pms_mail_event_text(raw.get("target_mail") or raw.get("targetMail"), 220),
+        "property_id": property_id,
+        "room_id": room_id,
+        "listing_id": _pms_mail_event_text(raw.get("listing_id") or raw.get("listingId"), 160),
+        "reservation_code": _pms_mail_event_text(raw.get("reservation_code") or raw.get("reservationCode"), 120),
+        "guest": _pms_mail_event_text(raw.get("guest") or raw.get("guest_name") or raw.get("guestName"), 160),
+        "event_type": _pms_mail_event_text(raw.get("event_type") or raw.get("eventType") or "notice", 60),
+        "severity": _pms_mail_event_text(raw.get("severity") or "normal", 40),
+        "title": _pms_mail_event_text(raw.get("title") or raw.get("subject"), 240),
+        "summary": _pms_mail_event_text(raw.get("summary") or raw.get("body_summary") or raw.get("bodySummary"), 1600),
+        "checkin": _pms_mail_event_text(raw.get("checkin") or raw.get("start_date") or raw.get("startDate"), 40),
+        "checkout": _pms_mail_event_text(raw.get("checkout") or raw.get("end_date") or raw.get("endDate"), 40),
+        "amount": _pms_mail_event_text(raw.get("amount"), 80),
+        "status": _pms_mail_event_text(raw.get("status") or "open", 60),
+        "action_status": _pms_mail_event_text(raw.get("action_status") or raw.get("actionStatus"), 240),
+        "raw_subject": _pms_mail_event_text(raw.get("raw_subject") or raw.get("rawSubject") or raw.get("subject"), 300),
+        "created_at": _pms_mail_event_text(raw.get("created_at") or raw.get("createdAt")) or now,
+        "updated_at": _pms_mail_event_text(raw.get("updated_at") or raw.get("updatedAt")) or now,
+    }
+
+
+_pms_mail_events_base_normalize_state = normalize_state
+def normalize_state(raw):
+    state = _pms_mail_events_base_normalize_state(raw)
+    valid_properties = _pms_mail_event_property_ids(state)
+    by_id = {}
+    for item in state.get("mailEvents", []):
+        if not isinstance(item, dict):
+            continue
+        clean = _pms_mail_event_clean(item, state)
+        property_id = clean.get("property_id")
+        if property_id and (not valid_properties or property_id in valid_properties):
+            by_id[clean["id"]] = clean
+    state["mailEvents"] = sorted(by_id.values(), key=lambda x: x.get("received_at") or x.get("created_at") or "", reverse=True)[:1000]
+    return state
+
+
+_pms_mail_events_base_filter_state_for_user = filter_state_for_user
+def filter_state_for_user(state, actor):
+    normalized = normalize_state(state)
+    filtered = _pms_mail_events_base_filter_state_for_user(normalized, actor)
+    role = (actor or {}).get("role")
+    if role == "admin":
+        filtered["mailEvents"] = normalized.get("mailEvents", [])
+        return filtered
+    if role == "owner":
+        property_ids = {prop.get("id") for prop in filtered.get("properties", []) if isinstance(prop, dict) and prop.get("id")}
+        filtered["mailEvents"] = [
+            item for item in normalized.get("mailEvents", [])
+            if item.get("property_id") in property_ids
+        ]
+        return filtered
+    filtered["mailEvents"] = []
+    return filtered
+
+
+def save_mail_events(payload, actor=None):
+    state = normalize_state(load_state())
+    rows = payload.get("mailEvents") if isinstance(payload, dict) else payload
+    if isinstance(rows, dict):
+        rows = [rows]
+    if not isinstance(rows, list):
+        raise RuntimeError("mailEvents required")
+    allowed_property_ids = _pms_mail_event_property_ids(state) if (actor and actor.get("role") == "admin") else actor_property_ids(actor, state)
+    by_id = {
+        item.get("id"): item
+        for item in state.get("mailEvents", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    saved_rows = []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        clean = _pms_mail_event_clean(raw, state)
+        if not clean.get("property_id") or clean.get("property_id") not in allowed_property_ids:
+            raise RuntimeError("mail event property permission required")
+        if raw.get("_delete") or raw.get("_clear"):
+            by_id.pop(clean.get("id"), None)
+            continue
+        by_id[clean["id"]] = clean
+        saved_rows.append(clean)
+    state["mailEvents"] = sorted(by_id.values(), key=lambda x: x.get("received_at") or x.get("created_at") or "", reverse=True)[:1000]
+    return save_state(state), saved_rows
+
+
+_pms_mail_events_base_save_state_from_payload = save_state_from_payload
+def save_state_from_payload(payload, actor=None):
+    working = dict(payload or {})
+    incoming_mail_events = working.pop("mailEvents", None)
+    if incoming_mail_events is None:
+        return _pms_mail_events_base_save_state_from_payload(working, actor)
+    saved = _pms_mail_events_base_save_state_from_payload(working, actor) if working else normalize_state(load_state())
+    final_state, _rows = save_mail_events(incoming_mail_events, actor)
+    return final_state
+'''
+if "_pms_mail_events_v1" not in source_text:
+    if auto_sync_marker in source_text:
+        source_text = source_text.replace(auto_sync_marker, mail_events_backend + "\n" + auto_sync_marker, 1)
+    else:
+        source_text += "\n" + mail_events_backend + "\n"
+
 cleaning_confirm_backend = r'''
 _pms_cleaning_confirm_v1 = True
 
@@ -2274,6 +2419,14 @@ if "_pms_property_mail_http_v1" not in source_text:
                 payload = json.loads(raw.decode("utf-8") or "{}")
                 saved, row = save_property_mail_setting(payload, user)
                 json_response(self, {"ok": True, "propertyMail": row, "state": filter_state_for_user(saved, user)})
+                return
+            if path == "/api/mail-events":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved, rows = save_mail_events(payload, user)
+                json_response(self, {"ok": True, "mailEvents": rows, "state": filter_state_for_user(saved, user)})
                 return
 '''
     if property_mail_route_hook not in source_text:
