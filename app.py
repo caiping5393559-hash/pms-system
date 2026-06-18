@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-18-mail-events-v4"
+PMS_PATCH_VERSION = "2026-06-18-mail-events-v5"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -2236,6 +2236,293 @@ if "_pms_mail_events_v1" not in source_text:
     else:
         source_text += "\n" + mail_events_backend + "\n"
 
+mail_raw_parser_backend = r'''
+_pms_mail_raw_parser_v1 = True
+
+
+def _pms_mail_raw_list(value):
+    if isinstance(value, list):
+        return [str(x or "").strip() for x in value if str(x or "").strip()]
+    if value is None:
+        return []
+    return [str(value or "").strip()] if str(value or "").strip() else []
+
+
+def _pms_mail_raw_value(raw, keys, limit=5000):
+    raw = raw if isinstance(raw, dict) else {}
+    for key in keys:
+        value = raw.get(key)
+        if value is None:
+            continue
+        if isinstance(value, list):
+            value = ", ".join(_pms_mail_raw_list(value))
+        text = str(value or "").strip()
+        if text:
+            return text[:limit]
+    return ""
+
+
+def _pms_mail_raw_compact(text, limit=1800):
+    text = re.sub(r"\s+", " ", str(text or "")).strip()
+    return text[:limit]
+
+
+def _pms_mail_raw_year(value):
+    text = str(value or "")
+    match = re.search(r"(\d{4})", text)
+    if match:
+        return int(match.group(1))
+    return datetime.utcnow().year
+
+
+def _pms_mail_iso_date(year, month, day):
+    try:
+        return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+    except Exception:
+        return ""
+
+
+def _pms_mail_extract_cn_dates(text, base_year):
+    text = str(text or "")
+    checkin = ""
+    checkout = ""
+    full_range = re.search(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s*(?:-|->|至|到|~|—|－)\s*(?:(\d{4})[/-])?(\d{1,2})[/-](\d{1,2})", text)
+    if full_range:
+        checkin = _pms_mail_iso_date(full_range.group(1), full_range.group(2), full_range.group(3))
+        checkout = _pms_mail_iso_date(full_range.group(4) or full_range.group(1), full_range.group(5), full_range.group(6))
+        return checkin, checkout
+    cn_full = re.search(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?\s*(?:至|到|-|~|—|－)\s*(?:(\d{4})\s*年\s*)?(\d{1,2})\s*月\s*(\d{1,2})\s*日", text)
+    if cn_full:
+        checkin = _pms_mail_iso_date(cn_full.group(1), cn_full.group(2), cn_full.group(3))
+        checkout = _pms_mail_iso_date(cn_full.group(4) or cn_full.group(1), cn_full.group(5), cn_full.group(6))
+        return checkin, checkout
+    same_month = re.search(r"(\d{1,2})\s*月\s*(\d{1,2})\s*日?\s*(?:至|到|-|~|—|－)\s*(\d{1,2})\s*日", text)
+    if same_month:
+        checkin = _pms_mail_iso_date(base_year, same_month.group(1), same_month.group(2))
+        checkout = _pms_mail_iso_date(base_year, same_month.group(1), same_month.group(3))
+    in_match = re.search(r"(?:入住|抵达|Check.?in)[^\d]{0,30}(\d{1,2})\s*月\s*(\d{1,2})\s*日", text, re.I)
+    out_match = re.search(r"(?:退房|离开|Check.?out)[^\d]{0,30}(\d{1,2})\s*月\s*(\d{1,2})\s*日", text, re.I)
+    if in_match:
+        checkin = _pms_mail_iso_date(base_year, in_match.group(1), in_match.group(2))
+    if out_match:
+        checkout = _pms_mail_iso_date(base_year, out_match.group(1), out_match.group(2))
+    if not checkin:
+        arrive = re.search(r"将于\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日.*?(?:抵达|入住)", text)
+        if arrive:
+            checkin = _pms_mail_iso_date(base_year, arrive.group(1), arrive.group(2))
+    return checkin, checkout
+
+
+def _pms_mail_extract_guest(subject, text):
+    patterns = [
+        r"预订已确认\s*-\s*(.+?)将于",
+        r"(.+?)想要更改预订",
+        r"回复(.+?)的咨询",
+        r"为(.+?)(?:撰写评价|写评价)",
+        r"(.+?)给了你\s*\d+\s*星好评",
+        r"房客\s*([A-Za-z\u4e00-\u9fff][A-Za-z\u4e00-\u9fff\s.'-]{0,60})",
+        r"guest\s+([A-Za-z][A-Za-z\s.'-]{0,60})",
+    ]
+    haystacks = [subject or "", text or ""]
+    for source in haystacks:
+        for pattern in patterns:
+            match = re.search(pattern, source, re.I)
+            if match:
+                return _pms_mail_raw_compact(match.group(1), 80).strip(" ，,。")
+    return ""
+
+
+def _pms_mail_extract_room(text):
+    for pattern in [r"(新增房间[A-Za-z0-9\u4e00-\u9fff]{1,8})", r"(房间[A-Za-z0-9\u4e00-\u9fff]{1,8})", r"(\d+个房间整套)"]:
+        match = re.search(pattern, str(text or ""))
+        if match:
+            return _pms_mail_raw_compact(match.group(1), 80)
+    return ""
+
+
+def _pms_mail_extract_listing_id(text):
+    text = str(text or "")
+    for pattern in [r"/rooms/(\d{8,})", r"项目\s*#?\s*(\d{8,})", r"listing(?:\s+id)?\D{0,10}(\d{8,})", r"房源\D{0,10}(\d{8,})"]:
+        match = re.search(pattern, text, re.I)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def _pms_mail_extract_reservation(text):
+    match = re.search(r"\bH[A-Z0-9]{7,14}\b", str(text or ""))
+    return match.group(0) if match else ""
+
+
+def _pms_mail_classify(subject, text):
+    blob = f"{subject}\n{text}"
+    if re.search(r"取消|cancel", blob, re.I):
+        return "cancellation", "warn", "cancelled"
+    if re.search(r"更改预订|预订已更新|reservation change|updated", blob, re.I):
+        return "reservation_change", "warn", "need_review"
+    if re.search(r"预订已确认|新预订|new booking|confirmed", blob, re.I):
+        return "new_booking", "normal", "new"
+    if re.search(r"咨询|申请已过期|inquiry|request expired", blob, re.I):
+        return "inquiry", "warn", "need_reply"
+    if re.search(r"评价|review", blob, re.I):
+        return "review", "warn", "need_review"
+    if re.search(r"款项|收款|发放|payout|payment|\$[0-9]", blob, re.I):
+        return "payment", "normal", "open"
+    if re.search(r"投诉|申诉|调解中心|resolution|用户支持团队|support|屏蔽|开放|unblock|blocked", blob, re.I):
+        return "support", "warn", "need_review"
+    return "notice", "normal", "open"
+
+
+def _pms_mail_event_title(event_type, guest, checkin, checkout, subject):
+    date_text = checkin or checkout or ""
+    unknown_guest = "\u672a\u77e5\u5ba2\u4eba"
+    if event_type == "new_booking":
+        return f"\u65b0\u8ba2\u5355\uff1a{guest or unknown_guest} {date_text}"
+    if event_type == "cancellation":
+        return f"\u8ba2\u5355\u53d6\u6d88\uff1a{guest or unknown_guest} {date_text}"
+    if event_type == "reservation_change":
+        return f"\u8ba2\u5355\u66f4\u6539\uff1a{guest or unknown_guest}"
+    if event_type == "inquiry":
+        return f"\u54a8\u8be2\uff1a{guest or unknown_guest}"
+    if event_type == "review":
+        return f"\u8bc4\u4ef7\u63d0\u9192\uff1a{guest or unknown_guest}"
+    if event_type == "payment":
+        return "\u6b3e\u9879\u901a\u77e5"
+    if event_type == "support":
+        return "\u7231\u5f7c\u8fce\u5ba2\u670d/\u98ce\u9669\u901a\u77e5"
+    return subject[:80] if subject else "\u90ae\u4ef6\u901a\u77e5"
+
+
+def _pms_mail_action_status(event_type, status, text):
+    if event_type == "cancellation":
+        return "\u5165\u4f4f\u524d\u53d6\u6d88\u4e0d\u751f\u6210\u4fdd\u6d01\uff1b\u5982\u5df2\u5165\u4f4f\u540e\u53d6\u6d88\uff0c\u9700\u8981\u627e\u623f\u4e1c\u786e\u8ba4\u662f\u5426\u5b89\u6392\u6253\u626b"
+    if event_type == "new_booking":
+        return "\u6838\u5bf9 iCal \u662f\u5426\u5df2\u540c\u6b65\uff0c\u5e76\u68c0\u67e5\u9000\u623f\u4fdd\u6d01\u4efb\u52a1"
+    if event_type == "reservation_change":
+        return "\u9700\u8981\u786e\u8ba4\u6539\u5355\u662f\u5426\u5df2\u88ab\u63a5\u53d7\uff0c\u4eba\u6570/\u65e5\u671f/\u4fdd\u6d01\u662f\u5426\u9700\u8981\u66f4\u65b0"
+    if event_type == "inquiry":
+        return "\u9700\u8981\u623f\u4e1c\u56de\u590d"
+    if event_type == "review":
+        return "\u53ef\u51b3\u5b9a\u662f\u5426\u64b0\u5199\u8bc4\u4ef7"
+    if event_type == "support":
+        if re.search(r"\u5f00\u653e|unblock|opened|unblocked", text or "", re.I):
+            return "\u5e73\u53f0\u5df2\u89e3\u9664\u65e5\u5386\u5c4f\u853d\uff0c\u9700\u4e0e iCal \u9501\u5b9a\u5386\u53f2\u5173\u8054"
+        return "\u9700\u8981\u623f\u4e1c\u67e5\u770b\u5e76\u5904\u7406\u5e73\u53f0\u5ba2\u670d\u6d88\u606f"
+    return status
+
+
+def _pms_mail_match_room(property_id, listing_id, room_name, text, state):
+    if listing_id:
+        needle = str(listing_id)
+        for listing in state.get("channelListings", []):
+            if not isinstance(listing, dict):
+                continue
+            if str(listing.get("property_id") or "") != str(property_id):
+                continue
+            try:
+                hay = json.dumps(listing, ensure_ascii=False)
+            except Exception:
+                hay = str(listing)
+            if needle and needle in hay and listing.get("room_id"):
+                return str(listing.get("room_id"))
+    body = str(text or "")
+    for room in state.get("rooms", []):
+        if not isinstance(room, dict):
+            continue
+        if str(room.get("property_id") or "") != str(property_id):
+            continue
+        name = str(room.get("name") or "")
+        if name and (name == room_name or name in body):
+            return str(room.get("id") or "")
+    return ""
+
+
+def _pms_mail_event_from_raw(raw, property_id, state):
+    subject = _pms_mail_raw_value(raw, ["subject", "title"], 500)
+    body = _pms_mail_raw_value(raw, ["body", "text", "plain", "html", "snippet", "summary"], 20000)
+    snippet = _pms_mail_raw_value(raw, ["snippet", "summary"], 2000)
+    combined = "\n".join([subject, body, snippet])
+    received_at = _pms_mail_raw_value(raw, ["email_ts", "received_at", "receivedAt", "date", "created_at"], 80) or datetime.utcnow().isoformat(timespec="seconds")
+    year = _pms_mail_raw_year(received_at)
+    checkin, checkout = _pms_mail_extract_cn_dates(combined, year)
+    guest = _pms_mail_extract_guest(subject, combined)
+    listing_id = _pms_mail_extract_listing_id(combined)
+    reservation_code = _pms_mail_extract_reservation(combined)
+    room_name = _pms_mail_extract_room(combined)
+    event_type, severity, status = _pms_mail_classify(subject, combined)
+    if event_type == "support" and re.search(r"\u5f00\u653e|unblock|opened|unblocked", combined, re.I):
+        status = "unblocked"
+    source_email = _pms_mail_raw_value(raw, ["source_email", "sourceEmail"], 220)
+    if not source_email:
+        to_values = _pms_mail_raw_list(raw.get("to") or raw.get("to_") or raw.get("recipients"))
+        source_email = next((x for x in to_values if "@" in x and "gmail.com" not in x.lower()), "")
+    target_mail = _pms_mail_raw_value(raw, ["target_mail", "targetMail", "delivered_to"], 220)
+    message_id = _pms_mail_raw_value(raw, ["id", "message_id", "messageId"], 180)
+    if not message_id:
+        message_id = hashlib.sha1((subject + "|" + received_at + "|" + body[:500]).encode("utf-8")).hexdigest()[:24]
+    room_id = _pms_mail_match_room(property_id, listing_id, room_name, combined, state)
+    summary = _pms_mail_raw_compact(snippet or body or subject, 900)
+    if event_type in {"new_booking", "cancellation"}:
+        pieces = []
+        if guest:
+            pieces.append(guest)
+        if checkin or checkout:
+            pieces.append(f"{checkin or '?'} -> {checkout or '?'}")
+        if reservation_code:
+            pieces.append(f"\u786e\u8ba4\u7801 {reservation_code}")
+        if pieces:
+            summary = f"{_pms_mail_event_title(event_type, guest, checkin, checkout, subject)}\uff1a" + "\uff0c".join(pieces) + "\u3002"
+    event_id = "mail_" + hashlib.sha1((message_id + "|" + str(property_id)).encode("utf-8")).hexdigest()[:18]
+    return {
+        "id": event_id,
+        "message_id": message_id,
+        "thread_id": _pms_mail_raw_value(raw, ["thread_id", "threadId"], 180),
+        "received_at": received_at,
+        "source_email": source_email,
+        "target_mail": target_mail,
+        "property_id": property_id,
+        "room_id": room_id,
+        "room_name": room_name,
+        "listing_id": listing_id,
+        "reservation_code": reservation_code,
+        "guest": guest,
+        "event_type": event_type,
+        "severity": severity,
+        "title": _pms_mail_event_title(event_type, guest, checkin, checkout, subject),
+        "summary": summary,
+        "checkin": checkin,
+        "checkout": checkout,
+        "status": status,
+        "action_status": _pms_mail_action_status(event_type, status, combined),
+        "raw_subject": subject,
+        "created_at": datetime.utcnow().isoformat(timespec="seconds"),
+        "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+    }
+
+
+def parse_mail_events(payload, actor=None):
+    state = normalize_state(load_state())
+    property_id = _pms_mail_event_text((payload or {}).get("property_id") or (payload or {}).get("propertyId"), 120)
+    allowed_property_ids = _pms_mail_event_property_ids(state) if (actor and actor.get("role") == "admin") else actor_property_ids(actor, state)
+    if not property_id and len(allowed_property_ids) == 1:
+        property_id = next(iter(allowed_property_ids))
+    if not property_id or property_id not in allowed_property_ids:
+        raise RuntimeError("mail parse property permission required")
+    rows = (payload or {}).get("rawEmails") or (payload or {}).get("raw_emails") or (payload or {}).get("emails") or (payload or {}).get("messages")
+    if isinstance(rows, dict):
+        rows = [rows]
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError("rawEmails required")
+    parsed = [_pms_mail_event_from_raw(raw, property_id, state) for raw in rows if isinstance(raw, dict)]
+    saved, clean_rows = save_mail_events({"mailEvents": parsed}, actor)
+    return saved, clean_rows
+'''
+if "_pms_mail_raw_parser_v1" not in source_text:
+    if auto_sync_marker in source_text:
+        source_text = source_text.replace(auto_sync_marker, mail_raw_parser_backend + "\n" + auto_sync_marker, 1)
+    else:
+        source_text += "\n" + mail_raw_parser_backend + "\n"
+
 cleaning_confirm_backend = r'''
 _pms_cleaning_confirm_v1 = True
 
@@ -2426,6 +2713,14 @@ if "_pms_property_mail_http_v1" not in source_text:
                     return
                 payload = json.loads(raw.decode("utf-8") or "{}")
                 saved, rows = save_mail_events(payload, user)
+                json_response(self, {"ok": True, "mailEvents": rows, "state": filter_state_for_user(saved, user)})
+                return
+            if path == "/api/mail-events/parse":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved, rows = parse_mail_events(payload, user)
                 json_response(self, {"ok": True, "mailEvents": rows, "state": filter_state_for_user(saved, user)})
                 return
 '''
