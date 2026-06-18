@@ -22,10 +22,17 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
+PMS_PATCH_VERSION = "2026-06-18-cleaning-task-v3"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
         "import urllib.error\nimport threading\nimport time\n",
+        1,
+    )
+if "from zoneinfo import ZoneInfo\n" not in source_text:
+    source_text = source_text.replace(
+        "from email.utils import formatdate\n",
+        "from email.utils import formatdate\nfrom zoneinfo import ZoneInfo\n",
         1,
     )
 
@@ -437,6 +444,19 @@ if new_get_start not in source_text:
     if old_get_start not in source_text:
         raise RuntimeError("GET route hook not found")
     source_text = source_text.replace(old_get_start, new_get_start, 1)
+
+version_route_hook = '''            if path == "/api/health":
+                json_response(self, {"ok": True, "firebase_project": firebase_project_id(), "driver": "firestore-rest"})
+                return
+'''
+version_route = f'''            if path == "/api/version":
+                json_response(self, {{"ok": True, "version": "{PMS_PATCH_VERSION}"}})
+                return
+''' + version_route_hook
+if 'version": "2026-06-18-mail-save-v2"' not in source_text:
+    if version_route_hook not in source_text:
+        raise RuntimeError("version route hook not found")
+    source_text = source_text.replace(version_route_hook, version_route, 1)
 
 locked_ical_parser = r'''
 def ical_clean_text(value):
@@ -1020,11 +1040,14 @@ _pms_channel_listing_model_v1 = True
 
 if "channelListings" not in STATE_KEYS:
     STATE_KEYS.append("channelListings")
+if "icalSyncHistory" not in STATE_KEYS:
+    STATE_KEYS.append("icalSyncHistory")
 
 _pms_channel_base_default_state = default_state
 def default_state():
     state = _pms_channel_base_default_state()
     state.setdefault("channelListings", [])
+    state.setdefault("icalSyncHistory", [])
     return state
 
 
@@ -1133,6 +1156,7 @@ _pms_channel_base_normalize_state = normalize_state
 def normalize_state(raw):
     state = _pms_channel_base_normalize_state(raw)
     state.setdefault("channelListings", [])
+    state.setdefault("icalSyncHistory", [])
     return _pms_channel_migrate_legacy_listings(state)
 
 
@@ -1157,6 +1181,49 @@ def _pms_channel_field(event_lines, name):
         if head.split(";", 1)[0].upper() == target:
             return tail.strip()
     return ""
+
+
+def _pms_channel_field_map(event_lines):
+    fields = {}
+    for line in event_lines:
+        head, sep, tail = line.partition(":")
+        if not sep:
+            continue
+        name = head.split(";", 1)[0].upper()
+        value = ical_clean_text(tail.strip())
+        if not name:
+            continue
+        if name in fields:
+            if isinstance(fields[name], list):
+                fields[name].append(value)
+            else:
+                fields[name] = [fields[name], value]
+        else:
+            fields[name] = value
+    return fields
+
+
+def _pms_channel_field_details(event_lines):
+    rows = []
+    for line in event_lines:
+        head, sep, tail = str(line or "").partition(":")
+        if not sep:
+            continue
+        name = head.split(";", 1)[0].upper()
+        params = head.split(";", 1)[1] if ";" in head else ""
+        rows.append({
+            "name": name,
+            "raw_name": head,
+            "params": params,
+            "value": ical_clean_text(tail.strip()),
+            "raw": line,
+        })
+    return rows
+
+
+def _pms_channel_event_excerpt(event_lines, limit=3000):
+    text = "\n".join(str(line or "") for line in event_lines)
+    return text[:limit]
 
 
 def _pms_channel_parse_ics(text, listing):
@@ -1212,17 +1279,283 @@ def _pms_channel_parse_ics(text, listing):
     return rows
 
 
+def _pms_channel_date_overlaps(checkin, checkout, date_text):
+    checkin = str(checkin or "")
+    checkout = str(checkout or "")
+    date_text = str(date_text or "")
+    return bool(checkin and checkout and date_text and checkin <= date_text < checkout)
+
+
+def _pms_channel_raw_event_snapshots(text, listing):
+    rows = []
+    listing_id = listing.get("id")
+    room_id = listing.get("room_id")
+    platform = listing.get("platform") or "iCal"
+    current = []
+    inside = False
+    for line in _pms_channel_unfold_ics(text):
+        token = line.strip().upper()
+        if token == "BEGIN:VEVENT":
+            inside = True
+            current = []
+            continue
+        if token == "END:VEVENT" and inside:
+            fields = _pms_channel_field_map(current)
+            raw_excerpt = _pms_channel_event_excerpt(current)
+            checkin = parse_date_value(_pms_channel_field(current, "DTSTART"))
+            checkout = parse_date_value(_pms_channel_field(current, "DTEND"))
+            summary = ical_clean_text(_pms_channel_field(current, "SUMMARY"))
+            description = ical_clean_text(_pms_channel_field(current, "DESCRIPTION"))
+            status = ical_clean_text(_pms_channel_field(current, "STATUS"))
+            uid = _pms_channel_text(_pms_channel_field(current, "UID"))
+            lock_reason = ical_lock_reason(summary, description, status)
+            if checkin and checkout and checkout > checkin:
+                rows.append({
+                    "uid": uid,
+                    "uid_hash": hashlib.sha1(uid.encode("utf-8")).hexdigest()[:16] if uid else "",
+                    "room_id": room_id,
+                    "channel_listing_id": listing_id,
+                    "platform": platform,
+                    "checkin": checkin,
+                    "checkout": checkout,
+                    "kind": "lock" if lock_reason else "booking",
+                    "is_locked": bool(lock_reason),
+                    "lock_reason": lock_reason or "",
+                    "summary": summary,
+                    "status": status,
+                    "description": description[:300],
+                    "fields": fields,
+                    "fields_detailed": _pms_channel_field_details(current)[:120],
+                    "raw_lines": current[:120],
+                    "raw_excerpt": raw_excerpt,
+                    "raw_hash": hashlib.sha1(raw_excerpt.encode("utf-8")).hexdigest()[:16],
+                })
+            current = []
+            inside = False
+            continue
+        if inside:
+            current.append(line)
+    return rows
+
+
+def _pms_channel_event_history_snapshot(item):
+    return {
+        "uid": _pms_channel_text(item.get("external_event_uid") or item.get("uid")),
+        "uid_hash": hashlib.sha1(_pms_channel_text(item.get("external_event_uid") or item.get("uid")).encode("utf-8")).hexdigest()[:16] if _pms_channel_text(item.get("external_event_uid") or item.get("uid")) else "",
+        "checkin": _pms_channel_text(item.get("checkin")),
+        "checkout": _pms_channel_text(item.get("checkout")),
+        "kind": "lock" if item.get("is_locked") or item.get("booking_type") == "lock" else "booking",
+        "is_locked": bool(item.get("is_locked") or item.get("booking_type") == "lock"),
+        "lock_reason": _pms_channel_text(item.get("lock_reason")),
+        "summary": _pms_channel_text(item.get("summary") or item.get("status")),
+        "status": _pms_channel_text(item.get("status")),
+    }
+
+
+def _pms_channel_history_room(state, room_id):
+    return next((item for item in state.get("rooms", []) if isinstance(item, dict) and item.get("id") == room_id), {})
+
+
+def _pms_channel_append_ical_history(state, listing, synced_at, status, events=None, raw_events=None, error="", warning="", inferred_events=None, missing_events=None):
+    room = _pms_channel_history_room(state, listing.get("room_id"))
+    url = _pms_channel_text(listing.get("ical_url"))
+    raw_events = raw_events if raw_events is not None else [_pms_channel_event_history_snapshot(item) for item in (events or [])]
+    inferred_events = [_pms_channel_event_history_snapshot(item) for item in (inferred_events or [])]
+    missing_events = [_pms_channel_event_history_snapshot(item) for item in (missing_events or [])]
+    row = {
+        "id": "icalhist_" + hashlib.sha1(("|".join([_pms_channel_text(listing.get("id")), synced_at, url])).encode("utf-8")).hexdigest()[:24],
+        "synced_at": synced_at,
+        "property_id": room.get("property_id") or "property_default",
+        "room_id": listing.get("room_id"),
+        "room_name": room.get("name") or "",
+        "channel_listing_id": listing.get("id"),
+        "platform": listing.get("platform") or "iCal",
+        "channel_note": listing.get("channel_note") or "",
+        "url_hash": hashlib.sha1(url.encode("utf-8")).hexdigest()[:16] if url else "",
+        "status": status,
+        "event_count": len(raw_events),
+        "booking_count": sum(1 for item in raw_events if item.get("kind") != "lock"),
+        "lock_count": sum(1 for item in raw_events if item.get("kind") == "lock"),
+        "inferred_lock_count": len(inferred_events),
+        "missing_event_count": len(missing_events),
+        "events": raw_events[:120],
+        "inferred_events": inferred_events[:80],
+        "missing_events": missing_events[:80],
+        "warning": warning or "",
+        "error": error or "",
+    }
+    history = [item for item in state.get("icalSyncHistory", []) if isinstance(item, dict)]
+    history.append(row)
+    state["icalSyncHistory"] = history[-600:]
+    return row
+
+
+def _pms_channel_property_timezone(state, property_id):
+    prop = next((item for item in state.get("properties", []) if isinstance(item, dict) and item.get("id") == property_id), {})
+    return _pms_channel_text(prop.get("timezone") or prop.get("time_zone") or os.environ.get("PMS_DEFAULT_TIMEZONE") or "America/Los_Angeles")
+
+
+def _pms_channel_local_now(state, property_id):
+    tz_name = _pms_channel_property_timezone(state, property_id)
+    try:
+        return datetime.now(ZoneInfo(tz_name))
+    except Exception:
+        return datetime.utcnow()
+
+
+def _pms_channel_cancel_cutoff(state, property_id, checkin):
+    try:
+        base = datetime.strptime(str(checkin or "") + " 16:00", "%Y-%m-%d %H:%M")
+    except Exception:
+        return None
+    now = _pms_channel_local_now(state, property_id)
+    try:
+        return base.replace(tzinfo=now.tzinfo)
+    except Exception:
+        return base
+
+
+def _pms_channel_disappeared_cancel_status(state, booking, property_id):
+    cutoff = _pms_channel_cancel_cutoff(state, property_id, booking.get("checkin"))
+    now = _pms_channel_local_now(state, property_id)
+    if not cutoff:
+        return "unknown", now
+    return ("after_checkin_cutoff" if now >= cutoff else "before_checkin_cutoff"), now
+
+
+def _pms_channel_add_cancel_cleaning_review(state, booking, listing, synced_at):
+    if not isinstance(booking, dict):
+        return False
+    if booking.get("is_locked") or booking.get("booking_type") == "lock":
+        return False
+    room = _pms_channel_history_room(state, listing.get("room_id") or booking.get("room_id"))
+    property_id = room.get("property_id") or "property_default"
+    cancel_status, local_now = _pms_channel_disappeared_cancel_status(state, booking, property_id)
+    if cancel_status != "after_checkin_cutoff":
+        return False
+    uid = _pms_channel_text(booking.get("external_event_uid") or booking.get("id"))
+    stable = hashlib.sha1(("cancel-review|" + _pms_channel_text(listing.get("id")) + "|" + uid + "|" + _pms_channel_text(booking.get("checkin")) + "|" + _pms_channel_text(booking.get("checkout"))).encode("utf-8")).hexdigest()[:24]
+    note_id = "cancel_review_" + stable
+    notes = [item for item in state.get("cleaningNotes", []) if isinstance(item, dict)]
+    if any(item.get("id") == note_id for item in notes):
+        return False
+    room_id = listing.get("room_id") or booking.get("room_id")
+    review_date = local_now.date().isoformat() if hasattr(local_now, "date") else datetime.utcnow().date().isoformat()
+    platform = listing.get("platform") or booking.get("platform") or "iCal"
+    note = {
+        "id": note_id,
+        "date": review_date,
+        "target_id": room_id,
+        "target_type": "room",
+        "note": f"{platform} iCal 旧订单在入住日16:00后或入住后消失：{booking.get('checkin')} → {booking.get('checkout')}。请房东确认客人是否入住/退款，是否需要安排保洁；当天来不及可改到第二天。",
+        "priority": "保洁确认",
+        "note_type": "cancel_review",
+        "amount": 0,
+        "amount_present": False,
+        "source": "iCal取消复核",
+        "created_by": "系统",
+        "created_at": synced_at,
+        "cancellation_review": True,
+        "checkin": booking.get("checkin"),
+        "checkout": booking.get("checkout"),
+        "platform": platform,
+        "channel_listing_id": listing.get("id"),
+        "external_event_uid": uid,
+    }
+    notes.insert(0, note)
+    state["cleaningNotes"] = notes[:1000]
+    return True
+
+
+def _pms_channel_diagnostic_status(events, date_text):
+    matches = [item for item in events if _pms_channel_date_overlaps(item.get("checkin"), item.get("checkout"), date_text)]
+    if any(item.get("kind") == "lock" for item in matches):
+        return "locked"
+    if matches:
+        return "booked"
+    return "empty"
+
+
+def inspect_ical_diagnostics(payload, actor=None):
+    state = normalize_state(load_state())
+    allowed_property_ids = _pms_channel_allowed_property_ids(actor, state)
+    allowed_room_ids = {
+        room.get("id") for room in state.get("rooms", [])
+        if isinstance(room, dict) and (room.get("property_id") or "property_default") in allowed_property_ids
+    }
+    room_id = _pms_channel_text(payload.get("room_id") or payload.get("roomId"))
+    channel_id = _pms_channel_text(payload.get("channel_listing_id") or payload.get("channelListingId") or payload.get("channel_id") or payload.get("channelId"))
+    date_text = _pms_channel_text(payload.get("date")) or datetime.utcnow().date().isoformat()
+    listings = [
+        item for item in normalize_state(state).get("channelListings", [])
+        if isinstance(item, dict)
+        and item.get("room_id") in allowed_room_ids
+        and (not room_id or item.get("room_id") == room_id)
+        and (not channel_id or item.get("id") == channel_id)
+    ]
+    results = []
+    now = datetime.utcnow().isoformat(timespec="seconds")
+    for listing in listings:
+        url = _pms_channel_text(listing.get("ical_url"))
+        base = {
+            "checked_at": now,
+            "date": date_text,
+            "room_id": listing.get("room_id"),
+            "channel_listing_id": listing.get("id"),
+            "platform": listing.get("platform") or "iCal",
+            "channel_note": listing.get("channel_note") or "",
+            "url_hash": hashlib.sha1(url.encode("utf-8")).hexdigest()[:16] if url else "",
+        }
+        if not url:
+            base.update({"status": "no_url", "events": [], "date_events": [], "message": "这个渠道还没有填写导入 PMS 的 iCal"})
+            results.append(base)
+            continue
+        try:
+            text = fetch_text(url)
+            events = _pms_channel_raw_event_snapshots(text, listing)
+            date_events = [item for item in events if _pms_channel_date_overlaps(item.get("checkin"), item.get("checkout"), date_text)]
+            base.update({
+                "status": _pms_channel_diagnostic_status(events, date_text),
+                "events": events[:160],
+                "date_events": date_events,
+                "event_count": len(events),
+                "booking_count": sum(1 for item in events if item.get("kind") != "lock"),
+                "lock_count": sum(1 for item in events if item.get("kind") == "lock"),
+                "message": "实时读取 iCal 成功",
+            })
+        except Exception as exc:
+            base.update({"status": "error", "events": [], "date_events": [], "error": str(exc), "message": "实时读取 iCal 失败"})
+        results.append(base)
+    return {
+        "room_id": room_id,
+        "channel_listing_id": channel_id,
+        "date": date_text,
+        "results": results,
+        "history": [
+            item for item in state.get("icalSyncHistory", [])
+            if isinstance(item, dict)
+            and (not room_id or item.get("room_id") == room_id)
+            and (not channel_id or item.get("channel_listing_id") == channel_id)
+        ][-20:],
+    }
+
+
 _pms_channel_base_filter_state_for_user = filter_state_for_user
 def filter_state_for_user(state, actor):
     filtered = _pms_channel_base_filter_state_for_user(state, actor)
     normalized = normalize_state(state)
     if not actor or actor.get("role") == "admin":
         filtered["channelListings"] = normalized.get("channelListings", [])
+        filtered["icalSyncHistory"] = normalized.get("icalSyncHistory", [])
         return filtered
     room_ids = {room.get("id") for room in filtered.get("rooms", []) if isinstance(room, dict)}
     filtered["channelListings"] = [
         item for item in normalized.get("channelListings", [])
         if item.get("room_id") in room_ids
+    ]
+    filtered["icalSyncHistory"] = [
+        item for item in normalized.get("icalSyncHistory", [])
+        if isinstance(item, dict) and item.get("room_id") in room_ids
     ]
     return filtered
 
@@ -1356,13 +1689,16 @@ def sync_icals(actor=None, property_id=None):
     ]
     listing_ids = {item.get("id") for item in listings if item.get("id")}
     previous_counts = {}
+    previous_bookings_by_listing = {}
     for booking in state.get("bookings", []):
         if not isinstance(booking, dict) or booking.get("source") != "ical":
             continue
         listing_id = booking.get("channel_listing_id")
         if listing_id in listing_ids:
             previous_counts[listing_id] = previous_counts.get(listing_id, 0) + 1
+            previous_bookings_by_listing.setdefault(listing_id, []).append(booking)
     now = datetime.utcnow().isoformat(timespec="seconds")
+    today = datetime.utcnow().date().isoformat()
     state["bookings"] = [
         b for b in state.get("bookings", [])
         if not (
@@ -1379,6 +1715,37 @@ def sync_icals(actor=None, property_id=None):
         if not (isinstance(err, dict) and err.get("room_id") in allowed_room_ids)
     ]
     new_bookings = []
+    def _pms_missing_event_key(item):
+        return "|".join([
+            str(item.get("external_event_uid") or ""),
+            str(item.get("checkin") or ""),
+            str(item.get("checkout") or ""),
+            str(item.get("booking_type") or ("lock" if item.get("is_locked") else "booking")),
+        ])
+
+    def _pms_inferred_platform_lock(item, listing):
+        listing_id = str(listing.get("id") or "")
+        uid = str(item.get("external_event_uid") or item.get("id") or "")
+        checkin = str(item.get("checkin") or "")
+        checkout = str(item.get("checkout") or "")
+        stable_id = hashlib.sha1(("missing-lock|" + listing_id + "|" + uid + "|" + checkin + "|" + checkout).encode("utf-8")).hexdigest()[:24]
+        return {
+            "id": "ical_missing_lock_" + stable_id,
+            "room_id": listing.get("room_id") or item.get("room_id"),
+            "channel_listing_id": listing.get("id"),
+            "external_event_uid": "missing-lock-" + (uid or stable_id),
+            "platform": listing.get("platform") or item.get("platform") or "iCal",
+            "guest": "",
+            "checkin": checkin,
+            "checkout": checkout,
+            "status": "不开放锁定",
+            "source": "ical",
+            "booking_type": "lock",
+            "is_locked": True,
+            "lock_reason": "平台未返回原订单，系统按不开放锁定处理",
+            "summary": "平台状态变更锁定",
+        }
+
     for listing in listings:
         listing["last_sync"] = now
         listing["sync_error"] = ""
@@ -1389,23 +1756,55 @@ def sync_icals(actor=None, property_id=None):
         url = _pms_channel_text(listing.get("ical_url"))
         if not url:
             if listing.get("is_new_listing"):
+                _pms_channel_append_ical_history(state, listing, now, "new_listing_no_url", raw_events=[], warning="平台新发布房源，没有导入 iCal")
                 continue
             error = "请先填写这个渠道导出的 iCal，或确认这是平台新发布且没有订单"
             listing["sync_error"] = error
             sync_errors.append({"room_id": listing.get("room_id"), "channel_listing_id": listing.get("id"), "platform": listing.get("platform"), "error": error})
+            _pms_channel_append_ical_history(state, listing, now, "error", raw_events=[], error=error)
             continue
         try:
-            imported = _pms_channel_parse_ics(fetch_text(url), listing)
+            raw_ical_text = fetch_text(url)
+            raw_events = _pms_channel_raw_event_snapshots(raw_ical_text, listing)
+            imported = _pms_channel_parse_ics(raw_ical_text, listing)
             listing["synced_booking_count"] = len(imported)
-            if len(imported) == 0 and previous_count > 0 and not listing.get("is_new_listing"):
-                warning = f"iCal 本次返回 0 条，之前有 {previous_count} 条。可能是平台屏蔽、日历链接异常或订单被取消，请到平台确认后再判断是否可售。"
-                listing["sync_warning"] = warning
-                listing["availability_status"] = "needs_review"
+            imported_keys = {_pms_missing_event_key(item) for item in imported}
+            previous_future = [
+                item for item in previous_bookings_by_listing.get(listing.get("id"), [])
+                if str(item.get("checkout") or item.get("checkin") or "") >= today
+            ]
+            imported_ranges = {(str(item.get("checkin") or ""), str(item.get("checkout") or "")) for item in imported}
+            disappeared = [
+                item for item in previous_future
+                if _pms_missing_event_key(item) not in imported_keys
+                and (str(item.get("checkin") or ""), str(item.get("checkout") or "")) not in imported_ranges
+            ]
+            if disappeared and not listing.get("is_new_listing"):
+                examples = "、".join(
+                    f"{item.get('checkin')}→{item.get('checkout')}"
+                    for item in disappeared[:3]
+                )
+                listing["availability_status"] = "order_disappeared"
+                listing["sync_warning"] = f"iCal 本次少了 {len(disappeared)} 条当天或未来订单记录（{examples}）。系统已保存取消/移除历史；如果发生在入住日16:00后或入住后，会生成保洁确认任务。"
+                review_count = sum(1 for item in disappeared if _pms_channel_add_cancel_cleaning_review(state, item, listing, now))
+            else:
+                review_count = 0
+            _pms_channel_append_ical_history(
+                state,
+                listing,
+                now,
+                "order_disappeared" if disappeared and not listing.get("is_new_listing") else "ok",
+                events=imported,
+                raw_events=raw_events,
+                warning=listing.get("sync_warning", ""),
+                missing_events=disappeared if disappeared and not listing.get("is_new_listing") else [],
+            )
             new_bookings.extend(imported)
         except Exception as exc:
             error = str(exc)
             listing["sync_error"] = error
             sync_errors.append({"room_id": listing.get("room_id"), "channel_listing_id": listing.get("id"), "platform": listing.get("platform"), "error": error})
+            _pms_channel_append_ical_history(state, listing, now, "error", raw_events=[], error=error)
     state["bookings"].extend(new_bookings)
     state["sync_errors"] = sync_errors
     state["last_sync"] = now
@@ -1692,6 +2091,171 @@ if "_pms_property_mail_forwarding_v1" not in source_text:
     else:
         source_text += "\n" + property_mail_backend + "\n"
 
+cleaning_confirm_backend = r'''
+_pms_cleaning_confirm_v1 = True
+
+if "cleaningTaskConfirmations" not in STATE_KEYS:
+    STATE_KEYS.append("cleaningTaskConfirmations")
+
+_pms_cleaning_confirm_base_default_state = default_state
+def default_state():
+    state = _pms_cleaning_confirm_base_default_state()
+    state.setdefault("cleaningTaskConfirmations", [])
+    return state
+
+
+def _pms_cleaning_confirm_text(value, limit=1000):
+    return str(value or "").strip()[:limit]
+
+
+def _pms_cleaning_confirm_bool(value):
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "done", "completed", "已完成", "完成"}
+
+
+def _pms_cleaning_confirm_allowed_targets(state, actor):
+    normalized = normalize_state(state)
+    if not actor or actor.get("role") == "admin":
+        property_ids = {
+            item.get("id")
+            for item in normalized.get("properties", [])
+            if isinstance(item, dict) and item.get("id")
+        }
+    else:
+        property_ids = actor_property_ids(actor, normalized)
+    first_property = next(iter(property_ids), "")
+    room_ids = {
+        item.get("id")
+        for item in normalized.get("rooms", [])
+        if isinstance(item, dict)
+        and item.get("id")
+        and (item.get("property_id") or first_property) in property_ids
+    }
+    common_ids = {
+        item.get("id")
+        for item in normalized.get("commonAreas", [])
+        if isinstance(item, dict)
+        and item.get("id")
+        and (item.get("property_id") or first_property) in property_ids
+    }
+    return room_ids, common_ids
+
+
+def _pms_cleaning_confirm_target_allowed(row, room_ids, common_ids):
+    target_type = _pms_cleaning_confirm_text(row.get("target_type") or row.get("targetType") or "room", 20)
+    target_id = _pms_cleaning_confirm_text(row.get("target_id") or row.get("targetId"), 120)
+    if target_type == "common":
+        return target_id in common_ids
+    return target_id in room_ids
+
+
+def _pms_cleaning_confirm_key(row):
+    return "|".join([
+        _pms_cleaning_confirm_text(row.get("date"), 20),
+        _pms_cleaning_confirm_text(row.get("target_type") or row.get("targetType") or "room", 20),
+        _pms_cleaning_confirm_text(row.get("target_id") or row.get("targetId"), 120),
+        _pms_cleaning_confirm_text(row.get("task_key") or row.get("taskKey"), 300),
+    ])
+
+
+def _pms_cleaning_confirm_clean(row):
+    raw = row if isinstance(row, dict) else {}
+    date = _pms_cleaning_confirm_text(raw.get("date"), 20)
+    target_type = _pms_cleaning_confirm_text(raw.get("target_type") or raw.get("targetType") or "room", 20)
+    if target_type not in {"room", "common"}:
+        target_type = "room"
+    target_id = _pms_cleaning_confirm_text(raw.get("target_id") or raw.get("targetId"), 120)
+    task_key = _pms_cleaning_confirm_text(raw.get("task_key") or raw.get("taskKey") or "|".join([date, target_type, target_id]), 500)
+    completed = _pms_cleaning_confirm_bool(raw.get("completed")) or _pms_cleaning_confirm_text(raw.get("status"), 40) in {"已完成", "完成"}
+    now = datetime.utcnow().isoformat(timespec="seconds")
+    stable = hashlib.sha1(task_key.encode("utf-8")).hexdigest()[:24]
+    return {
+        "id": _pms_cleaning_confirm_text(raw.get("id"), 80) or "cleanconf_" + stable,
+        "date": date,
+        "target_type": target_type,
+        "target_id": target_id,
+        "task_key": task_key,
+        "source": _pms_cleaning_confirm_text(raw.get("source"), 80),
+        "task_type": _pms_cleaning_confirm_text(raw.get("task_type") or raw.get("taskType"), 80),
+        "task_reason": _pms_cleaning_confirm_text(raw.get("task_reason") or raw.get("taskReason"), 500),
+        "amount": raw.get("amount", 0),
+        "completed": completed,
+        "status": "已完成" if completed else _pms_cleaning_confirm_text(raw.get("status"), 40) or "未完成",
+        "feedback": _pms_cleaning_confirm_text(raw.get("feedback"), 2000),
+        "confirmed_by": _pms_cleaning_confirm_text(raw.get("confirmed_by") or raw.get("confirmedBy"), 120),
+        "confirmed_at": _pms_cleaning_confirm_text(raw.get("confirmed_at") or raw.get("confirmedAt"), 40) if completed else "",
+        "updated_at": now,
+    }
+
+
+_pms_cleaning_confirm_base_normalize_state = normalize_state
+def normalize_state(raw):
+    state = _pms_cleaning_confirm_base_normalize_state(raw)
+    state.setdefault("cleaningTaskConfirmations", [])
+    state["cleaningTaskConfirmations"] = [
+        _pms_cleaning_confirm_clean(item)
+        for item in state.get("cleaningTaskConfirmations", [])
+        if isinstance(item, dict)
+    ][-2000:]
+    return state
+
+
+_pms_cleaning_confirm_base_filter_state_for_user = filter_state_for_user
+def filter_state_for_user(state, actor):
+    filtered = _pms_cleaning_confirm_base_filter_state_for_user(state, actor)
+    normalized = normalize_state(state)
+    if not actor or actor.get("role") == "admin":
+        filtered["cleaningTaskConfirmations"] = normalized.get("cleaningTaskConfirmations", [])
+        return filtered
+    room_ids = {item.get("id") for item in filtered.get("rooms", []) if isinstance(item, dict)}
+    common_ids = {item.get("id") for item in filtered.get("commonAreas", []) if isinstance(item, dict)}
+    filtered["cleaningTaskConfirmations"] = [
+        item for item in normalized.get("cleaningTaskConfirmations", [])
+        if isinstance(item, dict)
+        and (
+            (item.get("target_type") == "common" and item.get("target_id") in common_ids)
+            or (item.get("target_type") != "common" and item.get("target_id") in room_ids)
+        )
+    ]
+    return filtered
+
+
+_pms_cleaning_confirm_base_save_state_from_payload = save_state_from_payload
+def save_state_from_payload(payload, actor=None):
+    working = dict(payload or {})
+    incoming_confirmations = working.pop("cleaningTaskConfirmations", None)
+    if incoming_confirmations is None:
+        return _pms_cleaning_confirm_base_save_state_from_payload(working, actor)
+    saved = _pms_cleaning_confirm_base_save_state_from_payload(working, actor) if working else normalize_state(load_state())
+    current = normalize_state(load_state())
+    room_ids, common_ids = _pms_cleaning_confirm_allowed_targets(current, actor)
+    existing = [
+        item for item in current.get("cleaningTaskConfirmations", [])
+        if isinstance(item, dict) and not _pms_cleaning_confirm_target_allowed(item, room_ids, common_ids)
+    ]
+    by_key = {_pms_cleaning_confirm_key(item): item for item in existing}
+    rows = incoming_confirmations if isinstance(incoming_confirmations, list) else []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        clean = _pms_cleaning_confirm_clean(raw)
+        if not _pms_cleaning_confirm_target_allowed(clean, room_ids, common_ids):
+            raise RuntimeError("cleaning task permission required")
+        key = _pms_cleaning_confirm_key(clean)
+        if raw.get("_delete") or raw.get("_clear"):
+            by_key.pop(key, None)
+            continue
+        by_key[key] = clean
+    current["cleaningTaskConfirmations"] = list(by_key.values())[-2000:]
+    return save_state(current)
+'''
+if "_pms_cleaning_confirm_v1" not in source_text:
+    if auto_sync_marker in source_text:
+        source_text = source_text.replace(auto_sync_marker, cleaning_confirm_backend + "\n" + auto_sync_marker, 1)
+    else:
+        source_text += "\n" + cleaning_confirm_backend + "\n"
+
 if "_pms_property_mail_http_v1" not in source_text:
     property_mail_route_hook = '''            if path.startswith("/api/property/"):'''
     property_mail_routes = '''            # _pms_property_mail_http_v1
@@ -1715,6 +2279,21 @@ if "_pms_property_mail_http_v1" not in source_text:
     if property_mail_route_hook not in source_text:
         raise RuntimeError("property mail route hook not found")
     source_text = source_text.replace(property_mail_route_hook, property_mail_routes + property_mail_route_hook, 1)
+
+if "_pms_ical_diagnostic_http_v1" not in source_text:
+    ical_diagnostic_route_hook = '''            if path.startswith("/api/property/"):'''
+    ical_diagnostic_routes = '''            # _pms_ical_diagnostic_http_v1
+            if path == "/api/ical-diagnostics":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                json_response(self, {"ok": True, "diagnostics": inspect_ical_diagnostics(payload, user)})
+                return
+'''
+    if ical_diagnostic_route_hook not in source_text:
+        raise RuntimeError("iCal diagnostic route hook not found")
+    source_text = source_text.replace(ical_diagnostic_route_hook, ical_diagnostic_routes + ical_diagnostic_route_hook, 1)
 
 auto_sync_block = '''_pms_ical_sync_lock = threading.Lock()
 
