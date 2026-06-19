@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-18-ical-safe-sync-v1"
+PMS_PATCH_VERSION = "2026-06-18-firestore-gzip-state-v1"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -95,6 +95,10 @@ def load_state():
     if not doc:
         return load_seed_state()
     fields = doc.get("fields", {})
+    compressed = fields.get("state_gzip_base64", {}).get("stringValue") or ""
+    if compressed:
+        raw = gzip.decompress(base64.b64decode(compressed.encode("ascii"))).decode("utf-8")
+        return normalize_state(json.loads(raw or "{}"))
     if "state_json" in fields:
         return normalize_state(json.loads(fields["state_json"].get("stringValue") or "{}"))
     raw = {key: from_firestore_value(value) for key, value in fields.items()}
@@ -106,7 +110,20 @@ def save_state(state):
     if not firebase_credentials_configured():
         write_local_state(state)
         return state
-    payload = {"fields": {"state_json": {"stringValue": json.dumps(state, ensure_ascii=False, separators=(",", ":"))}, "updated_at": {"timestampValue": now_utc_iso()}}}
+    raw = json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    compressed = base64.b64encode(gzip.compress(raw, compresslevel=9)).decode("ascii")
+    if len(compressed) > 950000:
+        raise RuntimeError(f"Compressed state is still too large for one Firestore document: {len(compressed)} bytes")
+    payload = {
+        "fields": {
+            "state_json": {"stringValue": ""},
+            "state_gzip_base64": {"stringValue": compressed},
+            "state_storage": {"stringValue": "gzip_base64"},
+            "state_raw_bytes": {"integerValue": str(len(raw))},
+            "state_compressed_bytes": {"integerValue": str(len(compressed))},
+            "updated_at": {"timestampValue": now_utc_iso()},
+        }
+    }
     firestore_request("PATCH", firestore_doc_url(), payload=payload)
     return state
 '''
