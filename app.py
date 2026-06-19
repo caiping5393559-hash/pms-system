@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-18-mail-events-v9"
+PMS_PATCH_VERSION = "2026-06-18-ical-archive-v1"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -197,7 +197,7 @@ ui_patch += r'''
     baseSetupPropertyRoomUi();
     const tab = document.querySelector('button[onclick*="ownerRooms"]');
     if(tab){
-      tab.textContent = '房源 / 房间设置';
+      tab.textContent = '房间设置';
       tab.setAttribute('onclick', "showOwnerTab('ownerRooms', this); backToPropertyList();");
     }
     const section = document.getElementById('ownerRooms');
@@ -1362,6 +1362,9 @@ def _pms_channel_append_ical_history(state, listing, synced_at, status, events=N
     raw_events = raw_events if raw_events is not None else [_pms_channel_event_history_snapshot(item) for item in (events or [])]
     inferred_events = [_pms_channel_event_history_snapshot(item) for item in (inferred_events or [])]
     missing_events = [_pms_channel_event_history_snapshot(item) for item in (missing_events or [])]
+    archive_update = globals().get("_pms_ical_archive_update")
+    if callable(archive_update):
+        archive_update(state, listing, synced_at, status, raw_events, error=error, warning=warning, missing_events=missing_events)
     row = {
         "id": "icalhist_" + hashlib.sha1(("|".join([_pms_channel_text(listing.get("id")), synced_at, url])).encode("utf-8")).hexdigest()[:24],
         "synced_at": synced_at,
@@ -2885,6 +2888,278 @@ if "_pms_cleaning_confirm_v1" not in source_text:
         source_text = source_text.replace(auto_sync_marker, cleaning_confirm_backend + "\n" + auto_sync_marker, 1)
     else:
         source_text += "\n" + cleaning_confirm_backend + "\n"
+
+ical_event_archive_backend = r'''
+_pms_ical_event_archive_v1 = True
+
+if "icalEventArchive" not in STATE_KEYS:
+    STATE_KEYS.append("icalEventArchive")
+
+
+def _pms_ical_archive_text(value, limit=5000):
+    return str(value or "").strip()[:limit]
+
+
+def _pms_ical_archive_bool(value):
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "是"}
+
+
+def _pms_ical_archive_int(value, default=0):
+    try:
+        return int(value or 0)
+    except Exception:
+        return default
+
+
+def _pms_ical_archive_hash(value, length=24):
+    return hashlib.sha1(str(value or "").encode("utf-8")).hexdigest()[:length]
+
+
+def _pms_ical_archive_room(state, room_id):
+    return next((item for item in state.get("rooms", []) if isinstance(item, dict) and item.get("id") == room_id), {})
+
+
+def _pms_ical_archive_event_id(listing, event):
+    listing_id = _pms_ical_archive_text(listing.get("id"), 160)
+    uid = _pms_ical_archive_text(event.get("uid") or event.get("external_event_uid"), 300)
+    checkin = _pms_ical_archive_text(event.get("checkin"), 40)
+    checkout = _pms_ical_archive_text(event.get("checkout"), 40)
+    raw_hash = _pms_ical_archive_text(event.get("raw_hash"), 80)
+    if not raw_hash:
+        raw_hash = _pms_ical_archive_hash(event.get("raw_excerpt") or event.get("summary") or event.get("description"), 16)
+    identity = uid or raw_hash or _pms_ical_archive_hash("|".join([
+        _pms_ical_archive_text(event.get("summary"), 300),
+        _pms_ical_archive_text(event.get("status"), 120),
+        _pms_ical_archive_text(event.get("description"), 500),
+    ]), 24)
+    return "icalevt_" + _pms_ical_archive_hash("|".join([listing_id, identity, checkin, checkout]), 28)
+
+
+def _pms_ical_archive_kind(event):
+    return "lock" if _pms_ical_archive_bool(event.get("is_locked")) or event.get("kind") == "lock" or event.get("booking_type") == "lock" else "booking"
+
+
+def _pms_ical_archive_snapshot(event, synced_at):
+    return {
+        "synced_at": synced_at,
+        "raw_hash": _pms_ical_archive_text(event.get("raw_hash"), 80),
+        "uid": _pms_ical_archive_text(event.get("uid") or event.get("external_event_uid"), 300),
+        "checkin": _pms_ical_archive_text(event.get("checkin"), 40),
+        "checkout": _pms_ical_archive_text(event.get("checkout"), 40),
+        "kind": _pms_ical_archive_kind(event),
+        "summary": _pms_ical_archive_text(event.get("summary"), 500),
+        "status": _pms_ical_archive_text(event.get("status"), 300),
+        "lock_reason": _pms_ical_archive_text(event.get("lock_reason"), 600),
+    }
+
+
+def _pms_ical_archive_clean(item):
+    raw = item if isinstance(item, dict) else {}
+    snapshots = raw.get("snapshots") if isinstance(raw.get("snapshots"), list) else []
+    return {
+        "id": _pms_ical_archive_text(raw.get("id"), 160),
+        "property_id": _pms_ical_archive_text(raw.get("property_id") or raw.get("propertyId"), 120),
+        "room_id": _pms_ical_archive_text(raw.get("room_id") or raw.get("roomId"), 120),
+        "room_name": _pms_ical_archive_text(raw.get("room_name") or raw.get("roomName"), 240),
+        "channel_listing_id": _pms_ical_archive_text(raw.get("channel_listing_id") or raw.get("channelListingId"), 160),
+        "platform": _pms_ical_archive_text(raw.get("platform") or "iCal", 80),
+        "channel_note": _pms_ical_archive_text(raw.get("channel_note") or raw.get("channelNote"), 240),
+        "uid": _pms_ical_archive_text(raw.get("uid"), 300),
+        "uid_hash": _pms_ical_archive_text(raw.get("uid_hash") or raw.get("uidHash"), 80),
+        "raw_hash": _pms_ical_archive_text(raw.get("raw_hash") or raw.get("rawHash"), 80),
+        "checkin": _pms_ical_archive_text(raw.get("checkin"), 40),
+        "checkout": _pms_ical_archive_text(raw.get("checkout"), 40),
+        "kind": "lock" if raw.get("kind") == "lock" or _pms_ical_archive_bool(raw.get("is_locked") or raw.get("isLocked")) else "booking",
+        "is_locked": _pms_ical_archive_bool(raw.get("is_locked") or raw.get("isLocked")),
+        "lock_reason": _pms_ical_archive_text(raw.get("lock_reason") or raw.get("lockReason"), 800),
+        "summary": _pms_ical_archive_text(raw.get("summary"), 800),
+        "status": _pms_ical_archive_text(raw.get("status"), 500),
+        "description": _pms_ical_archive_text(raw.get("description"), 1600),
+        "fields": raw.get("fields") if isinstance(raw.get("fields"), dict) else {},
+        "fields_detailed": raw.get("fields_detailed") if isinstance(raw.get("fields_detailed"), list) else [],
+        "raw_lines": raw.get("raw_lines") if isinstance(raw.get("raw_lines"), list) else [],
+        "raw_excerpt": _pms_ical_archive_text(raw.get("raw_excerpt") or raw.get("rawExcerpt"), 3000),
+        "first_seen": _pms_ical_archive_text(raw.get("first_seen") or raw.get("firstSeen") or raw.get("synced_at"), 80),
+        "last_seen": _pms_ical_archive_text(raw.get("last_seen") or raw.get("lastSeen") or raw.get("synced_at"), 80),
+        "seen_count": _pms_ical_archive_int(raw.get("seen_count") or raw.get("seenCount"), 0),
+        "active": _pms_ical_archive_bool(raw.get("active", True)),
+        "disappeared_at": _pms_ical_archive_text(raw.get("disappeared_at") or raw.get("disappearedAt"), 80),
+        "last_missing_at": _pms_ical_archive_text(raw.get("last_missing_at") or raw.get("lastMissingAt"), 80),
+        "missing_count": _pms_ical_archive_int(raw.get("missing_count") or raw.get("missingCount"), 0),
+        "last_sync_status": _pms_ical_archive_text(raw.get("last_sync_status") or raw.get("lastSyncStatus"), 80),
+        "last_error": _pms_ical_archive_text(raw.get("last_error") or raw.get("lastError"), 500),
+        "last_warning": _pms_ical_archive_text(raw.get("last_warning") or raw.get("lastWarning"), 900),
+        "snapshots": snapshots,
+    }
+
+
+_pms_ical_archive_base_default_state = default_state
+def default_state():
+    state = _pms_ical_archive_base_default_state()
+    state.setdefault("icalEventArchive", [])
+    return state
+
+
+_pms_ical_archive_base_normalize_state = normalize_state
+def normalize_state(raw):
+    state = _pms_ical_archive_base_normalize_state(raw)
+    archive = {}
+    for item in state.get("icalEventArchive", []):
+        if not isinstance(item, dict):
+            continue
+        clean = _pms_ical_archive_clean(item)
+        if clean.get("id"):
+            archive[clean["id"]] = clean
+    state["icalEventArchive"] = sorted(
+        archive.values(),
+        key=lambda item: item.get("last_seen") or item.get("first_seen") or item.get("disappeared_at") or "",
+        reverse=True,
+    )
+    return state
+
+
+def _pms_ical_archive_record_from_event(state, listing, event, synced_at, sync_status, error="", warning=""):
+    room = _pms_ical_archive_room(state, listing.get("room_id"))
+    uid = _pms_ical_archive_text(event.get("uid") or event.get("external_event_uid"), 300)
+    raw_hash = _pms_ical_archive_text(event.get("raw_hash"), 80) or _pms_ical_archive_hash(event.get("raw_excerpt") or event.get("summary"), 16)
+    kind = _pms_ical_archive_kind(event)
+    return {
+        "id": _pms_ical_archive_event_id(listing, event),
+        "property_id": room.get("property_id") or "property_default",
+        "room_id": listing.get("room_id"),
+        "room_name": room.get("name") or "",
+        "channel_listing_id": listing.get("id"),
+        "platform": listing.get("platform") or "iCal",
+        "channel_note": listing.get("channel_note") or "",
+        "uid": uid,
+        "uid_hash": _pms_ical_archive_hash(uid, 16) if uid else "",
+        "raw_hash": raw_hash,
+        "checkin": _pms_ical_archive_text(event.get("checkin"), 40),
+        "checkout": _pms_ical_archive_text(event.get("checkout"), 40),
+        "kind": kind,
+        "is_locked": kind == "lock",
+        "lock_reason": _pms_ical_archive_text(event.get("lock_reason"), 800),
+        "summary": _pms_ical_archive_text(event.get("summary"), 800),
+        "status": _pms_ical_archive_text(event.get("status"), 500),
+        "description": _pms_ical_archive_text(event.get("description"), 1600),
+        "fields": event.get("fields") if isinstance(event.get("fields"), dict) else {},
+        "fields_detailed": event.get("fields_detailed") if isinstance(event.get("fields_detailed"), list) else [],
+        "raw_lines": event.get("raw_lines") if isinstance(event.get("raw_lines"), list) else [],
+        "raw_excerpt": _pms_ical_archive_text(event.get("raw_excerpt"), 3000),
+        "first_seen": synced_at,
+        "last_seen": synced_at,
+        "seen_count": 1,
+        "active": True,
+        "disappeared_at": "",
+        "last_missing_at": "",
+        "missing_count": 0,
+        "last_sync_status": sync_status,
+        "last_error": _pms_ical_archive_text(error, 500),
+        "last_warning": _pms_ical_archive_text(warning, 900),
+        "snapshots": [_pms_ical_archive_snapshot(event, synced_at)],
+    }
+
+
+def _pms_ical_archive_update(state, listing, synced_at, sync_status, raw_events, error="", warning="", missing_events=None):
+    state.setdefault("icalEventArchive", [])
+    archive = {}
+    for item in state.get("icalEventArchive", []):
+        if isinstance(item, dict):
+            clean = _pms_ical_archive_clean(item)
+            if clean.get("id"):
+                archive[clean["id"]] = clean
+    current_ids = set()
+    for event in raw_events or []:
+        if not isinstance(event, dict):
+            continue
+        event_id = _pms_ical_archive_event_id(listing, event)
+        current_ids.add(event_id)
+        fresh = _pms_ical_archive_record_from_event(state, listing, event, synced_at, sync_status, error=error, warning=warning)
+        existing = archive.get(event_id)
+        if existing:
+            first_seen = existing.get("first_seen") or fresh.get("first_seen")
+            snapshots = existing.get("snapshots") if isinstance(existing.get("snapshots"), list) else []
+            snap = _pms_ical_archive_snapshot(event, synced_at)
+            if not snapshots or snapshots[-1].get("raw_hash") != snap.get("raw_hash") or snapshots[-1].get("checkin") != snap.get("checkin") or snapshots[-1].get("checkout") != snap.get("checkout") or snapshots[-1].get("status") != snap.get("status"):
+                snapshots.append(snap)
+            fresh["first_seen"] = first_seen
+            fresh["seen_count"] = _pms_ical_archive_int(existing.get("seen_count"), 0) + 1
+            fresh["snapshots"] = snapshots
+        archive[event_id] = fresh
+    listing_id = listing.get("id")
+    for event_id, row in list(archive.items()):
+        if row.get("channel_listing_id") != listing_id or event_id in current_ids:
+            continue
+        if row.get("active"):
+            row["disappeared_at"] = row.get("disappeared_at") or synced_at
+        row["active"] = False
+        row["last_missing_at"] = synced_at
+        row["missing_count"] = _pms_ical_archive_int(row.get("missing_count"), 0) + 1
+        row["last_sync_status"] = "missing_from_latest_sync"
+        row["last_warning"] = _pms_ical_archive_text(warning or "平台最新 iCal 没有返回这条旧事件，已保留为历史记录", 900)
+    for event in missing_events or []:
+        if not isinstance(event, dict):
+            continue
+        event_id = _pms_ical_archive_event_id(listing, event)
+        row = archive.get(event_id)
+        if row:
+            row["active"] = False
+            row["disappeared_at"] = row.get("disappeared_at") or synced_at
+            row["last_missing_at"] = synced_at
+            row["missing_count"] = max(_pms_ical_archive_int(row.get("missing_count"), 0), 1)
+    state["icalEventArchive"] = sorted(
+        archive.values(),
+        key=lambda item: item.get("last_seen") or item.get("first_seen") or item.get("disappeared_at") or "",
+        reverse=True,
+    )
+    return state
+
+
+_pms_ical_archive_base_filter_state_for_user = filter_state_for_user
+def filter_state_for_user(state, actor):
+    filtered = _pms_ical_archive_base_filter_state_for_user(state, actor)
+    normalized = normalize_state(state)
+    role = (actor or {}).get("role")
+    if role == "admin":
+        filtered["icalEventArchive"] = normalized.get("icalEventArchive", [])
+        return filtered
+    if role == "owner":
+        room_ids = {room.get("id") for room in filtered.get("rooms", []) if isinstance(room, dict)}
+        filtered["icalEventArchive"] = [
+            item for item in normalized.get("icalEventArchive", [])
+            if item.get("room_id") in room_ids
+        ]
+        return filtered
+    filtered["icalEventArchive"] = []
+    return filtered
+
+
+_pms_ical_archive_base_inspect_ical_diagnostics = inspect_ical_diagnostics
+def inspect_ical_diagnostics(payload, actor=None):
+    data = _pms_ical_archive_base_inspect_ical_diagnostics(payload, actor)
+    state = normalize_state(load_state())
+    allowed_property_ids = _pms_channel_allowed_property_ids(actor, state)
+    allowed_room_ids = {
+        room.get("id") for room in state.get("rooms", [])
+        if isinstance(room, dict) and (room.get("property_id") or "property_default") in allowed_property_ids
+    }
+    room_id = _pms_ical_archive_text((payload or {}).get("room_id") or (payload or {}).get("roomId"), 120)
+    channel_id = _pms_ical_archive_text((payload or {}).get("channel_listing_id") or (payload or {}).get("channelListingId") or (payload or {}).get("channel_id") or (payload or {}).get("channelId"), 160)
+    data["archive"] = [
+        item for item in state.get("icalEventArchive", [])
+        if item.get("room_id") in allowed_room_ids
+        and (not room_id or item.get("room_id") == room_id)
+        and (not channel_id or item.get("channel_listing_id") == channel_id)
+    ][:120]
+    return data
+'''
+if "_pms_ical_event_archive_v1" not in source_text:
+    if auto_sync_marker in source_text:
+        source_text = source_text.replace(auto_sync_marker, ical_event_archive_backend + "\n" + auto_sync_marker, 1)
+    else:
+        source_text += "\n" + ical_event_archive_backend + "\n"
 
 if "_pms_property_mail_http_v1" not in source_text:
     property_mail_route_hook = '''            if path.startswith("/api/property/"):'''
