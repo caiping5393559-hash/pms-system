@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-18-ical-archive-v1"
+PMS_PATCH_VERSION = "2026-06-18-ical-safe-sync-v1"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -1616,7 +1616,11 @@ def save_state_from_payload(payload, actor=None):
     incoming_channels = working.pop("channelListings", None)
     if incoming_channels is None:
         return _pms_channel_base_save_state_from_payload(working, actor)
-    if not actor or actor.get("role") == "admin":
+    channel_mutation = any(
+        isinstance(raw, dict) and (raw.get("_delete") or raw.get("_clear_room_channels") or raw.get("_clearRoomChannels"))
+        for raw in incoming_channels
+    )
+    if (not actor or actor.get("role") == "admin") and not channel_mutation:
         current = normalize_state(load_state())
         room_ids = _pms_channel_room_ids(current)
         working["channelListings"] = [
@@ -1628,7 +1632,13 @@ def save_state_from_payload(payload, actor=None):
 
     saved = _pms_channel_base_save_state_from_payload(working, actor) if working else normalize_state(load_state())
     current = normalize_state(load_state())
-    allowed_property_ids = actor_property_ids(actor, current)
+    if not actor or actor.get("role") == "admin":
+        allowed_property_ids = {
+            prop.get("id") for prop in current.get("properties", [])
+            if isinstance(prop, dict) and prop.get("id")
+        }
+    else:
+        allowed_property_ids = actor_property_ids(actor, current)
     allowed_room_ids = {
         room.get("id") for room in current.get("rooms", [])
         if isinstance(room, dict) and room.get("property_id") in allowed_property_ids
@@ -1666,6 +1676,37 @@ def save_state_from_payload(payload, actor=None):
         item for item in current.get("channelListings", [])
         if item.get("id") not in delete_ids and item.get("id") not in incoming_ids and item.get("room_id") not in clear_room_ids
     ] + incoming
+    if delete_ids or clear_room_ids:
+        now = datetime.utcnow().isoformat(timespec="seconds")
+        current["bookings"] = [
+            item for item in current.get("bookings", [])
+            if not (
+                isinstance(item, dict)
+                and item.get("source") == "ical"
+                and (
+                    item.get("channel_listing_id") in delete_ids
+                    or item.get("room_id") in clear_room_ids
+                )
+            )
+        ]
+        current["sync_errors"] = [
+            item for item in current.get("sync_errors", [])
+            if not (
+                isinstance(item, dict)
+                and (
+                    item.get("channel_listing_id") in delete_ids
+                    or item.get("room_id") in clear_room_ids
+                )
+            )
+        ]
+        for row in current.get("icalEventArchive", []):
+            if not isinstance(row, dict):
+                continue
+            if row.get("channel_listing_id") in delete_ids or row.get("room_id") in clear_room_ids:
+                row["active"] = False
+                row["last_sync_status"] = "channel_deleted"
+                row["disappeared_at"] = row.get("disappeared_at") or now
+                row["last_missing_at"] = now
     return save_state(current)
 
 
@@ -1702,21 +1743,11 @@ def sync_icals(actor=None, property_id=None):
             previous_bookings_by_listing.setdefault(listing_id, []).append(booking)
     now = datetime.utcnow().isoformat(timespec="seconds")
     today = datetime.utcnow().date().isoformat()
-    state["bookings"] = [
-        b for b in state.get("bookings", [])
-        if not (
-            isinstance(b, dict)
-            and b.get("source") == "ical"
-            and (
-                b.get("channel_listing_id") in listing_ids
-                or (not b.get("channel_listing_id") and b.get("room_id") in allowed_room_ids)
-            )
-        )
-    ]
     sync_errors = [
         err for err in state.get("sync_errors", [])
         if not (isinstance(err, dict) and err.get("room_id") in allowed_room_ids)
     ]
+    successful_listing_ids = set()
     new_bookings = []
     def _pms_missing_event_key(item):
         return "|".join([
@@ -1802,13 +1833,26 @@ def sync_icals(actor=None, property_id=None):
                 warning=listing.get("sync_warning", ""),
                 missing_events=disappeared if disappeared and not listing.get("is_new_listing") else [],
             )
+            successful_listing_ids.add(listing.get("id"))
             new_bookings.extend(imported)
         except Exception as exc:
             error = str(exc)
             listing["sync_error"] = error
             sync_errors.append({"room_id": listing.get("room_id"), "channel_listing_id": listing.get("id"), "platform": listing.get("platform"), "error": error})
             _pms_channel_append_ical_history(state, listing, now, "error", raw_events=[], error=error)
-    state["bookings"].extend(new_bookings)
+    if successful_listing_ids:
+        state["bookings"] = [
+            b for b in state.get("bookings", [])
+            if not (
+                isinstance(b, dict)
+                and b.get("source") == "ical"
+                and (
+                    b.get("channel_listing_id") in successful_listing_ids
+                    or (not b.get("channel_listing_id") and b.get("room_id") in allowed_room_ids)
+                )
+            )
+        ]
+        state["bookings"].extend(new_bookings)
     state["sync_errors"] = sync_errors
     state["last_sync"] = now
     return save_state(state)
