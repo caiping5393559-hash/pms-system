@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-19-daily-cleaning-display-v1"
+PMS_PATCH_VERSION = "2026-06-19-sync-error-ux-v1"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -35,6 +35,46 @@ if "from zoneinfo import ZoneInfo\n" not in source_text:
         "from email.utils import formatdate\nfrom zoneinfo import ZoneInfo\n",
         1,
     )
+
+old_firestore_request = '''def firestore_request(method, url, payload=None, timeout=12):
+    headers = {"Authorization": f"Bearer {access_token()}"}
+    data = None
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Firestore HTTP {exc.code}: {body}") from exc
+'''
+new_firestore_request = '''def firestore_request(method, url, payload=None, timeout=12):
+    headers = {"Authorization": f"Bearer {access_token()}"}
+    data = None
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Firestore HTTP {exc.code}: {body[:500]}") from exc
+    except Exception as exc:
+        reason = getattr(exc, "reason", None) or str(exc) or exc.__class__.__name__
+        raise RuntimeError(f"Firebase database request failed: {reason}") from exc
+'''
+if new_firestore_request not in source_text:
+    if old_firestore_request not in source_text:
+        raise RuntimeError("Firestore request hook not found")
+    source_text = source_text.replace(old_firestore_request, new_firestore_request, 1)
 
 old_service_account_paths = '''    for path in [Path(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")), BASE / "firebase-key.json", BASE / "firebase-adminsdk.json"]:
         if path and path.exists():
@@ -590,6 +630,28 @@ source_text, locked_ical_count = re.subn(
 if locked_ical_count != 1:
     raise RuntimeError("iCal lock parser hook not found")
 
+old_fetch_text = '''def fetch_text(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "PMS-Firebase/1.0"})
+    with urllib.request.urlopen(req, timeout=25) as resp:
+        return resp.read().decode("utf-8", errors="replace")
+'''
+new_fetch_text = '''def fetch_text(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "PMS-Firebase/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"iCal fetch HTTP {exc.code}") from exc
+    except Exception as exc:
+        host = urllib.parse.urlparse(str(url or "")).netloc or "iCal"
+        reason = getattr(exc, "reason", None) or str(exc) or exc.__class__.__name__
+        raise RuntimeError(f"iCal fetch failed from {host}: {reason}") from exc
+'''
+if new_fetch_text not in source_text:
+    if old_fetch_text not in source_text:
+        raise RuntimeError("iCal fetch hook not found")
+    source_text = source_text.replace(old_fetch_text, new_fetch_text, 1)
+
 old_sync_function = """def sync_icals(actor=None):
     state = normalize_state(load_state())
     allowed_room_ids = actor_room_ids(actor, state) if actor else {room.get("id") for room in state.get("rooms", []) if isinstance(room, dict)}
@@ -700,7 +762,17 @@ safe_sync_route = """            if path == "/api/sync":
                     json_response(self, {"ok": True, "state": filter_state_for_user(synced, user)})
                 except Exception as exc:
                     message = str(exc) or exc.__class__.__name__
-                    json_response(self, {"ok": False, "error": message, "trace": traceback.format_exc()[-1600:]}, status=500)
+                    debug_id = hashlib.sha1((message + str(time.time())).encode("utf-8")).hexdigest()[:10]
+                    if "iCal fetch" in message:
+                        public_error = "同步失败：平台 iCal 链接读取失败，请检查对应渠道 iCal 是否仍有效。"
+                    elif "Firestore" in message or "Firebase database" in message:
+                        public_error = "同步失败：数据库保存或读取失败，iCal 没有被完整写入，请稍后重试。"
+                    elif "property permission" in message:
+                        public_error = "同步失败：当前账号没有这个房源的权限。"
+                    else:
+                        public_error = "同步失败：系统没有完成本次 iCal 同步。"
+                    traceback.print_exc()
+                    json_response(self, {"ok": False, "error": public_error, "detail": message[:500], "debug_id": debug_id}, status=500)
                 return
 """
 if safe_sync_route not in source_text:
@@ -1783,6 +1855,7 @@ def sync_icals(actor=None, property_id=None):
         if not (isinstance(err, dict) and err.get("room_id") in allowed_room_ids)
     ]
     successful_listing_ids = set()
+    successful_room_ids = set()
     new_bookings = []
     def _pms_missing_event_key(item):
         return "|".join([
@@ -1869,6 +1942,7 @@ def sync_icals(actor=None, property_id=None):
                 missing_events=disappeared if disappeared and not listing.get("is_new_listing") else [],
             )
             successful_listing_ids.add(listing.get("id"))
+            successful_room_ids.add(listing.get("room_id"))
             new_bookings.extend(imported)
         except Exception as exc:
             error = str(exc)
@@ -1883,7 +1957,7 @@ def sync_icals(actor=None, property_id=None):
                 and b.get("source") == "ical"
                 and (
                     b.get("channel_listing_id") in successful_listing_ids
-                    or (not b.get("channel_listing_id") and b.get("room_id") in allowed_room_ids)
+                    or (not b.get("channel_listing_id") and b.get("room_id") in successful_room_ids)
                 )
             )
         ]
