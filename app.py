@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-19-final-save-sync-ui-v1"
+PMS_PATCH_VERSION = "2026-06-19-mail-compact-v2"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -473,7 +473,7 @@ admin_ui_patch = r'''
 ui_patch += admin_ui_patch
 final_ui_override = r'''
 (function(){
-  const VERSION='2026-06-19-final-save-sync-ui-v1';
+  const VERSION='2026-06-19-mail-compact-v2';
   window.__PMS_PATCH_VERSION=VERSION;
   const S=window.__pmsInlineState||(window.__pmsInlineState={});
   S.mailEdits=S.mailEdits||{};
@@ -548,7 +548,16 @@ final_ui_override = r'''
       .final-sync-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
       .sync-inline-status{display:inline-flex;border-radius:999px;border:1px solid #cbd5e1;padding:7px 10px;font-weight:900;background:#fff;color:#334155}
       .sync-inline-status.loading{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.sync-inline-status.ok{border-color:#86efac;background:#dcfce7;color:#166534}.sync-inline-status.error{border-color:#fecaca;background:#fff1f2;color:#be123c}
-      .property-mail-panel{border:1px solid #99f6e4!important;border-left:5px solid #0f766e!important;border-radius:8px;background:#fbfffe;padding:12px!important}
+      .property-mail-panel{border:1px solid #99f6e4!important;border-left:5px solid #0f766e!important;border-radius:8px;background:#fbfffe;padding:10px!important}
+      .property-mail-panel.final-mail-compact{padding:9px 10px!important}
+      .property-mail-compact{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center}
+      .property-mail-compact-main{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-weight:900}
+      .property-mail-compact-line{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px;font-size:13px;color:#475569}
+      .property-mail-chip{display:inline-flex;max-width:320px;min-width:0;border:1px solid #dbeafe;background:#fff;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:800;color:#334155}
+      .property-mail-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .property-mail-chip.warn{border-color:#fde68a;background:#fffbeb;color:#92400e}
+      .property-mail-chip.good{border-color:#86efac;background:#dcfce7;color:#166534}
+      .property-mail-note{font-size:12px;color:#64748b;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .property-mail-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;align-items:stretch}
       .property-mail-item{border:1px solid #dbeafe;background:#f8fafc;border-radius:8px;padding:9px 10px;min-width:0}
       .property-mail-label{font-size:12px;color:#64748b;font-weight:900}.property-mail-value{font-weight:900;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -557,6 +566,7 @@ final_ui_override = r'''
       .mail-save-status{font-size:13px;font-weight:900;color:#64748b}.mail-save-status.ok{color:#047857}.mail-save-status.error{color:#be123c}.mail-save-status.loading{color:#1d4ed8}
       .final-mail-events{display:grid;gap:8px;margin-top:10px}.final-mail-event{border:1px solid #dbeafe;background:#fff;border-radius:8px;padding:9px 10px}.final-mail-event.warn{border-color:#fde68a;background:#fffbeb}.final-mail-event.high{border-color:#fecaca;background:#fff1f2}
       .mail-tab-shell{display:grid;gap:12px}.mail-property-block{border:1px solid #d8e1ef;border-radius:8px;background:#fff;padding:12px;display:grid;gap:10px}
+      @media(max-width:760px){.property-mail-compact{grid-template-columns:1fr}.property-mail-actions{justify-content:flex-start}}
     `;
   }
 
@@ -677,11 +687,17 @@ final_ui_override = r'''
   function renderPropertyMailPanel(p){
     ensureFinalCss();
     const row=propertyMailSetting(p.id),bound=!!String(row.source_email||'').trim(),saved=!!row.property_id,editing=!!S.mailEdits[p.id],addr=mailAddressForProperty(p.id),st=row.forward_status||'not_set';
-    const summary=!editing?`<div class="property-mail-summary">
-      <div class="property-mail-item"><div class="property-mail-label">Airbnb 通知邮箱</div><div class="property-mail-value">${bound?esc(row.source_email):'未填写'}</div>${row.updated_at?`<div class="small">保存时间：${esc(row.updated_at)}</div>`:''}</div>
-      <div class="property-mail-item"><div class="property-mail-label">PMS 转发地址</div><div class="property-mail-value" title="${esc(addr)}">${addr?esc(addr):'管理员未配置后台收信邮箱'}</div></div>
-      <div class="property-mail-item"><div class="property-mail-label">状态</div><div class="property-mail-value"><span class="status-pill ${mailStatusClass(st,bound)}">${esc(mailStatusText(st,bound))}</span></div></div>
-      <div class="property-mail-actions"><span class="mail-save-status" id="${mailStatusId(p.id)}"></span><button class="smallbtn primary" onclick="editPropertyMail('${esc(p.id)}')">${saved?'修改设置':'设置邮箱转发'}</button>${addr?`<button class="smallbtn" onclick="copyMailAddress('${esc(addr)}',this)">复制转发地址</button>`:''}${saved?`<button class="smallbtn" onclick="clearPropertyMail('${esc(p.id)}',this)">清空</button>`:''}</div>
+    const summary=!editing?`<div class="property-mail-compact">
+      <div>
+        <div class="property-mail-compact-main"><span>邮箱转发</span><span class="status-pill ${mailStatusClass(st,bound)}">${esc(mailStatusText(st,bound))}</span>${bound?'<span class="property-mail-chip good"><span>已绑定</span></span>':'<span class="property-mail-chip warn"><span>未填写</span></span>'}</div>
+        <div class="property-mail-compact-line">
+          <span class="property-mail-chip ${bound?'':'warn'}" title="${esc(row.source_email||'')}"><span>Airbnb 通知：${bound?esc(row.source_email):'未填写'}</span></span>
+          <span class="property-mail-chip ${addr?'':'warn'}" title="${esc(addr)}"><span>PMS 转发：${addr?esc(addr):'管理员未配置'}</span></span>
+          ${row.updated_at?`<span class="property-mail-chip"><span>保存：${esc(row.updated_at)}</span></span>`:''}
+        </div>
+        ${row.notes?`<div class="property-mail-note" title="${esc(row.notes)}">备注：${esc(row.notes)}</div>`:''}
+      </div>
+      <div class="property-mail-actions"><span class="mail-save-status" id="${mailStatusId(p.id)}"></span><button class="smallbtn primary" onclick="editPropertyMail('${esc(p.id)}')">${saved||bound?'修改':'设置'}</button>${addr?`<button class="smallbtn" onclick="copyMailAddress('${esc(addr)}',this)">复制地址</button>`:''}${saved||bound?`<button class="smallbtn" onclick="clearPropertyMail('${esc(p.id)}',this)">清空</button>`:''}</div>
     </div>`:'';
     const form=editing?`<div class="property-mail-form">
       <label>这个房源接收 Airbnb 通知的邮箱<input id="${mailInputId(p.id,'source_email')}" value="${esc(row.source_email||'')}" placeholder="例如：host@gmail.com"></label>
@@ -690,7 +706,7 @@ final_ui_override = r'''
       <label style="grid-column:1/-1">备注<textarea id="${mailInputId(p.id,'notes')}" placeholder="例如：这个房源的 Airbnb 通知来自哪个邮箱，或转发规则还在等待验证。">${esc(row.notes||'')}</textarea></label>
       <div class="property-mail-actions" style="grid-column:1/-1"><span class="mail-save-status" id="${mailStatusId(p.id)}_form"></span><button class="smallbtn primary" onclick="savePropertyMail('${esc(p.id)}',this)">保存设置</button><button class="smallbtn" onclick="cancelPropertyMailEdit('${esc(p.id)}')">取消</button></div>
     </div>`:'';
-    return `<div class="property-subcard property-mail-panel"><div class="property-detail-head"><div><h3 style="margin:0">房源邮件转发</h3><div class="small">按房源保存，只记录转发规则和状态；邮件提醒不会改房态，房态只按 iCal 同步结果计算。</div></div></div>${summary}${form}</div>`;
+    return `<div class="property-subcard property-mail-panel ${editing?'':'final-mail-compact'}">${editing?`<div class="property-detail-head"><div><h3 style="margin:0">设置邮箱转发</h3><div class="small">按房源保存，只记录转发规则和状态；邮件提醒不会改房态，房态只按 iCal 同步结果计算。</div></div></div>`:''}${summary}${form}</div>`;
   }
 
   function propertyMailEvents(propertyId){return mailEvents().filter(e=>String(e.property_id||'')===String(propertyId||''));}
@@ -845,6 +861,7 @@ final_ui_override = r'''
     const p=activeProp();
     if(!props().length){root.innerHTML='<div class="empty-panel"><strong>还没有房源</strong><div class="small" style="margin-top:8px">先在上方房源管理模块添加房源。</div></div>';return;}
     root.innerHTML=p?renderPropertyDetail(p):'<div class="empty-panel"><strong>从上方房源管理进入房间管理</strong><div class="small" style="margin-top:8px">上方已经可以完成房源筛选、添加、改名、删除；这里只在进入某个房源后显示房间、公区、iCal 和保洁绑定。</div></div>';
+    root.querySelectorAll('.property-mail-panel').forEach(el=>el.remove());
   }
   function openPropertyRooms(id){
     setActiveProp(id);
