@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-19-mail-compact-v2"
+PMS_PATCH_VERSION = "2026-06-19-channel-dedupe-v1"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -473,7 +473,7 @@ admin_ui_patch = r'''
 ui_patch += admin_ui_patch
 final_ui_override = r'''
 (function(){
-  const VERSION='2026-06-19-mail-compact-v2';
+  const VERSION='2026-06-19-channel-dedupe-v1';
   window.__PMS_PATCH_VERSION=VERSION;
   const S=window.__pmsInlineState||(window.__pmsInlineState={});
   S.mailEdits=S.mailEdits||{};
@@ -1794,6 +1794,9 @@ def _pms_channel_parse_ics(text, listing):
             "channel_listing_id": listing_id,
             "external_event_uid": uid,
             "platform": platform,
+            "channel_note": listing.get("channel_note") or "",
+            "listing_url": listing.get("listing_url") or "",
+            "is_new_listing": bool(listing.get("is_new_listing")),
             "guest": "",
             "checkin": checkin,
             "checkout": checkout,
@@ -2298,6 +2301,9 @@ def sync_icals(actor=None, property_id=None):
             "channel_listing_id": listing.get("id"),
             "external_event_uid": "missing-lock-" + (uid or stable_id),
             "platform": listing.get("platform") or item.get("platform") or "iCal",
+            "channel_note": listing.get("channel_note") or "",
+            "listing_url": listing.get("listing_url") or "",
+            "is_new_listing": bool(listing.get("is_new_listing")),
             "guest": "",
             "checkin": checkin,
             "checkout": checkout,
