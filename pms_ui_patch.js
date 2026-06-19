@@ -1,6 +1,6 @@
 (function(){
   const S=window.__pmsInlineState||(window.__pmsInlineState={rooms:{},areas:{},ical:{},feed:{},propertyNames:{}});
-  window.__PMS_PATCH_VERSION='2026-06-19-daily-cleaning-display-v1';
+  window.__PMS_PATCH_VERSION='2026-06-19-final-save-sync-ui-v1';
   S.channelEdits=S.channelEdits||{};
   S.syncResults=S.syncResults||{};
   S.icalDiagnostics=S.icalDiagnostics||{};

@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-19-sync-error-ux-v1"
+PMS_PATCH_VERSION = "2026-06-19-final-save-sync-ui-v1"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -471,6 +471,410 @@ admin_ui_patch = r'''
 })();
 '''
 ui_patch += admin_ui_patch
+final_ui_override = r'''
+(function(){
+  const VERSION='2026-06-19-final-save-sync-ui-v1';
+  window.__PMS_PATCH_VERSION=VERSION;
+  const S=window.__pmsInlineState||(window.__pmsInlineState={});
+  S.mailEdits=S.mailEdits||{};
+  S.syncResults=S.syncResults||{};
+
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
+  function safe(v){return String(v||'').replace(/[^a-zA-Z0-9_-]/g,'_');}
+  function list(name){try{return window[name]||eval(name)||[]}catch(e){return window[name]||[];}}
+  function setList(name,value){try{eval(name+'=value')}catch(e){}window[name]=value;}
+  function props(){return list('properties');}
+  function rooms(){return list('rooms');}
+  function areas(){return list('commonAreas');}
+  function channels(){return list('channelListings');}
+  function mailRows(){return list('propertyMailForwarding');}
+  function mailConfigs(){return list('mailForwardingConfig');}
+  function mailEvents(){return list('mailEvents');}
+  function current(){try{return currentUser||window.currentUser||{}}catch(e){return window.currentUser||{};}}
+  function groupId(){const p=props()[0]||{};return p.group_id||'group_default';}
+  function firstPropId(){const p=props()[0]||{};return p.id||'property_default';}
+  function activeProp(){const id=S.selectedPropertyId||window.selectedPropertyId||'';return props().find(p=>String(p.id)===String(id))||null;}
+  function setActiveProp(id){S.selectedPropertyId=String(id||'');window.selectedPropertyId=S.selectedPropertyId;try{selectedPropertyId=S.selectedPropertyId}catch(e){}}
+  function roomPropId(roomId){const r=rooms().find(x=>String(x.id)===String(roomId));return (r&&(r.property_id||firstPropId()))||firstPropId();}
+  function propRooms(propertyId){return rooms().filter(r=>String(r.property_id||firstPropId())===String(propertyId));}
+  function propAreas(propertyId){return areas().filter(a=>String(a.property_id||firstPropId())===String(propertyId));}
+  function propCleaners(propertyId){return list('propertyCleaners').filter(x=>String(x.property_id)===String(propertyId));}
+  function displayPropertyName(name,id){const raw=String(name||id||'').trim();return raw?'房源：'+raw:'未命名房源';}
+  function objectRoomName(r){return String((r&&r.name)||'房间').trim()||'房间';}
+  function url(path){return typeof window.withKey==='function'?window.withKey(path):path;}
+  function nowIso(){return new Date().toISOString().slice(0,19);}
+
+  function applyState(data){
+    const state=(data&&data.state)||data;
+    if(!state||typeof state!=='object')return state;
+    if(Array.isArray(state.properties))setList('properties',state.properties);
+    if(Array.isArray(state.rooms))setList('rooms',state.rooms);
+    if(Array.isArray(state.commonAreas))setList('commonAreas',state.commonAreas);
+    if(Array.isArray(state.propertyCleaners))setList('propertyCleaners',state.propertyCleaners);
+    if(Array.isArray(state.channelListings))setList('channelListings',state.channelListings);
+    if(Array.isArray(state.propertyMailForwarding))setList('propertyMailForwarding',state.propertyMailForwarding);
+    if(Array.isArray(state.mailForwardingConfig))setList('mailForwardingConfig',state.mailForwardingConfig);
+    if(Array.isArray(state.mailEvents))setList('mailEvents',state.mailEvents);
+    if(Array.isArray(state.bookings))setList('bookings',state.bookings);
+    if(Array.isArray(state.sync_errors))setList('syncErrors',state.sync_errors);
+    try{if(window.applyServerState)window.applyServerState(state);}catch(e){}
+    return state;
+  }
+
+  function status(id,text,kind){
+    const el=document.getElementById(id);
+    if(!el)return;
+    el.textContent=text||'';
+    el.className='mail-save-status '+(kind||'');
+  }
+
+  function ensureFinalCss(){
+    let s=document.getElementById('pmsFinalSaveSyncUiStyles');
+    if(!s){s=document.createElement('style');s.id='pmsFinalSaveSyncUiStyles';document.head.appendChild(s);}
+    s.textContent=`
+      .final-room-card{padding:14px!important;border-left:5px solid #0f766e!important}
+      .final-room-head{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #cfe3f6;background:#f8fbff;border-radius:8px;padding:10px 12px}
+      .final-room-title{font-size:19px;font-weight:900;color:#0f172a}.final-room-meta{font-size:13px;color:#64748b;margin-top:2px}
+      .final-channel-panel{margin-top:10px;border:1px solid #dbeafe;border-radius:8px;background:#fff;padding:10px}
+      .final-channel-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+      .final-channel-title{font-size:17px;font-weight:900;color:#0f766e}
+      .final-channel-list{display:grid;gap:8px}
+      .final-channel-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;border:1px solid #d7e3f2;border-left:4px solid #2563eb;background:#f8fafc;border-radius:8px;padding:9px 10px;align-items:center}
+      .final-channel-row.ready{border-left-color:#0f766e}.final-channel-row.warn{border-left-color:#f59e0b}
+      .final-channel-row .channel-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+      .final-channel-line{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:13px;color:#475569}
+      .final-mini{display:inline-flex;align-items:center;gap:4px;max-width:260px;border:1px solid #dbeafe;background:#fff;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:800}
+      .final-mini.url{font-weight:600;color:#334155}.final-mini.warn{border-color:#fde68a;background:#fffbeb;color:#92400e}.final-mini.good{border-color:#86efac;background:#dcfce7;color:#166534}
+      .final-sync-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+      .sync-inline-status{display:inline-flex;border-radius:999px;border:1px solid #cbd5e1;padding:7px 10px;font-weight:900;background:#fff;color:#334155}
+      .sync-inline-status.loading{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.sync-inline-status.ok{border-color:#86efac;background:#dcfce7;color:#166534}.sync-inline-status.error{border-color:#fecaca;background:#fff1f2;color:#be123c}
+      .property-mail-panel{border:1px solid #99f6e4!important;border-left:5px solid #0f766e!important;border-radius:8px;background:#fbfffe;padding:12px!important}
+      .property-mail-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;align-items:stretch}
+      .property-mail-item{border:1px solid #dbeafe;background:#f8fafc;border-radius:8px;padding:9px 10px;min-width:0}
+      .property-mail-label{font-size:12px;color:#64748b;font-weight:900}.property-mail-value{font-weight:900;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .property-mail-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-top:10px}.property-mail-form textarea{min-height:70px}
+      .property-mail-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+      .mail-save-status{font-size:13px;font-weight:900;color:#64748b}.mail-save-status.ok{color:#047857}.mail-save-status.error{color:#be123c}.mail-save-status.loading{color:#1d4ed8}
+      .final-mail-events{display:grid;gap:8px;margin-top:10px}.final-mail-event{border:1px solid #dbeafe;background:#fff;border-radius:8px;padding:9px 10px}.final-mail-event.warn{border-color:#fde68a;background:#fffbeb}.final-mail-event.high{border-color:#fecaca;background:#fff1f2}
+      .mail-tab-shell{display:grid;gap:12px}.mail-property-block{border:1px solid #d8e1ef;border-radius:8px;background:#fff;padding:12px;display:grid;gap:10px}
+    `;
+  }
+
+  function primaryMailConfig(){return mailConfigs().find(x=>x&&x.inbox_email)||mailConfigs()[0]||{};}
+  function mailSafeId(value){return String(value||'property').replace(/[^a-zA-Z0-9_-]/g,'_')||'property';}
+  function generatedMailAddress(propertyId){
+    const cfg=primaryMailConfig();
+    const inbox=String(cfg.inbox_email||cfg.gmail_address||cfg.forwarding_address||'').trim();
+    if(!inbox||!inbox.includes('@'))return '';
+    if(cfg.plus_alias_enabled===false)return inbox;
+    const parts=inbox.split('@'),local=parts.shift(),domain=parts.join('@');
+    const prefix=mailSafeId(cfg.alias_prefix||'pms');
+    return `${local}+${prefix}_${mailSafeId(propertyId)}@${domain}`;
+  }
+  function propertyMailSetting(propertyId){return mailRows().find(x=>x&&String(x.property_id)===String(propertyId))||{};}
+  function mailAddressForProperty(propertyId){const row=propertyMailSetting(propertyId);return String(row.pms_forward_address||'').trim()||generatedMailAddress(propertyId);}
+  function mailInputId(propertyId,field){return `mail_${safe(propertyId)}_${safe(field)}`;}
+  function mailStatusId(propertyId){return `mail_status_${safe(propertyId)}`;}
+  function mailStatusText(v,bound){if(bound&&(!v||v==='not_set'))return '已绑定邮箱';return ({not_set:'未设置',verification_pending:'等待确认',rule_created:'已建转发规则',active:'已生效',paused:'暂停'})[v||'not_set']||'未设置';}
+  function mailStatusClass(v,bound){return (bound||v==='active'||v==='rule_created')?'good':(v==='verification_pending'?'warn':'');}
+  function setMailEdit(propertyId,on){if(on)S.mailEdits[propertyId]=true;else delete S.mailEdits[propertyId];}
+  function readPropertyMailForm(propertyId){
+    const p=props().find(x=>String(x.id)===String(propertyId))||{};
+    const old=propertyMailSetting(propertyId);
+    return {
+      id:old.id||`mail_property_${propertyId}`,
+      property_id:propertyId,
+      owner_id:(current()&&current().id)||old.owner_id||'',
+      group_id:p.group_id||old.group_id||groupId(),
+      source_email:String((document.getElementById(mailInputId(propertyId,'source_email'))||{}).value||'').trim(),
+      pms_forward_address:mailAddressForProperty(propertyId),
+      forward_status:String((document.getElementById(mailInputId(propertyId,'forward_status'))||{}).value||'not_set'),
+      notes:String((document.getElementById(mailInputId(propertyId,'notes'))||{}).value||''),
+      updated_at:nowIso()
+    };
+  }
+  function mergePropertyMail(row){
+    if(!row||!row.property_id)return;
+    const rows=mailRows().filter(x=>x&&String(x.property_id)!==String(row.property_id));
+    rows.push(row);
+    setList('propertyMailForwarding',rows);
+  }
+  async function reloadState(){
+    try{
+      const res=await fetch(url('/api/state'),{cache:'no-store'});
+      const data=await res.json().catch(()=>null);
+      if(res.ok&&data){applyState(data);return (data&&data.state)||data;}
+    }catch(e){}
+    return null;
+  }
+  function verifyMailSaved(expected,state){
+    const rows=(state&&Array.isArray(state.propertyMailForwarding)?state.propertyMailForwarding:mailRows());
+    const row=rows.find(x=>x&&String(x.property_id)===String(expected.property_id))||{};
+    const got=String(row.source_email||'').trim();
+    if(got!==String(expected.source_email||'').trim())throw new Error(`服务器保存后重新读取不一致：当前读到 ${got||'未填写'}`);
+  }
+  async function savePropertyMail(propertyId,btn){
+    ensureFinalCss();
+    const row=readPropertyMailForm(propertyId);
+    const sid=mailStatusId(propertyId);
+    if(!row.source_email){
+      status(sid,'没有内容可保存：请先填写邮箱。','error');
+      status(sid+'_form','没有内容可保存：请先填写邮箱。','error');
+      alert('没有内容可保存：请先填写邮箱。');
+      return;
+    }
+    const old=btn&&btn.textContent;
+    if(btn){btn.disabled=true;btn.textContent='保存中...';}
+    status(sid,'保存中...','loading');
+    status(sid+'_form','保存中...','loading');
+    try{
+      const res=await fetch(url('/api/property-mail'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(row)});
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok||data.ok===false)throw new Error(data.error||'保存失败');
+      applyState(data);
+      mergePropertyMail(data.propertyMail||row);
+      const state=(await reloadState())||((data&&data.state)||null);
+      verifyMailSaved(row,state);
+      setMailEdit(propertyId,false);
+      status(sid,'已保存成功','ok');
+      if(typeof window.renderRoomSettings==='function')window.renderRoomSettings();
+      if(typeof window.renderOwnerMail==='function')window.renderOwnerMail();
+      alert('已保存成功');
+    }catch(e){
+      const msg=e&&e.message?e.message:String(e||'未知错误');
+      status(sid,msg,'error');
+      status(sid+'_form',msg,'error');
+      alert('保存邮箱设置失败：'+msg);
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent=old||'保存设置';}
+    }
+  }
+  async function clearPropertyMail(propertyId,btn){
+    if(!confirm('确定清空这个房源的邮箱转发设置？'))return;
+    const old=btn&&btn.textContent;
+    if(btn){btn.disabled=true;btn.textContent='清空中...';}
+    try{
+      const res=await fetch(url('/api/property-mail'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:propertyId,_clear:true})});
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok||data.ok===false)throw new Error(data.error||'清空失败');
+      applyState(data);
+      setList('propertyMailForwarding',mailRows().filter(x=>x&&String(x.property_id)!==String(propertyId)));
+      setMailEdit(propertyId,false);
+      if(typeof window.renderRoomSettings==='function')window.renderRoomSettings();
+      if(typeof window.renderOwnerMail==='function')window.renderOwnerMail();
+      alert('已清空');
+    }catch(e){alert('清空邮箱设置失败：'+(e&&e.message?e.message:e));}
+    finally{if(btn){btn.disabled=false;btn.textContent=old||'清空';}}
+  }
+  function copyMailAddress(address,btn){
+    const text=String(address||'').trim();
+    if(!text)return alert('还没有可复制的 PMS 转发地址');
+    const done=()=>{if(btn){const old=btn.textContent;btn.textContent='已复制';setTimeout(()=>btn.textContent=old||'复制',1200);}};
+    if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(done).catch(done);else done();
+  }
+  function editPropertyMail(propertyId){setMailEdit(propertyId,true);if(typeof window.renderRoomSettings==='function')window.renderRoomSettings();if(typeof window.renderOwnerMail==='function')window.renderOwnerMail();}
+  function cancelPropertyMailEdit(propertyId){setMailEdit(propertyId,false);if(typeof window.renderRoomSettings==='function')window.renderRoomSettings();if(typeof window.renderOwnerMail==='function')window.renderOwnerMail();}
+  function renderPropertyMailPanel(p){
+    ensureFinalCss();
+    const row=propertyMailSetting(p.id),bound=!!String(row.source_email||'').trim(),saved=!!row.property_id,editing=!!S.mailEdits[p.id],addr=mailAddressForProperty(p.id),st=row.forward_status||'not_set';
+    const summary=!editing?`<div class="property-mail-summary">
+      <div class="property-mail-item"><div class="property-mail-label">Airbnb 通知邮箱</div><div class="property-mail-value">${bound?esc(row.source_email):'未填写'}</div>${row.updated_at?`<div class="small">保存时间：${esc(row.updated_at)}</div>`:''}</div>
+      <div class="property-mail-item"><div class="property-mail-label">PMS 转发地址</div><div class="property-mail-value" title="${esc(addr)}">${addr?esc(addr):'管理员未配置后台收信邮箱'}</div></div>
+      <div class="property-mail-item"><div class="property-mail-label">状态</div><div class="property-mail-value"><span class="status-pill ${mailStatusClass(st,bound)}">${esc(mailStatusText(st,bound))}</span></div></div>
+      <div class="property-mail-actions"><span class="mail-save-status" id="${mailStatusId(p.id)}"></span><button class="smallbtn primary" onclick="editPropertyMail('${esc(p.id)}')">${saved?'修改设置':'设置邮箱转发'}</button>${addr?`<button class="smallbtn" onclick="copyMailAddress('${esc(addr)}',this)">复制转发地址</button>`:''}${saved?`<button class="smallbtn" onclick="clearPropertyMail('${esc(p.id)}',this)">清空</button>`:''}</div>
+    </div>`:'';
+    const form=editing?`<div class="property-mail-form">
+      <label>这个房源接收 Airbnb 通知的邮箱<input id="${mailInputId(p.id,'source_email')}" value="${esc(row.source_email||'')}" placeholder="例如：host@gmail.com"></label>
+      <label>转发状态<select id="${mailInputId(p.id,'forward_status')}"><option value="not_set"${st==='not_set'?' selected':''}>未设置</option><option value="verification_pending"${st==='verification_pending'?' selected':''}>等待确认</option><option value="rule_created"${st==='rule_created'?' selected':''}>已建转发规则</option><option value="active"${st==='active'?' selected':''}>已生效</option><option value="paused"${st==='paused'?' selected':''}>暂停</option></select></label>
+      <label>PMS 转发地址<input readonly value="${esc(addr||'管理员未配置后台收信邮箱')}"></label>
+      <label style="grid-column:1/-1">备注<textarea id="${mailInputId(p.id,'notes')}" placeholder="例如：这个房源的 Airbnb 通知来自哪个邮箱，或转发规则还在等待验证。">${esc(row.notes||'')}</textarea></label>
+      <div class="property-mail-actions" style="grid-column:1/-1"><span class="mail-save-status" id="${mailStatusId(p.id)}_form"></span><button class="smallbtn primary" onclick="savePropertyMail('${esc(p.id)}',this)">保存设置</button><button class="smallbtn" onclick="cancelPropertyMailEdit('${esc(p.id)}')">取消</button></div>
+    </div>`:'';
+    return `<div class="property-subcard property-mail-panel"><div class="property-detail-head"><div><h3 style="margin:0">房源邮件转发</h3><div class="small">按房源保存，只记录转发规则和状态；邮件提醒不会改房态，房态只按 iCal 同步结果计算。</div></div></div>${summary}${form}</div>`;
+  }
+
+  function propertyMailEvents(propertyId){return mailEvents().filter(e=>String(e.property_id||'')===String(propertyId||''));}
+  function renderPropertyMailEventsPanel(p){
+    const rows=propertyMailEvents(p.id).slice().sort((a,b)=>String(b.received_at||b.date||'').localeCompare(String(a.received_at||a.date||''))).slice(0,12);
+    return `<div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">邮件提醒</h3><div class="small">最近邮件会按房源整理；后续会继续把邮件内容和 iCal 日期关联。</div></div><span class="status-pill ${rows.length?'warn':''}">${rows.length} 条</span></div><div class="final-mail-events">${rows.length?rows.map(e=>`<div class="final-mail-event ${esc(e.severity||'')}"><strong>${esc(e.title||e.raw_subject||'Airbnb 邮件')}</strong><div class="small">${esc(e.received_at||e.date||'')} ${e.room_name?`｜${esc(e.room_name)}`:''} ${e.event_type?`｜${esc(e.event_type)}`:''}</div><div>${esc(e.summary||'')}</div></div>`).join(''):'<div class="empty-panel">暂无邮件提醒</div>'}</div></div>`;
+  }
+  function selectedMailProperties(){const ids=Array.isArray(S.ownerPropertyIds)?S.ownerPropertyIds:[];const selected=ids.length?ids:props().map(p=>p.id);return props().filter(p=>selected.includes(p.id));}
+  function ensureOwnerMailTab(){
+    const owner=document.getElementById('owner');if(!owner)return;
+    const tabbar=owner.querySelector('.tabbar'),roomsBtn=tabbar&&tabbar.querySelector('button[onclick*="ownerRooms"]');
+    if(roomsBtn)roomsBtn.textContent='房间设置';
+    if(tabbar&&!tabbar.querySelector('button[data-pms-mail-tab]')){
+      const btn=document.createElement('button');btn.type='button';btn.dataset.pmsMailTab='1';btn.textContent='邮件提醒';
+      btn.onclick=function(){if(typeof showOwnerTab==='function')showOwnerTab('ownerMail',this);renderOwnerMail();};
+      if(roomsBtn)roomsBtn.insertAdjacentElement('afterend',btn);else tabbar.appendChild(btn);
+    }
+    if(!document.getElementById('ownerMail')){
+      const pane=document.createElement('div');pane.id='ownerMail';pane.className='tab-content';
+      const roomsPane=document.getElementById('ownerRooms');if(roomsPane)roomsPane.insertAdjacentElement('afterend',pane);else owner.appendChild(pane);
+    }
+  }
+  function openPropertyMailTab(propertyId){
+    if(propertyId)S.ownerPropertyIds=[propertyId];
+    ensureOwnerMailTab();
+    const btn=document.querySelector('button[data-pms-mail-tab]');
+    if(typeof showOwnerTab==='function')showOwnerTab('ownerMail',btn||null);
+    renderOwnerMail();
+  }
+  function renderOwnerMail(){
+    ensureFinalCss();ensureOwnerMailTab();
+    const root=document.getElementById('ownerMail');if(!root)return;
+    const ps=selectedMailProperties();
+    const total=ps.reduce((n,p)=>n+propertyMailEvents(p.id).length,0);
+    root.innerHTML=`<div class="card mail-tab-shell"><div class="property-detail-head"><div><h2>邮件提醒</h2><div class="small">按房源管理 Airbnb 通知邮箱、PMS 转发地址和邮件提醒。邮件内容不会影响房态；房态只按 iCal 同步结果计算。</div></div><span class="status-pill ${total?'warn':''}">共 ${total} 条</span></div>${ps.length?ps.map(p=>`<div class="mail-property-block"><div class="property-detail-head"><div><h3 style="margin:0">${esc(displayPropertyName(p.name,p.id))}</h3><div class="small">${propertyMailEvents(p.id).length} 条邮件提醒</div></div></div>${renderPropertyMailPanel(p)}${renderPropertyMailEventsPanel(p)}</div>`).join(''):'<div class="empty-panel">请先在上方勾选房源。</div>'}</div>`;
+  }
+
+  function roomChannels(roomId){return channels().filter(ch=>String(ch.room_id)===String(roomId));}
+  function channelFeedUrl(ch){return `${location.origin}/feed/${encodeURIComponent(ch.id)}.ics`;}
+  function channelInputId(id,field){return `channel_${safe(id)}_${safe(field)}`;}
+  function channelLabel(ch){const note=String(ch.channel_note||'').trim();return `${ch.platform||'Airbnb'} 渠道${note?' · '+note:''}`;}
+  function shortUrl(v){const text=String(v||'').trim();if(!text)return '<span class="final-mini warn">未填</span>';return `<span class="final-mini url" title="${esc(text)}">${esc(text.length>34?text.slice(0,31)+'...':text)}</span>`;}
+  function channelStatus(ch){const has=!!String(ch.ical_url||'').trim();return `<span class="final-mini ${has?'good':'warn'}">${has?'已导入 iCal':'未填 iCal'}</span>${ch.is_new_listing?'<span class="final-mini warn">新发布无订单</span>':''}${ch.sync_error?`<span class="final-mini warn">同步失败</span>`:''}`;
+  }
+  function readChannelForm(id){
+    const rows=channels(),idx=rows.findIndex(x=>String(x.id)===String(id));if(idx<0)return null;
+    const row={...rows[idx]};
+    const platform=document.getElementById(channelInputId(id,'platform'));
+    const note=document.getElementById(channelInputId(id,'channel_note'));
+    const isNew=document.getElementById(channelInputId(id,'is_new_listing'));
+    const listing=document.getElementById(channelInputId(id,'listing_url'));
+    const ical=document.getElementById(channelInputId(id,'ical_url'));
+    if(platform)row.platform=platform.value||'Airbnb';
+    if(note)row.channel_note=note.value.trim();
+    if(isNew)row.is_new_listing=isNew.value==='true';
+    if(listing)row.listing_url=listing.value.trim();
+    if(ical)row.ical_url=ical.value.trim();
+    rows[idx]=row;setList('channelListings',rows);return row;
+  }
+  function collectVisibleIcal(propertyId){
+    propRooms(propertyId).forEach(r=>{
+      ['airbnb_ical','booking_ical','vrbo_ical','other_ical'].forEach(field=>{
+        const el=document.getElementById(`ical_${safe(r.id)}_${safe(field)}`);
+        if(el)r[field]=el.value.trim();
+      });
+      roomChannels(r.id).forEach(ch=>readChannelForm(ch.id));
+    });
+  }
+  async function persistVisibleChannels(propertyId){
+    const rows=propRooms(propertyId).flatMap(r=>roomChannels(r.id));
+    if(!rows.length&&typeof window.saveState==='function'){const data=await window.saveState();applyState(data);return data;}
+    const res=await fetch(url('/api/state'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channelListings:rows})});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok||data.ok===false)throw new Error(data.error||'保存渠道失败');
+    applyState(data);
+    return data;
+  }
+  function propertySyncResultHtml(propertyId){const item=S.syncResults&&S.syncResults[propertyId];return item?`<span class="sync-inline-status ${esc(item.kind||'')}">${esc(item.text||'')}</span>`:'';}
+  async function syncPropertyIcal(propertyId,btn){
+    const id=propertyId||(activeProp()&&activeProp().id);if(!id)return alert('请先进入一个房源');
+    ensureFinalCss();
+    const old=btn&&btn.textContent;
+    if(btn){btn.disabled=true;btn.textContent='同步中...';}
+    S.syncResults[id]={kind:'loading',text:'同步中：正在保存渠道并读取 iCal...'};
+    if(typeof window.renderRoomSettings==='function')window.renderRoomSettings();
+    try{
+      collectVisibleIcal(id);
+      await persistVisibleChannels(id);
+      const res=await fetch(url('/api/sync'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:id})});
+      const data=await res.json().catch(()=>({ok:false,error:'服务器没有返回有效结果'}));
+      if(!res.ok||data.ok===false){
+        const debug=data.debug_id?` 编号：${data.debug_id}`:'';
+        const detail=data.detail?`（${data.detail}）`:'';
+        throw new Error((data.error||'iCal 同步失败')+debug+detail);
+      }
+      applyState(data);
+      const roomIds=new Set(propRooms(id).map(r=>r.id));
+      const channelCount=channels().filter(ch=>roomIds.has(ch.room_id)).length;
+      const bookingCount=channels().filter(ch=>roomIds.has(ch.room_id)).reduce((n,ch)=>n+Number(ch.synced_booking_count||0),0);
+      const errs=list('syncErrors').filter(e=>roomIds.has(e.room_id));
+      S.syncResults[id]={kind:errs.length?'error':'ok',text:errs.length?`同步完成，但 ${errs.length} 个渠道失败`:`同步完成：${channelCount} 个渠道，导入 ${bookingCount} 条`};
+      if(typeof window.renderRoomSettings==='function')window.renderRoomSettings();
+      if(errs.length)alert(`iCal 同步完成，但有 ${errs.length} 个渠道失败。错误已显示在对应房间。`);
+      return data;
+    }catch(e){
+      const msg=e&&e.message?e.message:String(e||'未知错误');
+      S.syncResults[id]={kind:'error',text:'同步失败：'+msg};
+      if(typeof window.renderRoomSettings==='function')window.renderRoomSettings();
+      alert('同步失败：'+msg);
+      return null;
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent=old||'同步当前房源 iCal';}
+    }
+  }
+  function renderChannelSummaryCard(ch){
+    const rowClass=String(ch.ical_url||'').trim()?'ready':'warn';
+    return `<div class="final-channel-row ${rowClass}"><div><div class="final-channel-title">${esc(channelLabel(ch))}</div><div class="final-channel-line">${channelStatus(ch)}${ch.channel_note?`<span class="final-mini">${esc(ch.channel_note)}</span>`:'<span class="final-mini warn">备注未填</span>'}</div><div class="final-channel-line"><strong>导入 iCal</strong>${shortUrl(ch.ical_url)}<strong>房源链接</strong>${shortUrl(ch.listing_url)}<strong>防超卖 iCal</strong>${shortUrl(channelFeedUrl(ch))}</div></div><div class="channel-actions"><button class="smallbtn" onclick="window.diagnoseChannelIcal&&window.diagnoseChannelIcal('${esc(ch.id)}',this)">检查</button><button class="smallbtn primary" onclick="copyChannelFeed('${esc(ch.id)}',this)">复制防超卖</button><button class="smallbtn primary" onclick="editChannelListing('${esc(ch.id)}')">修改</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div>`;
+  }
+  function renderChannelEditCard(ch){
+    const platform=ch.platform||'Airbnb';
+    const feed=channelFeedUrl(ch);
+    return `<div class="channel-card channel-edit-compact"><div class="channel-card-head"><div><div class="channel-title">${esc(channelLabel(ch))}</div>${channelStatus(ch)}</div><div class="channel-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存渠道</button><button class="smallbtn" onclick="cancelChannelEdit('${esc(ch.id)}')">取消</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-grid"><label>平台<select id="${channelInputId(ch.id,'platform')}"><option${platform==='Airbnb'?' selected':''}>Airbnb</option><option${platform==='Booking'?' selected':''}>Booking</option><option${platform==='Vrbo'?' selected':''}>Vrbo</option><option${platform==='Other'?' selected':''}>Other</option></select></label><label>同平台备注<input id="${channelInputId(ch.id,'channel_note')}" value="${esc(ch.channel_note||'')}" placeholder="例如：老账号、新账号、Booking A"></label><label>是否平台新发布房源<select id="${channelInputId(ch.id,'is_new_listing')}"><option value="false"${ch.is_new_listing?'':' selected'}>否，已有或可能已有订单</option><option value="true"${ch.is_new_listing?' selected':''}>是，新发布没有订单</option></select></label><label>该平台房源链接（可选）<input id="${channelInputId(ch.id,'listing_url')}" value="${esc(ch.listing_url||'')}" placeholder="粘贴这个渠道的房源页面链接"></label></div><div class="channel-url-grid"><label>该平台导出的 iCal<input id="${channelInputId(ch.id,'ical_url')}" value="${esc(ch.ical_url||'')}" placeholder="粘贴平台 Export calendar 导出的 .ics 链接"></label><div class="channel-copyline"><input readonly value="${esc(feed)}"><button class="smallbtn primary" onclick="copyChannelFeed('${esc(ch.id)}',this)">复制防超卖 iCal</button></div></div><div class="channel-edit-hint">同一个真实房间上架多个 Airbnb / Booking 时，每个渠道单独建一条记录，并填写备注区分账号或平台房源。</div></div>`;
+  }
+  function renderChannelCard(ch){return S.channelEdits&&S.channelEdits[ch.id]?renderChannelEditCard(ch):renderChannelSummaryCard(ch);}
+  function renderChannelListingsPanel(r){
+    ensureFinalCss();
+    const listRows=roomChannels(r.id),ready=listRows.filter(ch=>String(ch.ical_url||'').trim()).length,needs=listRows.length-ready,cards=listRows.map(renderChannelCard).join('');
+    return `<div class="final-channel-panel"><div class="final-channel-head"><div><div class="final-channel-title">渠道 / iCal</div><div class="final-channel-line"><span class="final-mini">${listRows.length} 个渠道</span><span class="final-mini good">${ready} 个已填 iCal</span>${needs?`<span class="final-mini warn">${needs} 个需处理</span>`:''}</div></div><div class="channel-actions"><button class="smallbtn primary" onclick="addChannelListing('${esc(r.id)}',this)">添加渠道</button><button class="smallbtn" onclick="clearRoomChannels('${esc(r.id)}',this)">清空渠道/iCal</button></div></div><div class="final-channel-list">${cards||'<div class="empty-panel">还没有渠道上架记录。先添加 Airbnb 渠道，把该房间在 Airbnb 导出的 iCal 粘贴进来；第二个平台再新增一条渠道记录。</div>'}</div></div>`;
+  }
+  function renderRoomCard(r){
+    ensureFinalCss();
+    const channelsText=roomChannels(r.id),ready=channelsText.filter(ch=>String(ch.ical_url||'').trim()).length;
+    const edit=!!S.rooms&&!!S.rooms[r.id];
+    const head=edit?`<div class="inline-edit-card"><div><label>房间名字</label><input id="roomName_${safe(r.id)}" value="${esc(r.name||'')}"></div><div><label>清洁费</label><input id="roomFee_${safe(r.id)}" type="number" value="${esc(r.cleaning_fee||0)}"></div><div class="text-actions"><button class="smallbtn primary" onclick="saveRoomBasics('${esc(r.id)}',this)">保存</button><button class="smallbtn" onclick="cancelRoomBasics('${esc(r.id)}')">取消</button><button class="smallbtn" onclick="deleteRoomUi('${esc(r.id)}',this)">删除</button></div></div>`:`<div class="final-room-head"><div><div class="final-room-title">${esc(objectRoomName(r))}</div><div class="final-room-meta">清洁费：$${Number(r.cleaning_fee||0)} ｜ ${channelsText.length} 个渠道 ｜ ${ready} 个已填 iCal</div></div><div class="text-actions"><button class="smallbtn" onclick="editRoomBasics('${esc(r.id)}',this)">修改</button><button class="smallbtn" onclick="deleteRoomUi('${esc(r.id)}',this)">删除</button></div></div>`;
+    return `<div class="room-setting-card final-room-card">${head}${renderChannelListingsPanel(r)}<div class="final-sync-row"><button class="smallbtn primary" onclick="syncPropertyIcal('${esc(roomPropId(r.id))}',this)">同步当前房源 iCal</button>${propertySyncResultHtml(roomPropId(r.id))}<span class="small">读取当前房源下每个房间的所有渠道 iCal。</span></div></div>`;
+  }
+  function renderPropertyDetail(p){
+    ensureFinalCss();
+    const rs=propRooms(p.id);
+    const cleaner=(typeof window.renderCleanerPanel==='function')?window.renderCleanerPanel(p):'';
+    const common=(typeof window.renderCommonAreaPanel==='function')?window.renderCommonAreaPanel(p):'';
+    const cards=rs.length?`<div class="room-setting-list">${rs.map(renderRoomCard).join('')}</div>`:`<div class="empty-panel"><strong>这个房源还没有房间</strong><div style="margin-top:10px"><button class="smallbtn primary" onclick="addRoom(this)">添加第一个房间</button></div></div>`;
+    return `<div class="property-room-shell"><div class="property-detail-head"><div><h2 class="property-room-title"><span class="property-room-name">${esc(displayPropertyName(p.name,p.id))}</span><span class="property-room-title-text">房间管理</span></h2><div class="small">${rs.length} 个房间 · ${propAreas(p.id).length} 个公区 · ${propCleaners(p.id).length} 个保洁绑定 · 房源 ID：${esc(p.id)}</div></div><div class="property-actions sync-actions"><button class="smallbtn" onclick="backToPropertyList()">返回房源列表</button><button class="smallbtn primary" onclick="syncPropertyIcal('${esc(p.id)}',this)">同步当前房源 iCal</button>${propertySyncResultHtml(p.id)}</div></div>${cleaner}${common}<div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">房间设置</h3><div class="small">每个真实房间只建一次；不同平台、不同 Airbnb 账号，都在房间下面添加为渠道上架记录。</div></div><button class="smallbtn primary" onclick="addRoom(this)">添加房间</button></div>${cards}</div></div>`;
+  }
+  function renderRoomSettings(){
+    ensureFinalCss();
+    try{if(typeof window.setupPropertyRoomUi==='function')window.setupPropertyRoomUi();}catch(e){}
+    ensureOwnerMailTab();
+    const root=document.getElementById('roomSettings');if(!root)return;
+    const currentProp=activeProp();
+    if(currentProp&&!props().some(p=>String(p.id)===String(currentProp.id)))setActiveProp('');
+    const p=activeProp();
+    if(!props().length){root.innerHTML='<div class="empty-panel"><strong>还没有房源</strong><div class="small" style="margin-top:8px">先在上方房源管理模块添加房源。</div></div>';return;}
+    root.innerHTML=p?renderPropertyDetail(p):'<div class="empty-panel"><strong>从上方房源管理进入房间管理</strong><div class="small" style="margin-top:8px">上方已经可以完成房源筛选、添加、改名、删除；这里只在进入某个房源后显示房间、公区、iCal 和保洁绑定。</div></div>';
+  }
+  function openPropertyRooms(id){
+    setActiveProp(id);
+    const btn=document.querySelector('button[onclick*="ownerRooms"]');
+    if(typeof showOwnerTab==='function')showOwnerTab('ownerRooms',btn||null);
+    renderRoomSettings();
+  }
+  function backToPropertyList(){setActiveProp('');renderRoomSettings();}
+
+  const baseRenderOwner=window.__pmsFinalBaseRenderOwner||window.renderOwner;
+  window.__pmsFinalBaseRenderOwner=baseRenderOwner;
+  function renderOwner(){
+    const user=current();
+    if(user&&user.role==='admin'&&typeof baseRenderOwner==='function')return baseRenderOwner();
+    if(typeof baseRenderOwner==='function')baseRenderOwner();
+    ensureOwnerMailTab();
+    renderRoomSettings();
+    renderOwnerMail();
+  }
+  function install(){
+    Object.assign(window,{savePropertyMail,clearPropertyMail,copyMailAddress,editPropertyMail,cancelPropertyMailEdit,renderPropertyMailPanel,ensureOwnerMailTab,openPropertyMailTab,renderOwnerMail,syncPropertyIcal,renderChannelListingsPanel,renderRoomCard,renderPropertyDetail,renderRoomSettings,openPropertyRooms,backToPropertyList,renderOwner});
+    try{savePropertyMail=window.savePropertyMail;clearPropertyMail=window.clearPropertyMail;syncPropertyIcal=window.syncPropertyIcal;renderRoomSettings=window.renderRoomSettings;renderOwner=window.renderOwner}catch(e){}
+    ensureFinalCss();
+    ensureOwnerMailTab();
+  }
+  install();
+  [0,120,500,1500,3000].forEach(t=>setTimeout(install,t));
+})();
+'''
+ui_patch += final_ui_override
 old_room_wrapper = """const originalRenderRoomSettings = renderRoomSettings;
 renderRoomSettings = function(){
   originalRenderRoomSettings();
