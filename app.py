@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-18-firestore-gzip-state-v1"
+PMS_PATCH_VERSION = "2026-06-19-external-event-shards-v1"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -3222,9 +3222,180 @@ if "_pms_ical_event_archive_v1" not in source_text:
     else:
         source_text += "\n" + ical_event_archive_backend + "\n"
 
+external_event_storage_backend = r'''
+_pms_external_event_storage_v1 = True
+
+_PMS_EXTERNAL_STATE_KEYS = ("icalEventArchive", "mailEvents")
+_PMS_EXTERNAL_SHARD_RAW_LIMIT = 360000
+
+
+def _pms_external_doc_url(suffix):
+    project = urllib.parse.quote(firebase_project_id(), safe="")
+    collection = urllib.parse.quote(STATE_COLLECTION, safe="")
+    document = urllib.parse.quote(f"{STATE_DOCUMENT}__{suffix}", safe="")
+    return f"https://firestore.googleapis.com/v1/projects/{project}/databases/(default)/documents/{collection}/{document}"
+
+
+def _pms_external_pack(value):
+    raw = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return raw, base64.b64encode(gzip.compress(raw, compresslevel=9)).decode("ascii")
+
+
+def _pms_external_unpack(text):
+    if not text:
+        return []
+    raw = gzip.decompress(base64.b64decode(str(text).encode("ascii"))).decode("utf-8")
+    value = json.loads(raw or "[]")
+    return value if isinstance(value, list) else []
+
+
+def _pms_external_index(key):
+    doc = firestore_request("GET", _pms_external_doc_url(f"{key}__index"))
+    if not doc:
+        return None
+    fields = doc.get("fields", {})
+    return {
+        "shard_count": int(fields.get("shard_count", {}).get("integerValue") or 0),
+        "row_count": int(fields.get("row_count", {}).get("integerValue") or 0),
+        "updated_at": fields.get("updated_at", {}).get("timestampValue") or "",
+    }
+
+
+def _pms_external_read(key):
+    if not firebase_credentials_configured():
+        return None
+    index = _pms_external_index(key)
+    if not index:
+        legacy = firestore_request("GET", _pms_external_doc_url(key))
+        if not legacy:
+            return None
+        fields = legacy.get("fields", {})
+        compressed = fields.get("data_gzip_base64", {}).get("stringValue") or ""
+        if compressed:
+            return _pms_external_unpack(compressed)
+        raw = fields.get("data_json", {}).get("stringValue") or ""
+        if raw:
+            value = json.loads(raw or "[]")
+            return value if isinstance(value, list) else []
+        return None
+    rows = []
+    for idx in range(index.get("shard_count", 0)):
+        doc = firestore_request("GET", _pms_external_doc_url(f"{key}__{idx:04d}"))
+        if not doc:
+            continue
+        compressed = doc.get("fields", {}).get("data_gzip_base64", {}).get("stringValue") or ""
+        rows.extend(_pms_external_unpack(compressed))
+    return rows
+
+
+def _pms_external_chunk_rows(rows):
+    chunks = []
+    current = []
+    current_size = 2
+    for row in rows:
+        row_raw = json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        row_size = len(row_raw) + 1
+        if current and current_size + row_size > _PMS_EXTERNAL_SHARD_RAW_LIMIT:
+            chunks.append(current)
+            current = []
+            current_size = 2
+        current.append(row)
+        current_size += row_size
+    chunks.append(current)
+    return chunks
+
+
+def _pms_external_write(key, rows):
+    if not firebase_credentials_configured():
+        return
+    clean_rows = rows if isinstance(rows, list) else []
+    chunks = _pms_external_chunk_rows(clean_rows)
+    now = now_utc_iso()
+    for idx, chunk in enumerate(chunks):
+        raw, compressed = _pms_external_pack(chunk)
+        if len(compressed) > 950000:
+            raise RuntimeError(f"{key} shard {idx} is too large after compression: {len(compressed)} bytes")
+        firestore_request("PATCH", _pms_external_doc_url(f"{key}__{idx:04d}"), payload={
+            "fields": {
+                "key": {"stringValue": key},
+                "shard_index": {"integerValue": str(idx)},
+                "data_gzip_base64": {"stringValue": compressed},
+                "raw_bytes": {"integerValue": str(len(raw))},
+                "compressed_bytes": {"integerValue": str(len(compressed))},
+                "row_count": {"integerValue": str(len(chunk))},
+                "updated_at": {"timestampValue": now},
+            }
+        })
+    firestore_request("PATCH", _pms_external_doc_url(f"{key}__index"), payload={
+        "fields": {
+            "key": {"stringValue": key},
+            "storage": {"stringValue": "gzip_base64_shards"},
+            "shard_count": {"integerValue": str(len(chunks))},
+            "row_count": {"integerValue": str(len(clean_rows))},
+            "updated_at": {"timestampValue": now},
+        }
+    })
+
+
+_pms_external_base_load_state = load_state
+def load_state():
+    state = _pms_external_base_load_state()
+    if firebase_credentials_configured():
+        for key in _PMS_EXTERNAL_STATE_KEYS:
+            rows = _pms_external_read(key)
+            if rows is not None:
+                state[key] = rows
+    return normalize_state(state)
+
+
+_pms_external_base_save_state = save_state
+def save_state(state):
+    state = normalize_state(state)
+    if not firebase_credentials_configured():
+        return _pms_external_base_save_state(state)
+    external_rows = {}
+    compact_state = dict(state)
+    for key in _PMS_EXTERNAL_STATE_KEYS:
+        external_rows[key] = compact_state.pop(key, [])
+    for key, rows in external_rows.items():
+        _pms_external_write(key, rows)
+    saved = _pms_external_base_save_state(compact_state)
+    for key, rows in external_rows.items():
+        saved[key] = rows
+    return normalize_state(saved)
+
+
+def pms_storage_diagnostics():
+    state = normalize_state(load_state())
+    details = {"main_state_keys": sorted(state.keys()), "external": {}}
+    if firebase_credentials_configured():
+        for key in _PMS_EXTERNAL_STATE_KEYS:
+            index = _pms_external_index(key) or {}
+            details["external"][key] = {
+                "rows": len(state.get(key, [])),
+                "shards": index.get("shard_count", 0),
+                "updated_at": index.get("updated_at", ""),
+            }
+    else:
+        for key in _PMS_EXTERNAL_STATE_KEYS:
+            details["external"][key] = {"rows": len(state.get(key, [])), "shards": 0, "storage": "local_state_json"}
+    return details
+'''
+if "_pms_external_event_storage_v1" not in source_text:
+    if auto_sync_marker in source_text:
+        source_text = source_text.replace(auto_sync_marker, external_event_storage_backend + "\n" + auto_sync_marker, 1)
+    else:
+        source_text += "\n" + external_event_storage_backend + "\n"
+
 if "_pms_property_mail_http_v1" not in source_text:
     property_mail_route_hook = '''            if path.startswith("/api/property/"):'''
     property_mail_routes = '''            # _pms_property_mail_http_v1
+            if path == "/api/storage-diagnostics":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                json_response(self, {"ok": True, "storage": pms_storage_diagnostics()})
+                return
             if path == "/api/mail-config":
                 user = require_user(self, ("admin",))
                 if not user:
