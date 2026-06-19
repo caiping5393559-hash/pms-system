@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-19-owner-mail-sync-ui-v1"
+PMS_PATCH_VERSION = "2026-06-19-mail-save-guard-v1"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -2097,6 +2097,8 @@ def save_property_mail_setting(payload, actor=None):
         by_property.pop(property_id, None)
         state["propertyMailForwarding"] = list(by_property.values())
         return save_state(state), None
+    if not _pms_mail_text(raw.get("source_email") or raw.get("sourceEmail"), 240):
+        raise RuntimeError("没有内容可保存：请先填写 Airbnb 通知邮箱；如果要删除绑定，请点清空。")
     clean = _pms_mail_clean_property_setting(raw, state)
     by_property[property_id] = clean
     state["propertyMailForwarding"] = list(by_property.values())
@@ -2143,6 +2145,8 @@ def save_state_from_payload(payload, actor=None):
             if raw.get("_delete") or raw.get("_clear"):
                 by_property.pop(property_id, None)
                 continue
+            if not _pms_mail_text(raw.get("source_email") or raw.get("sourceEmail"), 240):
+                raise RuntimeError("没有内容可保存：请先填写 Airbnb 通知邮箱；如果要删除绑定，请点清空。")
             clean = _pms_mail_clean_property_setting(raw, current)
             by_property[property_id] = clean
         current["propertyMailForwarding"] = list(by_property.values())
