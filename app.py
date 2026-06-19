@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-19-mail-save-guard-v1"
+PMS_PATCH_VERSION = "2026-06-19-sync-ui-compact-v1"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -689,6 +689,24 @@ if new_sync_route not in source_text:
     if old_sync_route not in source_text:
         raise RuntimeError("iCal sync route hook not found")
     source_text = source_text.replace(old_sync_route, new_sync_route, 1)
+
+safe_sync_route = """            if path == "/api/sync":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}") if raw else {}
+                try:
+                    synced = sync_icals(actor=user, property_id=payload.get("property_id"))
+                    json_response(self, {"ok": True, "state": filter_state_for_user(synced, user)})
+                except Exception as exc:
+                    message = str(exc) or exc.__class__.__name__
+                    json_response(self, {"ok": False, "error": message, "trace": traceback.format_exc()[-1600:]}, status=500)
+                return
+"""
+if safe_sync_route not in source_text:
+    if new_sync_route not in source_text:
+        raise RuntimeError("safe iCal sync route hook not found")
+    source_text = source_text.replace(new_sync_route, safe_sync_route, 1)
 
 old_visible_room_ids = """    room_ids = {room.get("id") for room in rooms}
     cleaner_codes = {
