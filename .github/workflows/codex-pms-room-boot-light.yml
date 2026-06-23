@@ -75,3 +75,5 @@ jobs:
           git add app.py pms_ui_patch.js .github/workflows/codex-pms-room-boot-light.yml
           git commit -m "Reduce PMS owner boot rerenders"
           git push
+
+# trigger: 2026-06-23-01
