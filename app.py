@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-23-fast-ical-sync-v1"
+PMS_PATCH_VERSION = "2026-06-23-fast-ical-sync-v2"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -1185,7 +1185,7 @@ safe_sync_route = """            if path == "/api/sync":
                 payload = json.loads(raw.decode("utf-8") or "{}") if raw else {}
                 try:
                     synced = sync_icals(actor=user, property_id=payload.get("property_id"))
-                    json_response(self, {"ok": True, "state": filter_state_for_user(synced, user)})
+                    json_response(self, {"ok": True, "state": pms_state_response_for_user(synced, user)})
                 except Exception as exc:
                     message = str(exc) or exc.__class__.__name__
                     debug_id = hashlib.sha1((message + str(time.time())).encode("utf-8")).hexdigest()[:10]
