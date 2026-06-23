@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-19-channel-dedupe-v1"
+PMS_PATCH_VERSION = "2026-06-22-light-state-v1"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -473,7 +473,7 @@ admin_ui_patch = r'''
 ui_patch += admin_ui_patch
 final_ui_override = r'''
 (function(){
-  const VERSION='2026-06-19-channel-dedupe-v1';
+  const VERSION='2026-06-22-light-state-v1';
   window.__PMS_PATCH_VERSION=VERSION;
   const S=window.__pmsInlineState||(window.__pmsInlineState={});
   S.mailEdits=S.mailEdits||{};
@@ -3903,6 +3903,56 @@ def pms_storage_diagnostics():
         for key in _PMS_EXTERNAL_STATE_KEYS:
             details["external"][key] = {"rows": len(state.get(key, [])), "shards": 0, "storage": "local_state_json"}
     return details
+
+
+def _pms_ui_sync_history_summary(rows):
+    clean = []
+    for item in rows if isinstance(rows, list) else []:
+        if not isinstance(item, dict):
+            continue
+        clean.append({
+            "id": item.get("id", ""),
+            "synced_at": item.get("synced_at", ""),
+            "property_id": item.get("property_id", ""),
+            "room_id": item.get("room_id", ""),
+            "room_name": item.get("room_name", ""),
+            "channel_listing_id": item.get("channel_listing_id", ""),
+            "platform": item.get("platform", ""),
+            "channel_note": item.get("channel_note", ""),
+            "status": item.get("status", ""),
+            "event_count": item.get("event_count", 0),
+            "booking_count": item.get("booking_count", 0),
+            "lock_count": item.get("lock_count", 0),
+            "inferred_lock_count": item.get("inferred_lock_count", 0),
+            "missing_event_count": item.get("missing_event_count", 0),
+            "warning": item.get("warning", ""),
+            "error": item.get("error", ""),
+        })
+    return clean[-80:]
+
+
+def pms_state_response_for_user(state, actor):
+    normalized = normalize_state(state)
+    normalized["icalEventArchive"] = []
+    normalized["icalSyncHistory"] = _pms_ui_sync_history_summary(normalized.get("icalSyncHistory", []))
+    filtered = filter_state_for_user(normalized, actor)
+    if not isinstance(filtered, dict):
+        return filtered
+    # The UI never needs raw archived iCal fields. Keep them in Firestore for
+    # diagnostics/sync logic, but do not ship them on every page load.
+    filtered["icalEventArchive"] = []
+    filtered["icalSyncHistory"] = _pms_ui_sync_history_summary(filtered.get("icalSyncHistory", []))
+    return filtered
+
+
+def pms_load_state_for_ui():
+    if not firebase_credentials_configured():
+        return normalize_state(load_state())
+    state = _pms_external_base_load_state()
+    rows = _pms_external_read("mailEvents")
+    if rows is not None:
+        state["mailEvents"] = rows
+    return normalize_state(state)
 '''
 if "_pms_external_event_storage_v1" not in source_text:
     if auto_sync_marker in source_text:
@@ -3978,6 +4028,48 @@ if "_pms_ical_diagnostic_http_v1" not in source_text:
     if ical_diagnostic_route_hook not in source_text:
         raise RuntimeError("iCal diagnostic route hook not found")
     source_text = source_text.replace(ical_diagnostic_route_hook, ical_diagnostic_routes + ical_diagnostic_route_hook, 1)
+
+state_get_route_old = '''            if path == "/api/state":
+                user = require_user(self, ("admin", "owner", "cleaner"))
+                if not user:
+                    return
+                json_response(self, filter_state_for_user(load_state(), user))
+                return
+'''
+state_get_route_new = '''            if path == "/api/state":
+                user = require_user(self, ("admin", "owner", "cleaner"))
+                if not user:
+                    return
+                json_response(self, pms_state_response_for_user(pms_load_state_for_ui(), user))
+                return
+'''
+if state_get_route_new not in source_text:
+    if state_get_route_old not in source_text:
+        raise RuntimeError("GET /api/state route hook not found")
+    source_text = source_text.replace(state_get_route_old, state_get_route_new, 1)
+
+state_post_route_old = '''            if path == "/api/state":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved = save_state_from_payload(payload, actor=user)
+                json_response(self, {"ok": True, "state": filter_state_for_user(saved, user)})
+                return
+'''
+state_post_route_new = '''            if path == "/api/state":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved = save_state_from_payload(payload, actor=user)
+                json_response(self, {"ok": True, "state": pms_state_response_for_user(saved, user)})
+                return
+'''
+if state_post_route_new not in source_text:
+    if state_post_route_old not in source_text:
+        raise RuntimeError("POST /api/state route hook not found")
+    source_text = source_text.replace(state_post_route_old, state_post_route_new, 1)
 
 auto_sync_block = '''_pms_ical_sync_lock = threading.Lock()
 
