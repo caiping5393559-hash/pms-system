@@ -83,3 +83,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# deploy trigger: 2026-06-23-ical-loop-guard-v1
