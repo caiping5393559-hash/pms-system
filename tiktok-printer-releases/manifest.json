@@ -1,7 +1,13 @@
 {
-  "latest": "11.33",
-  "generatedAt": "2026-06-22",
+  "latest": "11.34",
+  "generatedAt": "2026-06-23",
   "files": [
+    {
+      "version": "11.34",
+      "file": "tiktok-label-printer-v11.34-current.user.js",
+      "notesZh": "修复标题栏中英文下拉被窗口拖动逻辑拦截，语言切换点击后立即生效。",
+      "notesEn": "Fixed the Chinese/English selector being intercepted by panel dragging; language changes now apply immediately."
+    },
     {
       "version": "11.33",
       "file": "tiktok-label-printer-v11.33-current.user.js",
