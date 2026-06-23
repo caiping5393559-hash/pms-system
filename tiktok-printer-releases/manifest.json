@@ -1,0 +1,30 @@
+{
+  "latest": "11.32",
+  "generatedAt": "2026-06-22",
+  "files": [
+    {
+      "version": "11.32",
+      "file": "tiktok-label-printer-v11.32-current.user.js",
+      "notesZh": "版本库改用订单云端兼容存储，便于旧电脑下载最新版。",
+      "notesEn": "Moved release storage to the compatible cloud order collection so older computers can download the latest version."
+    },
+    {
+      "version": "11.31",
+      "file": "tiktok-label-printer-v11.31-current.user.js",
+      "notesZh": "新增中英文主菜单、版本下载中心、监听暂停原因提示。",
+      "notesEn": "Added Chinese/English main menu, release download center, and visible listening pause reasons."
+    },
+    {
+      "version": "11.30",
+      "file": "tiktok-label-printer-v11.30-current.user.js",
+      "notesZh": "二维码改为本地生成，避免打印标签二维码空白。",
+      "notesEn": "Generated QR codes locally to prevent blank QR codes on printed labels."
+    },
+    {
+      "version": "11.29",
+      "file": "tiktok-label-printer-v11.29-current.user.js",
+      "notesZh": "新增云端打印流水失败本机暂存与自动补写。",
+      "notesEn": "Added local pending queue and automatic retry for failed cloud print-log writes."
+    }
+  ]
+}
