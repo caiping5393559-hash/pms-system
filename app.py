@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-23-fast-ical-sync-v2"
+PMS_PATCH_VERSION = "2026-06-23-direct-ical-sync-v1"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -1184,7 +1184,7 @@ safe_sync_route = """            if path == "/api/sync":
                     return
                 payload = json.loads(raw.decode("utf-8") or "{}") if raw else {}
                 try:
-                    synced = sync_icals(actor=user, property_id=payload.get("property_id"))
+                    synced = sync_icals(actor=user, property_id=payload.get("property_id"), incoming_channels=payload.get("channelListings"))
                     json_response(self, {"ok": True, "state": pms_state_response_for_user(synced, user)})
                 except Exception as exc:
                     message = str(exc) or exc.__class__.__name__
@@ -2252,7 +2252,34 @@ def _pms_channel_allowed_property_ids(actor, state):
     return {prop.get("id") for prop in state.get("properties", []) if isinstance(prop, dict) and prop.get("id")}
 
 
-def sync_icals(actor=None, property_id=None):
+def _pms_channel_merge_sync_payload(state, incoming_channels, allowed_room_ids):
+    if incoming_channels is None:
+        return
+    if not isinstance(incoming_channels, list):
+        raise RuntimeError("channelListings must be a list")
+    by_id = {item.get("id"): item for item in state.get("channelListings", []) if isinstance(item, dict)}
+    incoming = []
+    incoming_ids = set()
+    for raw in incoming_channels:
+        if not isinstance(raw, dict):
+            continue
+        clean = _pms_channel_clean_listing(raw, state)
+        if clean.get("room_id") not in allowed_room_ids:
+            raise RuntimeError("room permission required")
+        existing = by_id.get(clean.get("id"))
+        if existing:
+            clean["created_at"] = existing.get("created_at") or clean.get("created_at")
+        incoming.append(clean)
+        incoming_ids.add(clean.get("id"))
+    if not incoming:
+        return
+    state["channelListings"] = [
+        item for item in state.get("channelListings", [])
+        if not (isinstance(item, dict) and item.get("id") in incoming_ids)
+    ] + incoming
+
+
+def sync_icals(actor=None, property_id=None, incoming_channels=None):
     state = normalize_state(load_state())
     allowed_property_ids = _pms_channel_allowed_property_ids(actor, state)
     if property_id:
@@ -2263,6 +2290,7 @@ def sync_icals(actor=None, property_id=None):
         room.get("id") for room in state.get("rooms", [])
         if isinstance(room, dict) and room.get("property_id") in allowed_property_ids
     }
+    _pms_channel_merge_sync_payload(state, incoming_channels, allowed_room_ids)
     listings = [
         item for item in state.get("channelListings", [])
         if item.get("room_id") in allowed_room_ids
