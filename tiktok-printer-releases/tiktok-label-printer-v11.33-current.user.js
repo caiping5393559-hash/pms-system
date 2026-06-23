@@ -1,4 +1,4 @@
-﻿// ==UserScript==
+// ==UserScript==
 // @name         WINDOWS电脑 TikTok标签 v11.33 清理稳定版
 // @name:zh-CN   WINDOWS电脑 TikTok标签 v11.33 清理稳定版
 // @namespace    local-tiktok-label-printer-windows
