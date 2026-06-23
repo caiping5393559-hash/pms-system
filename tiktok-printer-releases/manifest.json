@@ -1,7 +1,13 @@
 {
-  "latest": "11.32",
+  "latest": "11.33",
   "generatedAt": "2026-06-22",
   "files": [
+    {
+      "version": "11.33",
+      "file": "tiktok-label-printer-v11.33-current.user.js",
+      "notesZh": "版本下载中心改用 GitHub Raw 作为最新版来源，避开 Firebase 写入权限限制。",
+      "notesEn": "Release center now uses GitHub Raw as the latest-version source, avoiding Firebase write-permission limits."
+    },
     {
       "version": "11.32",
       "file": "tiktok-label-printer-v11.32-current.user.js",

@@ -1,13 +1,12 @@
 ﻿// ==UserScript==
-// @name         WINDOWS电脑 TikTok标签 v11.33 清理稳定版
-// @name:zh-CN   WINDOWS电脑 TikTok标签 v11.33 清理稳定版
+// @name         WINDOWS电脑 TikTok标签 v11.29 清理稳定版
+// @name:zh-CN   WINDOWS电脑 TikTok标签 v11.29 清理稳定版
 // @namespace    local-tiktok-label-printer-windows
-// @version      11.33
-// @description  v11.33：版本下载中心改用 GitHub Raw 作为最新版来源
-// @description:zh-CN v11.33：版本下载中心改用 GitHub Raw 作为最新版来源
+// @version      11.29
+// @description  v11.29：新增云端打印流水失败本机暂存与自动补写
+// @description:zh-CN v11.29：新增云端打印流水失败本机暂存与自动补写
 // @match        https://*/*
 // @connect      firestore.googleapis.com
-// @connect      raw.githubusercontent.com
 // @run-at       document-start
 // @noframes
 // @grant        GM_getValue
@@ -37,11 +36,9 @@ const REVIEW_SCAN_HISTORY_KEY=PREFIX+"tk_review_scan_history_v88";
 const REVIEW_DIFF_HISTORY_KEY=PREFIX+"tk_review_diff_history_v88";
 const REVIEW_RESULT_HISTORY_KEY=PREFIX+"tk_review_result_history_v119";
 const CLOUD_PENDING_WRITES_KEY=PREFIX+"tk_cloud_pending_writes_v1129";
-const UI_LANGUAGE_KEY=PREFIX+"tk_ui_language_v1131";
-const LISTEN_PAUSE_REASON_KEY=PREFIX+"tk_listen_pause_reason_v1131";
 const GIVEAWAY_NOTE="FOR FREE";
 
-const SCRIPT_VERSION="11.33";
+const SCRIPT_VERSION="11.29";
 const QR_CODE_SCRIPT_URL="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js";
 const QR_FALLBACK_API="https://api.qrserver.com/v1/create-qr-code/?size=180x180&format=png&data=";
 const FIREBASE_APP_SCRIPT_URL="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js";
@@ -64,24 +61,6 @@ const FIREBASE_CONFIG={
     messagingSenderId:"1074015997772",
     appId:"1:1074015997772:web:38bf97bf55e37567aa09e9"
 };
-const RELEASE_COLLECTION="tiktok_orders";
-const RELEASE_DOC_PREFIX="__script_release_";
-const RELEASE_DOC_LATEST=RELEASE_DOC_PREFIX+"latest";
-const RELEASE_GITHUB_RAW_BASE="https://raw.githubusercontent.com/caiping5393559-hash/pms-system/main/tiktok-printer-releases/";
-const RELEASE_GITHUB_MANIFEST_URL=RELEASE_GITHUB_RAW_BASE+"manifest.json";
-const RELEASE_HISTORY_FALLBACK=[
-    {version:"11.33",date:"2026-06-22",notesZh:"版本下载中心改用 GitHub Raw 作为最新版来源，避开 Firebase 写入权限限制。",notesEn:"Release center now uses GitHub Raw as the latest-version source, avoiding Firebase write-permission limits."},
-    {version:"11.32",date:"2026-06-22",notesZh:"版本库改用订单云端兼容存储，便于旧电脑下载最新版。",notesEn:"Moved release storage to the compatible cloud order collection so older computers can download the latest version."},
-    {version:"11.31",date:"2026-06-19",notesZh:"新增中英文主菜单、版本下载中心、监听暂停原因提示。",notesEn:"Added Chinese/English main menu, release download center, and visible listening pause reasons."},
-    {version:"11.30",date:"2026-06-16",notesZh:"二维码改为本地生成，避免打印标签二维码空白。",notesEn:"Generated QR codes locally to prevent blank QR codes on printed labels."},
-    {version:"11.29",date:"2026-06-16",notesZh:"新增云端打印流水失败本机暂存与自动补写。",notesEn:"Added local pending queue and automatic retry for failed cloud print-log writes."},
-    {version:"11.28",date:"2026-06-16",notesZh:"查看历史改用打印流水校正多人协作同单打印次数。",notesEn:"History now uses per-print logs to correct multi-operator print counts."},
-    {version:"11.27",date:"2026-06-16",notesZh:"优化复核窗口布局和商品维度分析入口。",notesEn:"Improved review window layout and product analysis entry."},
-    {version:"11.24",date:"2026-06-16",notesZh:"优化复核结果展示，减少嵌套滚动。",notesEn:"Improved review result layout and reduced nested scrolling."},
-    {version:"11.19",date:"2026-06-15",notesZh:"修复订单标题、Note、状态字段识别规则。",notesEn:"Fixed parsing rules for title, seller note, and order status."},
-    {version:"11.17",date:"2026-06-15",notesZh:"增加直接打印入口检查和专用启动快捷方式。",notesEn:"Added direct-print launch verification and launcher shortcut."},
-    {version:"11.6",date:"2026-06-13",notesZh:"稳定版基础：监听、当前页打印、云端历史、复核扫描。",notesEn:"Stable baseline: listener, current-page printing, cloud history, and review scan."}
-];
 let tkCloudDb=null;
 let tkCloudReady=false;
 let tkCloudStatus="云同步：初始化中";
@@ -93,8 +72,6 @@ let tkCloudInitRetryTimer=null;
 let tkCloudCountLoading=false;
 let tkCloudPendingFlushRunning=false;
 let tkCloudPendingFlushTimer=null;
-let tkLocalQrGfExp=null;
-let tkLocalQrGfLog=null;
 let tkBootInitialized=false;
 let tkUtilityWarmupStarted=false;
 let tkFirebaseSdkLoadStarted=false;
@@ -104,183 +81,6 @@ let directPrintMarkerCheckDone=false;
 let directPrintLaunchReason="";
 let tiktokVerificationGuardActive=false;
 let tiktokVerificationLastNoticeAt=0;
-
-const UI_TEXT={
-    zh:{
-        appTitle:"WINDOWS电脑 TikTok标签",
-        collapsedTitle:"TK标签",
-        start:"启动",
-        pause:"暂停",
-        collapse:"收起",
-        expand:"展开",
-        listening:"监听",
-        listeningOn:"已开启",
-        listeningOff:"未开启",
-        currentOperator:"当前操作人",
-        operatorUnset:"未设置",
-        confirmEntry:"确认入口",
-        downloadStart:"下载启动",
-        refreshShort:"刷新",
-        cloudReconnect:"云重连",
-        rebindRefresh:"重绑刷新",
-        switchUser:"切换用户",
-        language:"语言",
-        chinese:"中文",
-        english:"English",
-        startListening:"启动监听",
-        pauseListening:"暂停监听",
-        bindRefresh:"绑定/重新绑定刷新按钮",
-        bindRefreshBound:"重新绑定刷新按钮",
-        bindRefreshUnbound:"绑定刷新按钮",
-        downloadLauncher:"下载专用启动快捷方式",
-        versionCenter:"版本/下载",
-        printCurrent:"打印当前页",
-        history:"查看历史",
-        review:"复核网页与云端",
-        scriptRunning:"脚本已运行",
-        directConfirmed:"直接打印入口已确认",
-        directChecking:"直接打印入口确认中",
-        directUnconfirmed:"直接打印入口未确认",
-        launchScript:"启动脚本",
-        localMarker:"本机标记",
-        urlEntry:"URL入口",
-        manualConfirm:"人工确认",
-        confirmed:"已确认",
-        queue:"队列",
-        cloudPending:"云待同步",
-        refreshBound:"刷新已绑定",
-        refreshAutoFinding:"刷新自动查找中",
-        nextRefresh:"下次刷新",
-        refreshUnbound:"刷新未绑定",
-        pauseReason:"暂停原因",
-        noPauseReason:"无",
-        stoppedByUser:"用户手动暂停",
-        stoppedForReview:"复核/手动操作要求暂停",
-        stoppedByVerification:"TikTok验证中",
-        versionCenterTitle:"版本/下载中心",
-        currentVersion:"当前版本",
-        latestVersion:"最新版",
-        downloadLatest:"下载最新版",
-        downloadThisVersion:"下载这个版本",
-        downloadLocalCurrent:"下载本机当前代码",
-        releaseHistory:"历史版本",
-        releaseNotes:"更新内容",
-        close:"关闭",
-        reload:"重新读取",
-        cloudReleaseUnavailable:"云端版本库暂不可用，已显示本机内置版本记录。",
-        downloadNeedCloud:"需要云端版本库有源码后才能下载。当前仅显示更新记录。",
-        downloadDone:"已下载版本文件",
-        releaseCenterOpened:"已打开版本/下载中心。"
-    },
-    en:{
-        appTitle:"WINDOWS PC TikTok Labels",
-        collapsedTitle:"TK Labels",
-        start:"Start",
-        pause:"Pause",
-        collapse:"Collapse",
-        expand:"Expand",
-        listening:"Listener",
-        listeningOn:"ON",
-        listeningOff:"OFF",
-        currentOperator:"Operator",
-        operatorUnset:"Not set",
-        confirmEntry:"Confirm Entry",
-        downloadStart:"Download Start",
-        refreshShort:"Refresh",
-        cloudReconnect:"Cloud Reconnect",
-        rebindRefresh:"Rebind Refresh",
-        switchUser:"Switch User",
-        language:"Language",
-        chinese:"中文",
-        english:"English",
-        startListening:"Start Listener",
-        pauseListening:"Pause Listener",
-        bindRefresh:"Bind/Rebind Refresh Button",
-        bindRefreshBound:"Rebind Refresh Button",
-        bindRefreshUnbound:"Bind Refresh Button",
-        downloadLauncher:"Download Direct-Print Launcher",
-        versionCenter:"Versions/Download",
-        printCurrent:"Print Current Page",
-        history:"View History",
-        review:"Review Page vs Cloud",
-        scriptRunning:"Script running",
-        directConfirmed:"Direct-print entry confirmed",
-        directChecking:"Checking direct-print entry",
-        directUnconfirmed:"Direct-print entry not confirmed",
-        launchScript:"launcher script",
-        localMarker:"local marker",
-        urlEntry:"URL entry",
-        manualConfirm:"manual confirm",
-        confirmed:"confirmed",
-        queue:"Queue",
-        cloudPending:"Cloud pending",
-        refreshBound:"Refresh bound",
-        refreshAutoFinding:"Finding refresh",
-        nextRefresh:"next refresh",
-        refreshUnbound:"Refresh not bound",
-        pauseReason:"Pause reason",
-        noPauseReason:"None",
-        stoppedByUser:"Paused by user",
-        stoppedForReview:"Paused for review/manual action",
-        stoppedByVerification:"TikTok verification",
-        versionCenterTitle:"Versions / Download Center",
-        currentVersion:"Current version",
-        latestVersion:"Latest version",
-        downloadLatest:"Download Latest",
-        downloadThisVersion:"Download This Version",
-        downloadLocalCurrent:"Download Local Current Code",
-        releaseHistory:"Release History",
-        releaseNotes:"Release notes",
-        close:"Close",
-        reload:"Reload",
-        cloudReleaseUnavailable:"Cloud release library is unavailable. Showing built-in release history.",
-        downloadNeedCloud:"Source code must exist in the cloud release library before download. Showing release notes only.",
-        downloadDone:"Downloaded version file",
-        releaseCenterOpened:"Opened versions/download center."
-    }
-};
-
-function getUiLanguage(){
-    const v=localStorage.getItem(UI_LANGUAGE_KEY);
-    return v==="en"?"en":"zh";
-}
-
-function setUiLanguage(lang){
-    localStorage.setItem(UI_LANGUAGE_KEY,lang==="en"?"en":"zh");
-    normalizeMainPanelUiText();
-    updateStablePanelSoon();
-}
-
-function tr(key){
-    const lang=getUiLanguage();
-    const pack=UI_TEXT[lang]||UI_TEXT.zh;
-    return pack[key]||UI_TEXT.zh[key]||key;
-}
-
-function setListenPauseReason(reasonKey,detail){
-    const data={
-        key:reasonKey||"",
-        detail:detail||"",
-        at:now()
-    };
-    try{localStorage.setItem(LISTEN_PAUSE_REASON_KEY,JSON.stringify(data));}catch(e){}
-    return data;
-}
-
-function clearListenPauseReason(){
-    try{localStorage.removeItem(LISTEN_PAUSE_REASON_KEY);}catch(e){}
-}
-
-function getListenPauseReasonText(){
-    try{
-        const data=JSON.parse(localStorage.getItem(LISTEN_PAUSE_REASON_KEY)||"{}");
-        if(!data||!data.key)return tr("noPauseReason");
-        const base=tr(data.key)||data.key;
-        return base+(data.detail?" - "+data.detail:"")+(data.at?" @ "+data.at:"");
-    }catch(e){
-        return tr("noPauseReason");
-    }
-}
 
 function bootSafeText(v){
     return String(v==null?"":v)
@@ -517,11 +317,11 @@ function isDirectPrintLaunchConfirmed(){
 
 function getDirectPrintStatusText(){
     if(isDirectPrintLaunchConfirmed()){
-        const label=directPrintLaunchReason==="tampermonkey-storage"?tr("launchScript"):(directPrintLaunchReason==="marker-file"?tr("localMarker"):(directPrintLaunchReason==="url"?tr("urlEntry"):(directPrintLaunchReason==="manual"?tr("manualConfirm"):tr("confirmed"))));
-        return tr("directConfirmed")+": "+label;
+        const reason=directPrintLaunchReason==="tampermonkey-storage"?"启动脚本":(directPrintLaunchReason==="marker-file"?"本机标记":(directPrintLaunchReason==="url"?"URL入口":(directPrintLaunchReason==="manual"?"人工确认":"已确认")));
+        return "直接打印入口已确认："+reason;
     }
-    if(directPrintMarkerChecking)return tr("directChecking");
-    return tr("directUnconfirmed");
+    if(directPrintMarkerChecking)return "直接打印入口确认中";
+    return "直接打印入口未确认";
 }
 
 function confirmDirectPrintLaunchManually(){
@@ -599,241 +399,6 @@ async function downloadDirectPrintLauncher(){
     }
 }
 
-function downloadTextFile(filename,text,mime){
-    const blob=new Blob([String(text||"")],{type:mime||"text/plain;charset=utf-8"});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");
-    a.href=url;
-    a.download=filename||"download.txt";
-    a.style.display="none";
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(function(){
-        try{URL.revokeObjectURL(url);}catch(e){}
-        try{a.remove();}catch(e){}
-    },1200);
-}
-
-function compareVersionDesc(a,b){
-    const pa=String(a||"").split(".").map(x=>Number(x)||0);
-    const pb=String(b||"").split(".").map(x=>Number(x)||0);
-    for(let i=0;i<Math.max(pa.length,pb.length);i++){
-        const d=(pb[i]||0)-(pa[i]||0);
-        if(d)return d;
-    }
-    return 0;
-}
-
-function normalizeReleaseDoc(d){
-    d=d||{};
-    const rawId=String(d.__docId||"");
-    const inferredVersion=rawId.indexOf(RELEASE_DOC_PREFIX)===0?rawId.slice(RELEASE_DOC_PREFIX.length):rawId;
-    return {
-        version:String(d.version||inferredVersion||"").replace(/^v/i,""),
-        date:d.date||d.releasedAt||d.updatedAt||"",
-        notesZh:d.notesZh||d.notesCN||d.notes||"",
-        notesEn:d.notesEn||d.notesEN||d.notes||"",
-        source:d.source||"",
-        downloadUrl:d.downloadUrl||d.url||"",
-        filename:d.filename||("tiktok-label-printer-v"+String(d.version||inferredVersion||SCRIPT_VERSION).replace(/^v/i,"")+"-current.user.js"),
-        isLatest:!!d.isLatest||d.__docId===RELEASE_DOC_LATEST
-    };
-}
-
-function releaseDocId(version){
-    if(!version||version==="latest")return RELEASE_DOC_LATEST;
-    const v=String(version).replace(/^v/i,"");
-    return RELEASE_DOC_PREFIX+v;
-}
-
-function releaseRawUrl(file){
-    file=String(file||"").trim();
-    if(!file)return "";
-    return RELEASE_GITHUB_RAW_BASE+file.split("/").map(part=>encodeURIComponent(part)).join("/");
-}
-
-function withCacheBust(url){
-    return url+(url.indexOf("?")>=0?"&":"?")+"_="+Date.now();
-}
-
-async function fetchReleaseText(url){
-    const res=gmRequestText(url,{method:"GET",headers:{},timeout:20000});
-    const out=res?await res:await fetchRequestText(url,{method:"GET",headers:{}});
-    if(!out.ok)throw new Error("HTTP "+out.status+" "+String(out.text||"").slice(0,180));
-    return String(out.text||"");
-}
-
-async function fetchReleaseJson(url){
-    return JSON.parse(await fetchReleaseText(url));
-}
-
-async function loadGithubReleaseRows(){
-    const manifest=await fetchReleaseJson(withCacheBust(RELEASE_GITHUB_MANIFEST_URL));
-    const files=Array.isArray(manifest&&manifest.files)?manifest.files:[];
-    const rows=files.map(item=>{
-        const file=item.file||item.filename||"";
-        return normalizeReleaseDoc(Object.assign({},item,{
-            filename:file||item.filename,
-            downloadUrl:file?releaseRawUrl(file):(item.downloadUrl||item.url||""),
-            isLatest:String(item.version||"").replace(/^v/i,"")===String(manifest.latest||"").replace(/^v/i,"")
-        }));
-    }).filter(x=>x.version);
-    return rows.sort((a,b)=>compareVersionDesc(a.version,b.version));
-}
-
-async function loadReleaseHistory(){
-    try{
-        const rows=await loadGithubReleaseRows();
-        if(rows.length)return {rows:rows,via:"github"};
-    }catch(e){
-        console.warn("[TikTok Printer] release history GitHub load failed",e);
-    }
-
-    try{
-        const ids=[...new Set(RELEASE_HISTORY_FALLBACK.map(x=>releaseDocId(x.version)))];
-        const docs=[];
-
-        for(const id of ids){
-            try{
-                const doc=await getRestDoc(RELEASE_COLLECTION,id);
-                if(doc&&doc.exists)docs.push(Object.assign({__docId:id},doc.data||{}));
-            }catch(e){}
-        }
-
-        const rows=docs.map(normalizeReleaseDoc).filter(x=>x.version&&x.version!=="latest").sort((a,b)=>compareVersionDesc(a.version,b.version));
-
-        if(rows.length)return {rows:rows,via:"cloud"};
-    }catch(e){
-        console.warn("[TikTok Printer] release history cloud load failed",e);
-    }
-
-    return {rows:RELEASE_HISTORY_FALLBACK.map(normalizeReleaseDoc),via:"fallback"};
-}
-
-async function loadReleaseDoc(version){
-    try{
-        const rows=await loadGithubReleaseRows();
-        const wanted=String(version||"latest").replace(/^v/i,"");
-        let release=null;
-        if(wanted==="latest")release=rows.find(x=>x.isLatest)||rows[0]||null;
-        else release=rows.find(x=>String(x.version||"").replace(/^v/i,"")===wanted)||null;
-        if(release){
-            if(release.downloadUrl&&!release.source){
-                release.source=await fetchReleaseText(withCacheBust(release.downloadUrl));
-            }
-            return release;
-        }
-    }catch(e){
-        console.warn("[TikTok Printer] release doc GitHub load failed",e);
-    }
-
-    const id=releaseDocId(version);
-    const doc=await getRestDoc(RELEASE_COLLECTION,id);
-    if(doc&&doc.exists)return normalizeReleaseDoc(Object.assign({__docId:id},doc.data||{}));
-    throw new Error("Release not found: "+id);
-}
-
-async function downloadReleaseVersion(version){
-    try{
-        const release=await loadReleaseDoc(version||"latest");
-
-        if(release.source){
-            downloadTextFile(release.filename,release.source,"application/javascript;charset=utf-8");
-            updateStatus(tr("downloadDone")+": "+release.filename);
-            return;
-        }
-
-        if(release.downloadUrl){
-            const a=document.createElement("a");
-            a.href=release.downloadUrl;
-            a.target="_blank";
-            a.rel="noopener";
-            a.download=release.filename;
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(()=>{try{a.remove();}catch(e){}},800);
-            updateStatus(tr("downloadDone")+": "+release.filename);
-            return;
-        }
-
-        alert(tr("downloadNeedCloud"));
-    }catch(e){
-        alert(tr("downloadNeedCloud")+"\n"+(e&&e.message?e.message:e));
-    }
-}
-
-function closeVersionCenter(){
-    const el=document.getElementById("tk-version-center-window");
-    if(el)el.remove();
-}
-
-async function openVersionCenter(){
-    closeVersionCenter();
-
-    const win=document.createElement("div");
-    win.id="tk-version-center-window";
-    win.style.cssText="position:fixed;right:24px;top:84px;z-index:2147483200;width:min(760px,calc(100vw - 48px));max-height:calc(100vh - 120px);display:flex;flex-direction:column;background:#fff;border:2px solid #111;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.3);font:13px/1.45 Arial,'Microsoft YaHei',sans-serif;color:#111;overflow:hidden;";
-    win.innerHTML=
-        '<div id="tkVersionHeader" style="background:#111;color:#fff;padding:9px 12px;display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:move;">'+
-            '<b>'+esc(tr("versionCenterTitle"))+'</b>'+
-            '<div style="display:flex;gap:6px;align-items:center;">'+
-                '<button id="tkVersionReload" style="padding:4px 10px;border:0;border-radius:4px;background:#fff;color:#111;cursor:pointer;font-weight:bold;">'+esc(tr("reload"))+'</button>'+
-                '<button id="tkVersionClose" style="padding:4px 10px;border:0;border-radius:4px;background:#ff3b30;color:#fff;cursor:pointer;font-weight:bold;">'+esc(tr("close"))+'</button>'+
-            '</div>'+
-        '</div>'+
-        '<div id="tkVersionBody" style="padding:12px;overflow:auto;min-height:180px;">Loading...</div>';
-    document.body.appendChild(win);
-    makeFloatingWindowDraggable(win,"#tkVersionHeader");
-    document.getElementById("tkVersionClose").onclick=closeVersionCenter;
-    document.getElementById("tkVersionReload").onclick=function(){renderVersionCenterBody();};
-    await renderVersionCenterBody();
-    updateStatus(tr("releaseCenterOpened"));
-}
-
-async function renderVersionCenterBody(){
-    const body=document.getElementById("tkVersionBody");
-    if(!body)return;
-    body.innerHTML='<div style="padding:20px;text-align:center;color:#666;">Loading...</div>';
-
-    const result=await loadReleaseHistory();
-    const rows=result.rows||[];
-    const latest=rows[0]||normalizeReleaseDoc(RELEASE_HISTORY_FALLBACK[0]);
-    const lang=getUiLanguage();
-
-    body.innerHTML=
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">'+
-            '<div style="border:1px solid #ddd;border-radius:6px;padding:10px;background:#f7f7f7;"><div style="color:#666;font-size:12px;">'+esc(tr("currentVersion"))+'</div><b style="font-size:22px;">v'+esc(SCRIPT_VERSION)+'</b></div>'+
-            '<div style="border:1px solid #d0e2ff;border-radius:6px;padding:10px;background:#eef5ff;"><div style="color:#555;font-size:12px;">'+esc(tr("latestVersion"))+'</div><b style="font-size:22px;">v'+esc(latest.version||SCRIPT_VERSION)+'</b></div>'+
-        '</div>'+
-        (result.via==="fallback"?'<div style="padding:8px 10px;background:#fff7d6;border:1px solid #e6d28a;border-radius:6px;margin-bottom:10px;color:#7a4b00;font-weight:bold;">'+esc(tr("cloudReleaseUnavailable"))+'</div>':'')+
-        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">'+
-            '<button id="tkDownloadLatestRelease" style="padding:8px 14px;border:1px solid #111;border-radius:6px;background:#111;color:#fff;font-weight:bold;cursor:pointer;">'+esc(tr("downloadLatest"))+'</button>'+
-            '<button id="tkDownloadCurrentRelease" style="padding:8px 14px;border:1px solid #0b67c2;border-radius:6px;background:#e8f0ff;color:#073b78;font-weight:bold;cursor:pointer;">'+esc(tr("downloadLocalCurrent"))+'</button>'+
-        '</div>'+
-        '<div style="font-weight:900;margin-bottom:6px;">'+esc(tr("releaseHistory"))+'</div>'+
-        rows.map(row=>{
-            const notes=lang==="en"?(row.notesEn||row.notesZh):(row.notesZh||row.notesEn);
-            return '<div style="border:1px solid #ddd;border-radius:7px;padding:10px;margin:8px 0;background:#fff;">'+
-                '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">'+
-                    '<div><b style="font-size:17px;">v'+esc(row.version)+'</b> <span style="color:#666;">'+esc(row.date||"")+'</span></div>'+
-                    '<button class="tkDownloadReleaseBtn" data-version="'+esc(row.version)+'" style="padding:5px 10px;border:1px solid #333;border-radius:5px;background:#f5f5f5;cursor:pointer;">'+esc(tr("downloadThisVersion"))+'</button>'+
-                '</div>'+
-                '<div style="margin-top:6px;color:#333;white-space:pre-wrap;">'+esc(notes||"")+'</div>'+
-            '</div>';
-        }).join("");
-
-    const latestBtn=document.getElementById("tkDownloadLatestRelease");
-    if(latestBtn)latestBtn.onclick=function(e){e.preventDefault();downloadReleaseVersion("latest");};
-    const currentBtn=document.getElementById("tkDownloadCurrentRelease");
-    if(currentBtn)currentBtn.onclick=function(e){e.preventDefault();downloadReleaseVersion(SCRIPT_VERSION);};
-    body.querySelectorAll(".tkDownloadReleaseBtn").forEach(btn=>{
-        btn.onclick=function(e){
-            e.preventDefault();
-            downloadReleaseVersion(this.getAttribute("data-version"));
-        };
-    });
-}
-
 function requireDirectPrintForAutoPrint(opt){
     if(opt&&opt.force)return true;
     if(isDirectPrintLaunchConfirmed())return true;
@@ -880,7 +445,6 @@ function guardTikTokVerification(reason){
         return false;
     }
     tiktokVerificationGuardActive=true;
-    setListenPauseReason("stoppedByVerification","");
     autoRefreshPausedReason="TikTok验证中，完成验证后会继续";
     const nowMs=Date.now();
     if(nowMs-tiktokVerificationLastNoticeAt>5000){
@@ -3357,230 +2921,8 @@ function saveHistory(id,info,reason,extra){
     updateStablePanelSoon();
 }
 
-function qrAppendBits(out,value,len){
-    for(let i=len-1;i>=0;i--)out.push((value>>>i)&1);
-}
-
-function ensureLocalQrGf(){
-    if(tkLocalQrGfExp&&tkLocalQrGfLog)return;
-
-    const exp=new Array(512);
-    const log=new Array(256);
-    let x=1;
-
-    for(let i=0;i<255;i++){
-        exp[i]=x;
-        log[x]=i;
-        x<<=1;
-        if(x&0x100)x^=0x11d;
-    }
-
-    for(let i=255;i<512;i++)exp[i]=exp[i-255];
-
-    tkLocalQrGfExp=exp;
-    tkLocalQrGfLog=log;
-}
-
-function qrGfMul(a,b){
-    if(!a||!b)return 0;
-    ensureLocalQrGf();
-    return tkLocalQrGfExp[tkLocalQrGfLog[a]+tkLocalQrGfLog[b]];
-}
-
-function qrRsGenerator(degree){
-    ensureLocalQrGf();
-    let gen=[1];
-
-    for(let i=0;i<degree;i++){
-        const next=new Array(gen.length+1).fill(0);
-        const root=tkLocalQrGfExp[i];
-
-        for(let j=0;j<gen.length;j++){
-            next[j]^=gen[j];
-            next[j+1]^=qrGfMul(gen[j],root);
-        }
-
-        gen=next;
-    }
-
-    return gen;
-}
-
-function qrRsRemainder(data,degree){
-    const gen=qrRsGenerator(degree);
-    const rem=new Array(degree).fill(0);
-
-    data.forEach(byte=>{
-        const factor=byte^rem.shift();
-        rem.push(0);
-
-        for(let i=0;i<degree;i++){
-            rem[i]^=qrGfMul(gen[i+1],factor);
-        }
-    });
-
-    return rem;
-}
-
-function qrFormatBits(ecLevelBits,mask){
-    const generator=0x537;
-    let data=((ecLevelBits&3)<<3)|(mask&7);
-    let rem=data<<10;
-
-    for(let i=14;i>=10;i--){
-        if((rem>>>i)&1)rem^=generator<<(i-10);
-    }
-
-    return ((data<<10)|rem)^0x5412;
-}
-
-function makeNumericOrderQrSvgDataUrl(text){
-    text=String(text||"");
-    if(!/^\d{1,41}$/.test(text))throw new Error("本地二维码只支持41位以内纯数字");
-
-    const size=21;
-    const matrix=Array.from({length:size},()=>Array(size).fill(false));
-    const reserved=Array.from({length:size},()=>Array(size).fill(false));
-
-    function inBounds(x,y){return x>=0&&y>=0&&x<size&&y<size;}
-    function setModule(x,y,dark,isReserved){
-        if(!inBounds(x,y))return;
-        matrix[y][x]=!!dark;
-        if(isReserved)reserved[y][x]=true;
-    }
-    function reserveModule(x,y){
-        if(!inBounds(x,y))return;
-        reserved[y][x]=true;
-    }
-    function drawFinder(x,y){
-        for(let dy=-1;dy<=7;dy++){
-            for(let dx=-1;dx<=7;dx++){
-                setModule(x+dx,y+dy,false,true);
-            }
-        }
-        for(let dy=0;dy<7;dy++){
-            for(let dx=0;dx<7;dx++){
-                const dark=dx===0||dx===6||dy===0||dy===6||(dx>=2&&dx<=4&&dy>=2&&dy<=4);
-                setModule(x+dx,y+dy,dark,true);
-            }
-        }
-    }
-    function reserveFormat(){
-        for(let i=0;i<=5;i++){reserveModule(8,i);reserveModule(i,8);}
-        reserveModule(8,7);
-        reserveModule(8,8);
-        reserveModule(7,8);
-        for(let i=0;i<8;i++)reserveModule(size-1-i,8);
-        for(let i=8;i<15;i++)reserveModule(8,size-15+i);
-    }
-    function setFormat(){
-        const bits=qrFormatBits(1,0); // Level L, mask 0.
-        const bit=i=>((bits>>>i)&1)!==0;
-
-        for(let i=0;i<=5;i++)setModule(8,i,bit(i),true);
-        setModule(8,7,bit(6),true);
-        setModule(8,8,bit(7),true);
-        setModule(7,8,bit(8),true);
-        for(let i=9;i<15;i++)setModule(14-i,8,bit(i),true);
-
-        for(let i=0;i<8;i++)setModule(size-1-i,8,bit(i),true);
-        for(let i=8;i<15;i++)setModule(8,size-15+i,bit(i),true);
-        setModule(8,size-8,true,true);
-    }
-
-    drawFinder(0,0);
-    drawFinder(size-7,0);
-    drawFinder(0,size-7);
-    reserveFormat();
-
-    for(let i=8;i<=size-9;i++){
-        setModule(i,6,i%2===0,true);
-        setModule(6,i,i%2===0,true);
-    }
-
-    setModule(8,size-8,true,true);
-
-    const dataBits=[];
-    qrAppendBits(dataBits,0x1,4);
-    qrAppendBits(dataBits,text.length,10);
-
-    for(let i=0;i<text.length;i+=3){
-        const part=text.slice(i,i+3);
-        qrAppendBits(dataBits,Number(part),part.length===3?10:(part.length===2?7:4));
-    }
-
-    const dataCodewords=19;
-    const capacityBits=dataCodewords*8;
-    const terminator=Math.min(4,capacityBits-dataBits.length);
-
-    for(let i=0;i<terminator;i++)dataBits.push(0);
-    while(dataBits.length%8)dataBits.push(0);
-
-    const data=[];
-    for(let i=0;i<dataBits.length;i+=8){
-        let byte=0;
-        for(let j=0;j<8;j++)byte=(byte<<1)|dataBits[i+j];
-        data.push(byte);
-    }
-
-    const pads=[0xec,0x11];
-    let padIndex=0;
-    while(data.length<dataCodewords)data.push(pads[(padIndex++)&1]);
-
-    const codewords=data.concat(qrRsRemainder(data,7));
-    const bits=[];
-
-    codewords.forEach(byte=>qrAppendBits(bits,byte,8));
-
-    let bitIndex=0;
-    let upward=true;
-
-    for(let right=size-1;right>=1;right-=2){
-        if(right===6)right--;
-
-        for(let vert=0;vert<size;vert++){
-            const y=upward?size-1-vert:vert;
-
-            for(let dx=0;dx<2;dx++){
-                const x=right-dx;
-                if(reserved[y][x])continue;
-
-                let dark=bitIndex<bits.length?!!bits[bitIndex++]:false;
-
-                if((x+y)%2===0)dark=!dark;
-                matrix[y][x]=dark;
-            }
-        }
-
-        upward=!upward;
-    }
-
-    setFormat();
-
-    const quiet=4;
-    const view=size+quiet*2;
-    let path="";
-
-    for(let y=0;y<size;y++){
-        for(let x=0;x<size;x++){
-            if(matrix[y][x])path+="M"+(x+quiet)+" "+(y+quiet)+"h1v1h-1z";
-        }
-    }
-
-    const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+view+' '+view+'" shape-rendering="crispEdges"><rect width="'+view+'" height="'+view+'" fill="#fff"/><path d="'+path+'" fill="#000"/></svg>';
-    return "data:image/svg+xml;charset=UTF-8,"+encodeURIComponent(svg);
-}
-
 function qrData(id){
     id=String(id||"");
-    if(/^\d{1,41}$/.test(id)){
-        try{
-            return makeNumericOrderQrSvgDataUrl(id);
-        }catch(localQrError){
-            console.warn("[TikTok Printer] 本地二维码生成失败，改用备用二维码",localQrError);
-        }
-    }
-
     if(typeof QRCode==="undefined"){
         return QR_FALLBACK_API+encodeURIComponent(id);
     }
@@ -3712,10 +3054,10 @@ function openPrintFrameWithLabels(labelsHtml){
 <meta charset="UTF-8">
 <style>
 @page{size:50mm 30mm;margin:0;}
-html,body{margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+html,body{margin:0;padding:0;}
 .label{width:50mm;height:30mm;position:relative;overflow:hidden;font-family:Arial,"Microsoft YaHei",sans-serif;page-break-after:always;break-after:page;}
 .label:last-child{page-break-after:auto;break-after:auto;}
-.qr{position:absolute;left:3mm;top:3.8mm;width:16mm;height:16mm;display:block;background:#fff;image-rendering:pixelated;image-rendering:crisp-edges;}
+.qr{position:absolute;left:3mm;top:3.8mm;width:16mm;height:16mm;}
 .row{position:absolute;overflow:hidden;text-align:left;font-weight:bold;line-height:1.08;}
 .id{left:19.5mm;right:0.2mm;top:0.8mm;height:6mm;font-size:5.2pt;white-space:nowrap;}
 .fullid{font-size:5.2pt;font-weight:bold;}
@@ -3986,9 +3328,7 @@ function cleanupLegacyMainPanels(){
         Array.from(document.querySelectorAll("div")).forEach(el=>{
             if(el.id==="tiktok-auto-print-panel-windows")return;
             const text=String(el.textContent||"");
-            const looksLikePrinterPanel=(text.includes("WINDOWS电脑 TikTok标签")||text.includes("WINDOWS PC TikTok Labels"))&&/v\d+\.\d+/.test(text);
-            const hasKnownActions=text.includes("启动监听")||text.includes("Start Listener")||text.includes("查看历史")||text.includes("View History");
-            if(looksLikePrinterPanel&&hasKnownActions){
+            if(text.includes("WINDOWS电脑 TikTok标签")&&text.includes("启动监听")&&text.includes("查看历史")){
                 try{el.remove();}catch(e){}
             }
         });
@@ -4054,8 +3394,8 @@ function applyMainPanelCollapsedState(p,collapsed){
     const title=p.querySelector("#panelHeader span");
     if(body)body.style.display=collapsed?"none":"block";
     if(bar)bar.style.display=collapsed?"none":"block";
-    if(btn)btn.textContent=collapsed?tr("expand"):tr("collapse");
-    if(title)title.textContent=collapsed?(tr("collapsedTitle")+" v"+SCRIPT_VERSION):getMainPanelTitle();
+    if(btn)btn.textContent=collapsed?"展开":"收起";
+    if(title)title.textContent=collapsed?("TK标签 v"+SCRIPT_VERSION):getMainPanelTitle();
     p.style.setProperty("width",collapsed?"150px":"360px","important");
     p.classList.toggle("tk-main-panel-collapsed",!!collapsed);
     clampMainPanelPosition(p);
@@ -4134,34 +3474,22 @@ function addPanel(){
         p.setAttribute("data-tk-printer-panel","main");
         p.innerHTML=
             '<div id="panelHeader" style="background:#111;color:#fff;padding:8px 10px;border-radius:7px 7px 0 0;cursor:move;display:flex;justify-content:space-between;align-items:center;gap:8px;">'+
-                '<span style="font-weight:900;">'+esc(tr("appTitle"))+' v'+SCRIPT_VERSION+'</span>'+
-                '<div style="display:flex;gap:5px;align-items:center;">'+
-                    '<select id="uiLanguageSelect" title="'+esc(tr("language"))+'" style="height:24px;border:1px solid #fff;border-radius:4px;background:#222;color:#fff;font-weight:bold;cursor:pointer;">'+
-                        '<option value="zh">中文</option><option value="en">EN</option>'+
-                    '</select>'+
-                    '<button id="headerListenToggleBtn" style="padding:2px 8px;border:1px solid #fff;border-radius:4px;background:#d8f5d1;color:#111;cursor:pointer;font-weight:bold;">'+esc(tr("start"))+'</button>'+
-                    '<button id="togglePanelMiniBtn" style="padding:2px 8px;border:1px solid #fff;border-radius:4px;background:#fff;color:#111;cursor:pointer;font-weight:bold;">'+esc(tr("collapse"))+'</button>'+
-                '</div>'+
+                '<span style="font-weight:900;">WINDOWS电脑 TikTok标签 v'+SCRIPT_VERSION+'</span>'+
+                '<div style="display:flex;gap:5px;align-items:center;"><button id="headerListenToggleBtn" style="padding:2px 8px;border:1px solid #fff;border-radius:4px;background:#d8f5d1;color:#111;cursor:pointer;font-weight:bold;">启动</button><button id="togglePanelMiniBtn" style="padding:2px 8px;border:1px solid #fff;border-radius:4px;background:#fff;color:#111;cursor:pointer;font-weight:bold;">收起</button></div>'+
             '</div>'+
             '<div id="stableStatusBar" style="padding:8px 10px;background:#f7f7f7;border-bottom:1px solid #ddd;line-height:1.45;"></div>'+
             '<div id="panelBody" style="padding:8px 10px;">'+
                 '<div id="autoRefreshText" style="display:none;"></div>'+
-                '<button id="listenToggleBtn" style="width:100%;margin-bottom:6px;padding:8px;border:1px solid #333;border-radius:6px;cursor:pointer;font-weight:bold;">'+esc(tr("startListening"))+'</button>'+
-                '<button id="bindRefreshMainBtn" style="width:100%;margin-bottom:6px;padding:8px;border:1px solid #333;border-radius:6px;cursor:pointer;background:#fff7d6;font-weight:bold;">'+esc(tr("bindRefresh"))+'</button>'+
-                '<button id="downloadLauncherBtn" style="width:100%;margin-bottom:6px;padding:8px;border:1px solid #0a7a0a;border-radius:6px;cursor:pointer;background:#eaffea;color:#0a5d0a;font-weight:bold;">'+esc(tr("downloadLauncher"))+'</button>'+
-                '<button id="versionCenterBtn" style="width:100%;margin-bottom:6px;padding:8px;border:1px solid #0b67c2;border-radius:6px;cursor:pointer;background:#e8f0ff;color:#073b78;font-weight:bold;">'+esc(tr("versionCenter"))+'</button>'+
-                '<button id="printCurrentBtn" style="width:100%;margin-bottom:6px;padding:8px;border:1px solid #333;border-radius:6px;cursor:pointer;background:#f5f5f5;">'+esc(tr("printCurrent"))+'</button>'+
-                '<button id="historyBtn" style="width:100%;margin-bottom:6px;padding:8px;border:1px solid #333;border-radius:6px;cursor:pointer;background:#f5f5f5;">'+esc(tr("history"))+'</button>'+
-                '<button id="reviewRecentBtn" style="width:100%;margin-bottom:6px;padding:8px;border:1px solid #333;border-radius:6px;cursor:pointer;background:#e8f0ff;font-weight:bold;">'+esc(tr("review"))+'</button>'+
-                '<div id="statusText" style="color:green;font-size:12px;line-height:1.4;word-break:break-all;margin-top:4px;">'+esc(tr("scriptRunning"))+'</div>'+
+                '<button id="listenToggleBtn" style="width:100%;margin-bottom:6px;padding:8px;border:1px solid #333;border-radius:6px;cursor:pointer;font-weight:bold;">启动监听</button>'+
+                '<button id="bindRefreshMainBtn" style="width:100%;margin-bottom:6px;padding:8px;border:1px solid #333;border-radius:6px;cursor:pointer;background:#fff7d6;font-weight:bold;">绑定/重新绑定刷新按钮</button>'+
+                '<button id="downloadLauncherBtn" style="width:100%;margin-bottom:6px;padding:8px;border:1px solid #0a7a0a;border-radius:6px;cursor:pointer;background:#eaffea;color:#0a5d0a;font-weight:bold;">下载专用启动快捷方式</button>'+
+                '<button id="printCurrentBtn" style="width:100%;margin-bottom:6px;padding:8px;border:1px solid #333;border-radius:6px;cursor:pointer;background:#f5f5f5;">打印当前页</button>'+
+                '<button id="historyBtn" style="width:100%;margin-bottom:6px;padding:8px;border:1px solid #333;border-radius:6px;cursor:pointer;background:#f5f5f5;">查看历史</button>'+
+                '<button id="reviewRecentBtn" style="width:100%;margin-bottom:6px;padding:8px;border:1px solid #333;border-radius:6px;cursor:pointer;background:#e8f0ff;font-weight:bold;">复核网页与云端</button>'+
+                '<div id="statusText" style="color:green;font-size:12px;line-height:1.4;word-break:break-all;margin-top:4px;">脚本已运行</div>'+
             '</div>';
         document.body.appendChild(p);
         makeFloatingWindowDraggable(p,"#panelHeader");
-        document.getElementById("uiLanguageSelect").value=getUiLanguage();
-        document.getElementById("uiLanguageSelect").onchange=function(e){
-            e.preventDefault();e.stopPropagation();
-            setUiLanguage(this.value);
-        };
         document.getElementById("togglePanelMiniBtn").onclick=function(e){
             e.preventDefault();e.stopPropagation();
             const body=document.getElementById("panelBody");
@@ -4188,10 +3516,6 @@ function addPanel(){
         document.getElementById("downloadLauncherBtn").onclick=function(e){
             e.preventDefault();e.stopPropagation();
             downloadDirectPrintLauncher();
-        };
-        document.getElementById("versionCenterBtn").onclick=function(e){
-            e.preventDefault();e.stopPropagation();
-            openVersionCenter();
         };
         document.getElementById("printCurrentBtn").onclick=function(e){
             e.preventDefault();e.stopPropagation();
@@ -4226,7 +3550,7 @@ let mainPanelTextGuardObserver=null;
 let mainPanelTextGuardObserved=null;
 
 function getMainPanelTitle(){
-    return tr("appTitle")+" v"+SCRIPT_VERSION;
+    return "WINDOWS电脑 TikTok标签 v"+SCRIPT_VERSION;
 }
 
 function normalizeMainPanelUiText(){
@@ -4239,39 +3563,18 @@ function normalizeMainPanelUiText(){
     applyMainPanelCollapsedState(p,collapsed);
 
     const title=p.querySelector("#panelHeader span");
-    const expectedTitle=collapsed?(tr("collapsedTitle")+" v"+SCRIPT_VERSION):getMainPanelTitle();
+    const expectedTitle=collapsed?("TK标签 v"+SCRIPT_VERSION):getMainPanelTitle();
     if(title&&title.textContent!==expectedTitle)title.textContent=expectedTitle;
-
-    const lang=document.getElementById("uiLanguageSelect");
-    if(lang&&lang.value!==getUiLanguage())lang.value=getUiLanguage();
-
-    const mini=document.getElementById("togglePanelMiniBtn");
-    if(mini)mini.textContent=collapsed?tr("expand"):tr("collapse");
-
-    const launcher=document.getElementById("downloadLauncherBtn");
-    if(launcher)launcher.textContent=tr("downloadLauncher");
-
-    const versionBtn=document.getElementById("versionCenterBtn");
-    if(versionBtn)versionBtn.textContent=tr("versionCenter");
-
-    const printBtn=document.getElementById("printCurrentBtn");
-    if(printBtn)printBtn.textContent=tr("printCurrent");
-
-    const historyBtn=document.getElementById("historyBtn");
-    if(historyBtn)historyBtn.textContent=tr("history");
-
-    const reviewBtn=document.getElementById("reviewRecentBtn");
-    if(reviewBtn)reviewBtn.textContent=tr("review");
 
     const btn=document.getElementById("listenToggleBtn");
     if(btn){
-        const text=isListening?tr("pauseListening"):tr("startListening");
+        const text=isListening?"暂停监听":"启动监听";
         if(btn.textContent!==text)btn.textContent=text;
         btn.setAttribute("data-tk-normalized-by",SCRIPT_VERSION);
     }
     const headerBtn=document.getElementById("headerListenToggleBtn");
     if(headerBtn){
-        const headerText=isListening?tr("pause"):tr("start");
+        const headerText=isListening?"暂停":"启动";
         if(headerBtn.textContent!==headerText)headerBtn.textContent=headerText;
         headerBtn.style.background=isListening?"#ffd6d6":"#d8f5d1";
     }
@@ -4319,9 +3622,9 @@ function getRefreshStatusText(){
     const bind=!!getRefreshBind();
     if(isListening&&autoRefreshTimer){
         const remain=Math.max(0,Math.ceil((autoRefreshNextAt-Date.now())/1000));
-        return (bind?tr("refreshBound"):tr("refreshAutoFinding"))+"，"+tr("nextRefresh")+": "+remain+"s";
+        return (bind?"刷新已绑定":"刷新自动查找中")+"，下次刷新："+remain+"秒";
     }
-    return bind?tr("refreshBound"):tr("refreshUnbound");
+    return bind?"刷新已绑定":"刷新未绑定";
 }
 
 function updateStablePanel(){
@@ -4329,42 +3632,41 @@ function updateStablePanel(){
     if(!bar)return;
     const p=document.getElementById("tiktok-auto-print-panel-windows");
     const collapsed=!!(p&&p.classList&&p.classList.contains("tk-main-panel-collapsed"));
-    const op=getOperatorName()||tr("operatorUnset");
-    const listenText=isListening?tr("listeningOn"):tr("listeningOff");
+    const op=getOperatorName()||"未设置";
+    const listenText=isListening?"已开启":"未开启";
     const listenColor=isListening?"#078b2f":"#d60000";
     const refreshText=getRefreshStatusText();
     const pendingCloud=getCloudPendingPrintCount();
-    const queueText=tr("queue")+": "+(printQueue?printQueue.length:0)+(pendingCloud?" ｜ "+tr("cloudPending")+": "+pendingCloud:"");
-    const pauseReason=isListening?"":(tr("pauseReason")+": "+getListenPauseReasonText());
+    const queueText="队列："+(printQueue?printQueue.length:0)+(pendingCloud?" ｜ 云待同步："+pendingCloud:"");
     const directPrintText=getDirectPrintStatusText();
     const directPrintConfirmed=isDirectPrintLaunchConfirmed();
     const opHtml=esc(op).replace(/ /g,"&nbsp;");
-    const directConfirmButton=directPrintConfirmed?"":'<button id="stableConfirmDirectPrintBtn" style="padding:2px 8px;border:1px solid #0a7a0a;border-radius:4px;background:#eaffea;color:#0a5d0a;cursor:pointer;white-space:nowrap;font-weight:bold;">'+esc(tr("confirmEntry"))+'</button>';
-    const directDownloadButton=directPrintConfirmed?"":'<button id="stableDownloadLauncherBtn" style="padding:2px 8px;border:1px solid #0a7a0a;border-radius:4px;background:#eaffea;color:#0a5d0a;cursor:pointer;white-space:nowrap;font-weight:bold;">'+esc(tr("downloadStart"))+'</button>';
+    const directConfirmButton=directPrintConfirmed?"":'<button id="stableConfirmDirectPrintBtn" style="padding:2px 8px;border:1px solid #0a7a0a;border-radius:4px;background:#eaffea;color:#0a5d0a;cursor:pointer;white-space:nowrap;font-weight:bold;">确认入口</button>';
+    const directDownloadButton=directPrintConfirmed?"":'<button id="stableDownloadLauncherBtn" style="padding:2px 8px;border:1px solid #0a7a0a;border-radius:4px;background:#eaffea;color:#0a5d0a;cursor:pointer;white-space:nowrap;font-weight:bold;">下载启动</button>';
     if(collapsed){
         bar.style.padding="6px 8px";
         bar.style.fontSize="12px";
         bar.innerHTML=
             '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">'+
                 '<b style="color:'+listenColor+';">'+listenText+'</b>'+
-                '<div style="display:flex;gap:4px;align-items:center;">'+directConfirmButton+directDownloadButton+'<button id="stableBindRefreshBtn" title="'+esc(tr("rebindRefresh"))+'" style="padding:2px 6px;border:1px solid #b36b00;border-radius:4px;background:#fff7d6;cursor:pointer;white-space:nowrap;font-weight:bold;">'+esc(tr("refreshShort"))+'</button></div>'+
+                '<div style="display:flex;gap:4px;align-items:center;">'+directConfirmButton+directDownloadButton+'<button id="stableBindRefreshBtn" title="重绑刷新" style="padding:2px 6px;border:1px solid #b36b00;border-radius:4px;background:#fff7d6;cursor:pointer;white-space:nowrap;font-weight:bold;">刷新</button></div>'+
             '</div>'+
-            '<div style="margin-top:2px;color:#555;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(directPrintText)+' ｜ '+esc(tkCloudStatus||"云同步：未连接")+(pauseReason?' ｜ '+esc(pauseReason):'')+'</div>';
+            '<div style="margin-top:2px;color:#555;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(directPrintText)+' ｜ '+esc(tkCloudStatus||"云同步：未连接")+'</div>';
     }else{
         bar.style.padding="8px 10px";
         bar.style.fontSize="13px";
         bar.innerHTML=
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'+
-            '<div style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(tr("listening"))+': <b style="color:'+listenColor+';">'+listenText+'</b> ｜ '+esc(tr("currentOperator"))+': <b>'+opHtml+'</b></div>'+
+            '<div style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">监听：<b style="color:'+listenColor+';">'+listenText+'</b> ｜ 当前操作人：<b>'+opHtml+'</b></div>'+
             '<div style="display:flex;gap:5px;align-items:center;">'+
                 directConfirmButton+
                 directDownloadButton+
-                '<button id="stableRetryCloudBtn" style="padding:2px 8px;border:1px solid #0b67c2;border-radius:4px;background:#e8f0ff;cursor:pointer;white-space:nowrap;font-weight:bold;">'+esc(tr("cloudReconnect"))+'</button>'+
-                '<button id="stableBindRefreshBtn" style="padding:2px 8px;border:1px solid #b36b00;border-radius:4px;background:#fff7d6;cursor:pointer;white-space:nowrap;font-weight:bold;">'+esc(tr("rebindRefresh"))+'</button>'+
-                '<button id="stableChangeUserBtn" style="padding:2px 8px;border:1px solid #777;border-radius:4px;background:#fff;cursor:pointer;white-space:nowrap;">'+esc(tr("switchUser"))+'</button>'+
+                '<button id="stableRetryCloudBtn" style="padding:2px 8px;border:1px solid #0b67c2;border-radius:4px;background:#e8f0ff;cursor:pointer;white-space:nowrap;font-weight:bold;">云重连</button>'+
+                '<button id="stableBindRefreshBtn" style="padding:2px 8px;border:1px solid #b36b00;border-radius:4px;background:#fff7d6;cursor:pointer;white-space:nowrap;font-weight:bold;">重绑刷新</button>'+
+                '<button id="stableChangeUserBtn" style="padding:2px 8px;border:1px solid #777;border-radius:4px;background:#fff;cursor:pointer;white-space:nowrap;">切换用户</button>'+
             '</div>'+
         '</div>'+
-        '<div style="margin-top:3px;color:#555;font-size:12px;">'+esc(directPrintText)+' ｜ '+esc(tkCloudStatus||"云同步：未连接")+' ｜ '+esc(refreshText)+' ｜ '+esc(queueText)+(pauseReason?' ｜ '+esc(pauseReason):'')+'</div>';
+        '<div style="margin-top:3px;color:#555;font-size:12px;">'+esc(directPrintText)+' ｜ '+esc(tkCloudStatus||"云同步：未连接")+' ｜ '+esc(refreshText)+' ｜ '+esc(queueText)+'</div>';
     }
     const change=document.getElementById("stableChangeUserBtn");
     if(change)change.onclick=function(e){e.preventDefault();e.stopPropagation();changeOperatorName();};
@@ -4378,11 +3680,11 @@ function updateStablePanel(){
     if(downloadLauncher)downloadLauncher.onclick=function(e){e.preventDefault();e.stopPropagation();downloadDirectPrintLauncher();};
     const btn=document.getElementById("listenToggleBtn");
     if(btn){
-        btn.innerText=isListening?tr("pauseListening"):tr("startListening");
+        btn.innerText=isListening?"暂停监听":"启动监听";
         btn.style.background=isListening?"#ffd6d6":"#d8f5d1";
     }
     const mainBind=document.getElementById("bindRefreshMainBtn");
-    if(mainBind)mainBind.innerText=getRefreshBind()?tr("bindRefreshBound"):tr("bindRefreshUnbound");
+    if(mainBind)mainBind.innerText=getRefreshBind()?"重新绑定刷新按钮":"绑定刷新按钮";
     normalizeMainPanelUiText();
 }
 
@@ -4886,7 +4188,6 @@ function pauseListeningForReviewV110(){
     try{
         if(typeof pauseListening==="function")pauseListening();
     }catch(e){}
-    setListenPauseReason("stoppedForReview","");
     try{
         if(typeof clearPrintQueue==="function")clearPrintQueue("开始复核，已暂停监听并清空打印队列。");
         else{printQueue=[];printingQueue=false;}
@@ -5704,7 +5005,6 @@ function collapseMainPanel(){
 function startListening(){
     if(!ensureOperatorName())return;
     if(guardTikTokVerification("暂不能启动监听"))return;
-    clearListenPauseReason();
     isListening=true;
     viewChangeProtecting=false;
     lastScanAt=Date.now();
@@ -5730,7 +5030,6 @@ function startListening(){
 }
 
 function pauseListening(){
-    setListenPauseReason("stoppedByUser","");
     clearPrintQueue("已暂停监听，并清空未打印队列。");
     isListening=false;
     viewChangeProtecting=false;
@@ -5763,20 +5062,20 @@ function updateListenButton(){
 
     if(isListening){
         if(btn){
-            btn.innerText=tr("pauseListening");
+            btn.innerText="暂停监听";
             btn.style.background="#ffd6d6";
         }
         if(headerBtn){
-            headerBtn.innerText=tr("pause");
+            headerBtn.innerText="暂停";
             headerBtn.style.background="#ffd6d6";
         }
     }else{
         if(btn){
-            btn.innerText=tr("startListening");
+            btn.innerText="启动监听";
             btn.style.background="#d8f5d1";
         }
         if(headerBtn){
-            headerBtn.innerText=tr("start");
+            headerBtn.innerText="启动";
             headerBtn.style.background="#d8f5d1";
         }
     }
@@ -6797,12 +6096,7 @@ async function queryCloudLogsByOrder(collection,orderId,timeField,limit){
 
 async function loadCloudHistoryRowsRest(){
     const docs=await listRestCollection("tiktok_orders",1000);
-    return docs
-        .filter(d=>{
-            const id=String(d.__docId||d.order||d.orderId||"");
-            return id.indexOf(RELEASE_DOC_PREFIX)!==0;
-        })
-        .map(d=>normalizeCloudHistoryDoc(d.order||d.orderId||d.__docId,d));
+    return docs.map(d=>normalizeCloudHistoryDoc(d.order||d.orderId||d.__docId,d));
 }
 
 async function loadAndRenderCloudHistory(){
@@ -6818,7 +6112,6 @@ async function loadAndRenderCloudHistory(){
                 const snap=await runCloudOperation("读取历史",()=>tkCloudDb.collection("tiktok_orders").get(),3);
                 tkHistoryCloudRows=[];
                 snap.forEach(doc=>{
-                    if(String(doc.id||"").indexOf(RELEASE_DOC_PREFIX)===0)return;
                     const d=doc.data()||{};
                     tkHistoryCloudRows.push(normalizeCloudHistoryDoc(d.order||d.orderId||doc.id,d));
                 });
