@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-22-light-state-v1"
+PMS_PATCH_VERSION = "2026-06-22-light-state-v2"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -473,7 +473,7 @@ admin_ui_patch = r'''
 ui_patch += admin_ui_patch
 final_ui_override = r'''
 (function(){
-  const VERSION='2026-06-22-light-state-v1';
+  const VERSION='2026-06-22-light-state-v2';
   window.__PMS_PATCH_VERSION=VERSION;
   const S=window.__pmsInlineState||(window.__pmsInlineState={});
   S.mailEdits=S.mailEdits||{};
@@ -4084,6 +4084,9 @@ def _pms_run_scheduled_ical_sync():
         _pms_ical_sync_lock.release()
 
 def _pms_start_ical_auto_sync():
+    enabled = str(os.environ.get("PMS_ICAL_AUTO_SYNC_ENABLED", "0")).strip().lower() in ("1", "true", "yes", "on")
+    if not enabled:
+        return
     interval = int(os.environ.get("PMS_ICAL_SYNC_INTERVAL_SECONDS", "3600"))
     if interval <= 0:
         return
