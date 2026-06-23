@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-22-light-state-v2"
+PMS_PATCH_VERSION = "2026-06-23-fast-ical-sync-v1"
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -1058,9 +1058,14 @@ old_fetch_text = '''def fetch_text(url):
 '''
 new_fetch_text = '''def fetch_text(url):
     req = urllib.request.Request(url, headers={"User-Agent": "PMS-Firebase/1.0"})
+    timeout = float(os.environ.get("PMS_ICAL_FETCH_TIMEOUT_SECONDS", "8"))
+    max_bytes = int(os.environ.get("PMS_ICAL_FETCH_MAX_BYTES", "1048576"))
     try:
-        with urllib.request.urlopen(req, timeout=25) as resp:
-            return resp.read().decode("utf-8", errors="replace")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = resp.read(max_bytes + 1)
+            if len(data) > max_bytes:
+                raise RuntimeError(f"iCal file too large: over {max_bytes} bytes")
+            return data.decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"iCal fetch HTTP {exc.code}") from exc
     except Exception as exc:
