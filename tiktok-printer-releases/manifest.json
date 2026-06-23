@@ -1,7 +1,13 @@
 {
-  "latest": "11.35",
+  "latest": "11.36",
   "generatedAt": "2026-06-23",
   "files": [
+    {
+      "version": "11.36",
+      "file": "tiktok-label-printer-v11.36-current.user.js",
+      "notesZh": "英文模式扩展到二级窗口、弹出菜单和复核/历史/打印窗口。",
+      "notesEn": "Expanded English mode to secondary windows, pop-up menus, review, history, and current-page print dialogs."
+    },
     {
       "version": "11.35",
       "file": "tiktok-label-printer-v11.35-current.user.js",
