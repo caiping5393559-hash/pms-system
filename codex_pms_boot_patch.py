@@ -28,8 +28,8 @@ def patch_empty_state_write_guard(path):
     hook = 'exec(compile(source_text, __file__, "exec"))'
     if hook not in text:
         raise RuntimeError("empty state write guard hook not found")
-    guard = r'''if "_pms_empty_state_write_guard_v1" not in source_text:
-    source_text += r'''
+    guard = '''if "_pms_empty_state_write_guard_v1" not in source_text:
+    source_text += r"""
 # _pms_empty_state_write_guard_v1
 _PMS_DATA_GUARD_KEYS = (
     "properties",
@@ -84,7 +84,7 @@ def save_state(state):
         print(f"PMS data guard blocked suspicious empty state write: current={current_counts} incoming={incoming_counts}")
         return current
     return _pms_empty_state_guard_base_save_state(normalized)
-'''
+"""
 '''
     path.write_text(text.replace(hook, guard + "\n" + hook, 1), encoding="utf-8")
     print("patched empty state write guard")
