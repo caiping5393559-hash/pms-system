@@ -1,0 +1,36 @@
+name: PMS deploy readiness
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  syntax-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check Python syntax
+        run: python -m py_compile app.py sitecustomize.py codex_pms_boot_patch.py
+
+      - name: Check frontend patch syntax
+        run: node --check pms_ui_patch.js
+
+  trigger-render-hook:
+    needs: syntax-check
+    runs-on: ubuntu-latest
+    if: ${{ vars.RENDER_DEPLOY_HOOK_ENABLED == 'true' }}
+    steps:
+      - name: Trigger Render deploy hook
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          test -n "$RENDER_DEPLOY_HOOK_URL"
+          curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL"
