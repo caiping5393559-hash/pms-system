@@ -19,6 +19,77 @@ def replace_any_once(path, replacements, label):
     raise RuntimeError(f"{label} hook not found")
 
 
+def patch_empty_state_write_guard(path):
+    marker = "_pms_empty_state_write_guard_v1"
+    text = path.read_text(encoding="utf-8")
+    if marker in text:
+        print("already patched empty state write guard")
+        return
+    hook = 'exec(compile(source_text, __file__, "exec"))'
+    if hook not in text:
+        raise RuntimeError("empty state write guard hook not found")
+    guard = '''if "_pms_empty_state_write_guard_v1" not in source_text:
+    source_text += r"""
+# _pms_empty_state_write_guard_v1
+_PMS_DATA_GUARD_KEYS = (
+    "properties",
+    "rooms",
+    "commonAreas",
+    "bookings",
+    "channelListings",
+    "propertyCleaners",
+    "users",
+    "groups",
+)
+
+
+def _pms_data_guard_count(state, key):
+    value = (state or {}).get(key, [])
+    return len(value) if isinstance(value, list) else 0
+
+
+def _pms_data_guard_counts(state):
+    return {key: _pms_data_guard_count(state, key) for key in _PMS_DATA_GUARD_KEYS}
+
+
+def _pms_data_guard_should_block(incoming_state, current_state):
+    allow = str(os.environ.get("PMS_ALLOW_EMPTY_STATE_WRITE", "")).strip().lower()
+    if allow in ("1", "true", "yes", "on"):
+        return False, {}, {}
+    current = _pms_data_guard_counts(current_state)
+    incoming = _pms_data_guard_counts(incoming_state)
+    current_structure = current["properties"] + current["rooms"] + current["users"] + current["groups"]
+    incoming_structure = incoming["properties"] + incoming["rooms"] + incoming["users"] + incoming["groups"]
+    current_activity = current["commonAreas"] + current["bookings"] + current["channelListings"] + current["propertyCleaners"]
+    incoming_activity = incoming["commonAreas"] + incoming["bookings"] + incoming["channelListings"] + incoming["propertyCleaners"]
+    if current_structure >= 2 and incoming_structure == 0:
+        return True, current, incoming
+    if current_structure >= 4 and incoming_structure < max(1, current_structure // 4) and current_activity > 0 and incoming_activity == 0:
+        return True, current, incoming
+    return False, current, incoming
+
+
+_pms_empty_state_guard_base_save_state = save_state
+
+
+def save_state(state):
+    normalized = normalize_state(state)
+    try:
+        current = normalize_state(load_state())
+    except Exception as exc:
+        print(f"PMS data guard could not read current state: {exc}")
+        return _pms_empty_state_guard_base_save_state(normalized)
+    block, current_counts, incoming_counts = _pms_data_guard_should_block(normalized, current)
+    if block:
+        print(f"PMS data guard blocked suspicious empty state write: current={current_counts} incoming={incoming_counts}")
+        return current
+    return _pms_empty_state_guard_base_save_state(normalized)
+"""
+'''
+    path.write_text(text.replace(hook, guard + "\n" + hook, 1), encoding="utf-8")
+    print("patched empty state write guard")
+
+
 def main():
     base = Path(__file__).resolve().parent
     app = base / "app.py"
@@ -101,6 +172,7 @@ def main():
             continue
         checkin = booking.get("checkin")"""
     replace_any_once(app, [(old_feed_guard, new_feed_guard)], "anti-overbooking feedback export guard")
+    patch_empty_state_write_guard(app)
 
 
 if __name__ == "__main__":
