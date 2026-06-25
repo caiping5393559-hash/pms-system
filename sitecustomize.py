@@ -1,90 +1,86 @@
 from pathlib import Path
+import sys
 
-VERSION_OLD = "2026-06-23-direct-ical-sync-v1"
-VERSION_ROOM_BOOT = "2026-06-23-room-boot-light-v1"
-VERSION_LOOP_GUARD = "2026-06-23-ical-loop-guard-v1"
-VERSION_NEW = "2026-06-23-ical-no-external-locks-v1"
+VERSION_NEW = "2026-06-25-platform-lock-display-v1"
 
 
-def _replace_any_once(path, replacements):
-    text = path.read_text(encoding="utf-8")
+def _replace_all(text, replacements):
+    changed = False
     for old, new in replacements:
         if old in text:
-            path.write_text(text.replace(old, new, 1), encoding="utf-8")
-            return True
-    return any(new in text for _, new in replacements)
+            text = text.replace(old, new)
+            changed = True
+    return text, changed
 
 
 def _apply_pms_hotfix():
-    base = Path(__file__).resolve().parent
-    app = base / "app.py"
-    ui = base / "pms_ui_patch.js"
-    if not app.exists() or not ui.exists():
+    # Run after codex_pms_boot_patch.py has finished. If we patch before that
+    # script, its version guard may not recognize the file it is supposed to patch.
+    if Path(sys.argv[0] or "").name != "app.py":
         return
 
-    _replace_any_once(
-        app,
-        [
-            (f'PMS_PATCH_VERSION = "{VERSION_OLD}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
-            (f'PMS_PATCH_VERSION = "{VERSION_ROOM_BOOT}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
-            (f'PMS_PATCH_VERSION = "{VERSION_LOOP_GUARD}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
-        ],
-    )
-    _replace_any_once(
-        ui,
-        [
-            (f"window.__PMS_PATCH_VERSION='{VERSION_OLD}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
-            (f"window.__PMS_PATCH_VERSION='{VERSION_ROOM_BOOT}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
-            (f"window.__PMS_PATCH_VERSION='{VERSION_LOOP_GUARD}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
-        ],
-    )
+    base = Path(__file__).resolve().parent
+    app = base / "app.py"
+    if not app.exists():
+        return
 
-    old_boot = """  function boot(){install();if(document.getElementById('owner')){renderCleaner();renderOwner();if(!props().length&&typeof window.loadState==='function')window.loadState().then(()=>{if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());renderCleaner();renderOwner();}).catch(()=>{});}else if(document.getElementById('roomSettings'))renderRoomSettings();}
-  boot();
-  setTimeout(boot,0);
-  setTimeout(boot,80);
-  setTimeout(boot,500);
-  setTimeout(boot,1500);
-  setTimeout(boot,3000);"""
-    new_boot = """  function boot(){install();const owner=document.getElementById('owner');if(owner){if(!props().length&&typeof window.loadState==='function'&&!S.bootLoadStarted){S.bootLoadStarted=true;window.loadState().then(()=>{if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());renderCleaner();renderOwner();S.bootRendered=true;}).catch(()=>{});return;}if(!S.bootRendered){renderCleaner();renderOwner();S.bootRendered=true;}}else if(document.getElementById('roomSettings')&&!S.bootRendered){renderRoomSettings();S.bootRendered=true;}}
-  function bootFallback(){install();if(!S.bootRendered)boot();}
-  boot();
-  setTimeout(bootFallback,120);"""
-    _replace_any_once(ui, [(old_boot, new_boot)])
+    text = app.read_text(encoding="utf-8")
+    changed = False
 
-    old_legacy_lock = """                    reason = ical_lock_reason(summary, description, current.get("status"))
-                    if reason:
-                        events.append({"""
-    new_legacy_lock = """                    reason = ical_lock_reason(summary, description, current.get("status"))
-                    if reason:
-                        in_event = False
-                        continue
-                    if reason:
-                        events.append({"""
-    _replace_any_once(app, [(old_legacy_lock, new_legacy_lock)])
+    version_replacements = [
+        ('PMS_PATCH_VERSION = "2026-06-23-direct-ical-sync-v1"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+        ('PMS_PATCH_VERSION = "2026-06-23-room-boot-light-v1"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+        ('PMS_PATCH_VERSION = "2026-06-23-ical-loop-guard-v1"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+        ('PMS_PATCH_VERSION = "2026-06-23-ical-no-external-locks-v1"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+        ('PMS_PATCH_VERSION = "2026-06-24-room-entry-click-v1"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+        ('PMS_PATCH_VERSION = "2026-06-24-sync-direct-v1"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+        ('PMS_PATCH_VERSION = "2026-06-24-firestore-shard-history-v1"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+    ]
+    text, did = _replace_all(text, version_replacements)
+    changed = changed or did
 
-    old_import_guard = """        lock_reason = ical_lock_reason(summary, description, status)
-        stable_id = hashlib.sha1((str(listing_id) + "|" + uid).encode("utf-8")).hexdigest()[:24]"""
-    loop_import_guard = """        feed_marker = "generated by pms anti-overbooking feed"
-        event_text = " ".join([uid, summary, description, status]).lower()
-        if uid.lower().endswith("@pms-system") or feed_marker in event_text:
-            continue
-        lock_reason = ical_lock_reason(summary, description, status)
-        stable_id = hashlib.sha1((str(listing_id) + "|" + uid).encode("utf-8")).hexdigest()[:24]"""
-    new_import_guard = """        feed_marker = "generated by pms anti-overbooking feed"
-        event_text = " ".join([uid, summary, description, status]).lower()
-        if uid.lower().endswith("@pms-system") or feed_marker in event_text:
-            continue
-        lock_reason = ical_lock_reason(summary, description, status)
+    external_keys_old = '''_PMS_EXTERNAL_STATE_KEYS = ("icalEventArchive", "mailEvents")'''
+    external_keys_new = '''_PMS_EXTERNAL_STATE_KEYS = ("icalEventArchive", "mailEvents", "icalSyncHistory")'''
+    if external_keys_old in text:
+        text = text.replace(external_keys_old, external_keys_new, 1)
+        changed = True
+
+    # External platform manual locks should be visible in PMS, but make_feed must
+    # not export imported locks back to Airbnb. That avoids the old self-lock loop.
+    skip_external_lock = '''        lock_reason = ical_lock_reason(summary, description, status)
         if lock_reason:
             continue
-        stable_id = hashlib.sha1((str(listing_id) + "|" + uid).encode("utf-8")).hexdigest()[:24]"""
-    _replace_any_once(app, [(old_import_guard, new_import_guard), (loop_import_guard, new_import_guard)])
+        stable_id = hashlib.sha1((str(listing_id) + "|" + uid).encode("utf-8")).hexdigest()[:24]'''
+    show_external_lock = '''        lock_reason = ical_lock_reason(summary, description, status)
+        stable_id = hashlib.sha1((str(listing_id) + "|" + uid).encode("utf-8")).hexdigest()[:24]'''
+    if skip_external_lock in text:
+        text = text.replace(skip_external_lock, show_external_lock, 1)
+        changed = True
 
-    old_feed_guard = """        if target_channel_id and booking.get("channel_listing_id") == target_channel_id:
+    orphan_hook = '''    listing_ids = {item.get("id") for item in listings if item.get("id")}
+    previous_counts = {}
+'''
+    orphan_patch = '''    listing_ids = {item.get("id") for item in listings if item.get("id")}
+    state["bookings"] = [
+        booking for booking in state.get("bookings", [])
+        if not (
+            isinstance(booking, dict)
+            and booking.get("source") == "ical"
+            and booking.get("room_id") in allowed_room_ids
+            and booking.get("channel_listing_id")
+            and booking.get("channel_listing_id") not in listing_ids
+        )
+    ]
+    previous_counts = {}
+'''
+    if orphan_hook in text and "channel_listing_id\") not in listing_ids" not in text:
+        text = text.replace(orphan_hook, orphan_patch, 1)
+        changed = True
+
+    old_feed_guard = '''        if target_channel_id and booking.get("channel_listing_id") == target_channel_id:
             continue
-        checkin = booking.get("checkin")"""
-    new_feed_guard = """        if target_channel_id and booking.get("channel_listing_id") == target_channel_id:
+        checkin = booking.get("checkin")'''
+    new_feed_guard = '''        if target_channel_id and booking.get("channel_listing_id") == target_channel_id:
             continue
         imported_lock = booking.get("source") == "ical" and (booking.get("is_locked") or booking.get("booking_type") == "lock")
         marker_text = " ".join([
@@ -95,8 +91,13 @@ def _apply_pms_hotfix():
         ]).lower()
         if imported_lock or "@pms-system" in marker_text or "generated by pms anti-overbooking feed" in marker_text:
             continue
-        checkin = booking.get("checkin")"""
-    _replace_any_once(app, [(old_feed_guard, new_feed_guard)])
+        checkin = booking.get("checkin")'''
+    if old_feed_guard in text:
+        text = text.replace(old_feed_guard, new_feed_guard, 1)
+        changed = True
+
+    if changed:
+        app.write_text(text, encoding="utf-8")
 
 
 try:
