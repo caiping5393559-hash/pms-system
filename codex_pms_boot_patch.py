@@ -4,7 +4,8 @@ VERSION_OLD = "2026-06-23-direct-ical-sync-v1"
 VERSION_ROOM_BOOT = "2026-06-23-room-boot-light-v1"
 VERSION_LOOP_GUARD = "2026-06-23-ical-loop-guard-v1"
 VERSION_NO_EXTERNAL_LOCKS = "2026-06-23-ical-no-external-locks-v1"
-VERSION_NEW = "2026-06-24-room-entry-click-v1"
+VERSION_ROOM_ENTRY = "2026-06-24-room-entry-click-v1"
+VERSION_NEW = "2026-06-24-sync-direct-v1"
 
 
 def replace_any_once(path, replacements, label):
@@ -54,6 +55,78 @@ def patch_property_room_entry(ui):
         raise RuntimeError("property room entry click hook not found")
 
 
+def patch_direct_ical_sync(app, ui):
+    ui_text = ui.read_text(encoding="utf-8")
+    ui_changed = False
+
+    old_save_wrapper = """  syncPropertyIcal=async function(propertyId,btn){const id=propertyId||(activeProp()&&activeProp().id);if(id)await saveVisibleChannelInputs(id);return pmsChannelBaseSyncPropertyIcal(propertyId,btn);};"""
+    new_save_wrapper = """  syncPropertyIcal=async function(propertyId,btn){const id=propertyId||(activeProp()&&activeProp().id);if(id)collectChannelInputs(id);return pmsChannelBaseSyncPropertyIcal(propertyId,btn);};"""
+    if old_save_wrapper in ui_text:
+        ui_text = ui_text.replace(old_save_wrapper, new_save_wrapper, 1)
+        ui_changed = True
+
+    old_progress = """setPropertySyncStatus(id,'syncing','同步中：正在保存渠道并读取 iCal...');"""
+    new_progress = """setPropertySyncStatus(id,'syncing','同步中：正在直接读取平台 iCal...');"""
+    if old_progress in ui_text:
+        ui_text = ui_text.replace(old_progress, new_progress)
+        ui_changed = True
+
+    old_direct_export = """};
+  function install(){if(window.renderOwner!==renderOwner)S.baseRenderOwner=window.renderOwner;"""
+    new_direct_export = """};
+  window.syncPropertyIcal=syncPropertyIcal;
+  function install(){if(window.renderOwner!==renderOwner)S.baseRenderOwner=window.renderOwner;"""
+    if old_direct_export in ui_text and "window.syncPropertyIcal=syncPropertyIcal;" not in ui_text:
+        ui_text = ui_text.replace(old_direct_export, new_direct_export, 1)
+        ui_changed = True
+
+    if ui_changed:
+        ui.write_text(ui_text, encoding="utf-8")
+        print("patched direct iCal sync ui")
+    elif new_save_wrapper in ui_text or new_progress in ui_text:
+        print("already patched direct iCal sync ui")
+    else:
+        raise RuntimeError("direct iCal sync ui hook not found")
+
+    app_text = app.read_text(encoding="utf-8")
+    app_changed = False
+
+    old_final_status = """S.syncResults[id]={kind:'loading',text:'同步中：正在保存渠道并读取 iCal...'};"""
+    new_final_status = """S.syncResults[id]={kind:'loading',text:'同步中：正在直接读取平台 iCal...'};"""
+    if old_final_status in app_text:
+        app_text = app_text.replace(old_final_status, new_final_status)
+        app_changed = True
+
+    old_final_fetch = """      collectVisibleIcal(id);
+      await persistVisibleChannels(id);
+      const res=await fetch(url('/api/sync'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:id})});"""
+    new_final_fetch = """      collectVisibleIcal(id);
+      const rows=propRooms(id).flatMap(r=>roomChannels(r.id).map(ch=>readChannelForm(ch.id)||ch));
+      const controller=window.AbortController?new AbortController():null;
+      const timer=controller?setTimeout(()=>controller.abort(),90000):null;
+      const res=await fetch(url('/api/sync'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:id,channelListings:rows}),signal:controller?controller.signal:undefined});
+      if(timer)clearTimeout(timer);"""
+    if old_final_fetch in app_text:
+        app_text = app_text.replace(old_final_fetch, new_final_fetch, 1)
+        app_changed = True
+
+    old_final_catch = """      const msg=e&&e.message?e.message:String(e||'未知错误');
+      S.syncResults[id]={kind:'error',text:'同步失败：'+msg};"""
+    new_final_catch = """      const msg=e&&e.name==='AbortError'?'同步超过 90 秒已停止，请先点检查确认 iCal 链接是否有效。':(e&&e.message?e.message:String(e||'未知错误'));
+      S.syncResults[id]={kind:'error',text:'同步失败：'+msg};"""
+    if old_final_catch in app_text:
+        app_text = app_text.replace(old_final_catch, new_final_catch, 1)
+        app_changed = True
+
+    if app_changed:
+        app.write_text(app_text, encoding="utf-8")
+        print("patched direct iCal sync final ui")
+    elif new_final_status in app_text and "channelListings:rows" in app_text:
+        print("already patched direct iCal sync final ui")
+    else:
+        raise RuntimeError("direct iCal sync final ui hook not found")
+
+
 def main():
     base = Path(__file__).resolve().parent
     app = base / "app.py"
@@ -66,6 +139,7 @@ def main():
             (f'PMS_PATCH_VERSION = "{VERSION_ROOM_BOOT}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_LOOP_GUARD}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_NO_EXTERNAL_LOCKS}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_ROOM_ENTRY}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
         ],
         "app version",
     )
@@ -76,6 +150,7 @@ def main():
             (f"window.__PMS_PATCH_VERSION='{VERSION_ROOM_BOOT}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_LOOP_GUARD}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_NO_EXTERNAL_LOCKS}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_ROOM_ENTRY}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
         ],
         "ui version",
     )
@@ -93,6 +168,7 @@ def main():
   setTimeout(bootFallback,120);"""
     replace_any_once(ui, [(old_boot, new_boot)], "ui boot block")
     patch_property_room_entry(ui)
+    patch_direct_ical_sync(app, ui)
 
     old_legacy_lock = """                    reason = ical_lock_reason(summary, description, current.get("status"))
                     if reason:
@@ -144,4 +220,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-# deploy trigger: 2026-06-24-room-entry-click-v1
+# deploy trigger: 2026-06-24-sync-direct-v1
