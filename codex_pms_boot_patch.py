@@ -5,7 +5,8 @@ VERSION_ROOM_BOOT = "2026-06-23-room-boot-light-v1"
 VERSION_LOOP_GUARD = "2026-06-23-ical-loop-guard-v1"
 VERSION_NO_EXTERNAL_LOCKS = "2026-06-23-ical-no-external-locks-v1"
 VERSION_ROOM_ENTRY = "2026-06-24-room-entry-click-v1"
-VERSION_NEW = "2026-06-24-sync-direct-v1"
+VERSION_SYNC_DIRECT = "2026-06-24-sync-direct-v1"
+VERSION_NEW = "2026-06-24-firestore-shard-history-v1"
 
 
 def replace_any_once(path, replacements, label):
@@ -127,6 +128,40 @@ def patch_direct_ical_sync(app, ui):
         raise RuntimeError("direct iCal sync final ui hook not found")
 
 
+def patch_external_sync_history(app):
+    text = app.read_text(encoding="utf-8")
+    changed = False
+
+    old_keys = '''_PMS_EXTERNAL_STATE_KEYS = ("icalEventArchive", "mailEvents")'''
+    new_keys = '''_PMS_EXTERNAL_STATE_KEYS = ("icalEventArchive", "mailEvents", "icalSyncHistory")'''
+    if old_keys in text:
+        text = text.replace(old_keys, new_keys, 1)
+        changed = True
+
+    old_ui_loader = '''    rows = _pms_external_read("mailEvents")
+    if rows is not None:
+        state["mailEvents"] = rows
+    return normalize_state(state)
+'''
+    new_ui_loader = '''    for key in ("mailEvents", "icalSyncHistory"):
+        rows = _pms_external_read(key)
+        if rows is not None:
+            state[key] = rows
+    return normalize_state(state)
+'''
+    if old_ui_loader in text:
+        text = text.replace(old_ui_loader, new_ui_loader, 1)
+        changed = True
+
+    if changed:
+        app.write_text(text, encoding="utf-8")
+        print("patched Firestore external iCal history storage")
+    elif new_keys in text and new_ui_loader in text:
+        print("already patched Firestore external iCal history storage")
+    else:
+        raise RuntimeError("external iCal history storage hook not found")
+
+
 def main():
     base = Path(__file__).resolve().parent
     app = base / "app.py"
@@ -140,6 +175,7 @@ def main():
             (f'PMS_PATCH_VERSION = "{VERSION_LOOP_GUARD}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_NO_EXTERNAL_LOCKS}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_ROOM_ENTRY}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_SYNC_DIRECT}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
         ],
         "app version",
     )
@@ -151,6 +187,7 @@ def main():
             (f"window.__PMS_PATCH_VERSION='{VERSION_LOOP_GUARD}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_NO_EXTERNAL_LOCKS}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_ROOM_ENTRY}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_SYNC_DIRECT}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
         ],
         "ui version",
     )
@@ -169,6 +206,7 @@ def main():
     replace_any_once(ui, [(old_boot, new_boot)], "ui boot block")
     patch_property_room_entry(ui)
     patch_direct_ical_sync(app, ui)
+    patch_external_sync_history(app)
 
     old_legacy_lock = """                    reason = ical_lock_reason(summary, description, current.get("status"))
                     if reason:
@@ -220,4 +258,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-# deploy trigger: 2026-06-24-sync-direct-v1
+# deploy trigger: 2026-06-24-firestore-shard-history-v1
