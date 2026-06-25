@@ -3,7 +3,8 @@ from pathlib import Path
 VERSION_OLD = "2026-06-23-direct-ical-sync-v1"
 VERSION_ROOM_BOOT = "2026-06-23-room-boot-light-v1"
 VERSION_LOOP_GUARD = "2026-06-23-ical-loop-guard-v1"
-VERSION_NEW = "2026-06-23-ical-no-external-locks-v1"
+VERSION_NO_EXTERNAL_LOCKS = "2026-06-23-ical-no-external-locks-v1"
+VERSION_NEW = "2026-06-24-room-entry-click-v1"
 
 
 def replace_any_once(path, replacements, label):
@@ -19,6 +20,40 @@ def replace_any_once(path, replacements, label):
     raise RuntimeError(f"{label} hook not found")
 
 
+def patch_property_room_entry(ui):
+    text = ui.read_text(encoding="utf-8")
+    changed = False
+
+    old_set_active = '''  function setActive(id){S.selectedPropertyId=String(id||'');window.selectedPropertyId=S.selectedPropertyId;}'''
+    new_set_active = '''  function setActive(id){S.selectedPropertyId=String(id||'');window.selectedPropertyId=S.selectedPropertyId;try{selectedPropertyId=S.selectedPropertyId;}catch(e){}}'''
+    if old_set_active in text:
+        text = text.replace(old_set_active, new_set_active, 1)
+        changed = True
+
+    old_open = '''  function openPropertyRooms(id){setActive(id);const tab=document.querySelector('button[onclick*="ownerRooms"]');if(tab&&typeof showOwnerTab==='function')showOwnerTab('ownerRooms',tab);renderRoomSettings();}
+  function backToPropertyList(){setActive('');renderRoomSettings();}'''
+    new_open = '''  function openPropertyRooms(id){setActive(id);S.openingPropertyRooms=true;const tab=document.querySelector('button[onclick*="ownerRooms"]');try{if(tab&&typeof showOwnerTab==='function')showOwnerTab('ownerRooms',tab);}finally{S.openingPropertyRooms=false;}renderRoomSettings();const h=document.getElementById('roomSettings');if(h)h.scrollIntoView({block:'start',behavior:'smooth'});}
+  function backToPropertyList(){if(S.openingPropertyRooms)return;setActive('');renderRoomSettings();}
+  function installPropertyRoomClickFallback(){if(document.__pmsPropertyRoomClickFallback)return;document.__pmsPropertyRoomClickFallback=true;document.addEventListener('click',ev=>{const btn=ev.target&&ev.target.closest?ev.target.closest('button'):null;if(!btn)return;const code=String(btn.getAttribute('onclick')||''),text=String(btn.textContent||'').trim();const m=code.match(/openPropertyRooms\(["']([^"']+)["']\)/);if(!m&&!text.includes('进入房间管理'))return;if(m){ev.preventDefault();ev.stopImmediatePropagation();openPropertyRooms(m[1]);}},true);}'''
+    if old_open in text:
+        text = text.replace(old_open, new_open, 1)
+        changed = True
+
+    old_setup = '''  function setup(){ensureCss();'''
+    new_setup = '''  function setup(){installPropertyRoomClickFallback();ensureCss();'''
+    if old_setup in text and "installPropertyRoomClickFallback();ensureCss();" not in text:
+        text = text.replace(old_setup, new_setup, 1)
+        changed = True
+
+    if changed:
+        ui.write_text(text, encoding="utf-8")
+        print("patched property room entry click")
+    elif "installPropertyRoomClickFallback" in text and "openingPropertyRooms" in text:
+        print("already patched property room entry click")
+    else:
+        raise RuntimeError("property room entry click hook not found")
+
+
 def main():
     base = Path(__file__).resolve().parent
     app = base / "app.py"
@@ -30,6 +65,7 @@ def main():
             (f'PMS_PATCH_VERSION = "{VERSION_OLD}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_ROOM_BOOT}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_LOOP_GUARD}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_NO_EXTERNAL_LOCKS}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
         ],
         "app version",
     )
@@ -39,6 +75,7 @@ def main():
             (f"window.__PMS_PATCH_VERSION='{VERSION_OLD}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_ROOM_BOOT}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_LOOP_GUARD}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_NO_EXTERNAL_LOCKS}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
         ],
         "ui version",
     )
@@ -55,6 +92,7 @@ def main():
   boot();
   setTimeout(bootFallback,120);"""
     replace_any_once(ui, [(old_boot, new_boot)], "ui boot block")
+    patch_property_room_entry(ui)
 
     old_legacy_lock = """                    reason = ical_lock_reason(summary, description, current.get("status"))
                     if reason:
@@ -106,4 +144,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-# deploy trigger: 2026-06-23-ical-no-external-locks-v1
+# deploy trigger: 2026-06-24-room-entry-click-v1
