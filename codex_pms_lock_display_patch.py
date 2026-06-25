@@ -1,16 +1,10 @@
 from pathlib import Path
 
-VERSION_NEW = "2026-06-25-platform-lock-display-v1"
+VERSION_NEW = "2026-06-25-mail-auto-sync-timestamp-v1"
 
 
-def main():
-    app = Path(__file__).resolve().parent / "app.py"
-    if not app.exists():
-        return
-    text = app.read_text(encoding="utf-8")
-    changed = False
-
-    for old in [
+def replace_version(text, token):
+    versions = [
         "2026-06-23-direct-ical-sync-v1",
         "2026-06-23-room-boot-light-v1",
         "2026-06-23-ical-loop-guard-v1",
@@ -18,13 +12,112 @@ def main():
         "2026-06-24-room-entry-click-v1",
         "2026-06-24-sync-direct-v1",
         "2026-06-24-firestore-shard-history-v1",
-    ]:
-        old_text = f'PMS_PATCH_VERSION = "{old}"'
-        new_text = f'PMS_PATCH_VERSION = "{VERSION_NEW}"'
+        "2026-06-25-platform-lock-display-v1",
+    ]
+    for old in versions:
+        old_text = token.format(old)
+        new_text = token.format(VERSION_NEW)
         if old_text in text:
-            text = text.replace(old_text, new_text, 1)
-            changed = True
-            break
+            return text.replace(old_text, new_text, 1), True
+    if token.format(VERSION_NEW) in text:
+        return text, False
+    return text, False
+
+
+def patch_room_sync_timestamp(path):
+    if not path.exists():
+        return False
+    text = path.read_text(encoding="utf-8")
+    changed = False
+
+    new_summary = """  function roomChannelSummaryText(r){const list=roomChannels(r.id),ready=list.filter(ch=>String(ch&&ch.ical_url||'').trim()).length;return `${list.length} \u4e2a\u6e20\u9053 \u00b7 ${ready} \u4e2a\u5df2\u586b iCal`;}
+  function roomLatestChannelSync(r){const times=roomChannels(r.id).map(ch=>String(ch&&ch.last_sync||'').trim()).filter(Boolean).sort();return times.length?times[times.length-1]:String(r&&r.last_sync||'').trim();}
+  function roomSyncPill(r){const last=roomLatestChannelSync(r);return last?`<span class='channel-mini-pill good' title='\u81ea\u52a8\u540c\u6b65\u548c\u624b\u52a8\u70b9\u51fb\u540c\u6b65\u90fd\u4f1a\u66f4\u65b0\u8fd9\u4e2a\u65f6\u95f4'>\u6700\u8fd1 iCal \u540c\u6b65\uff1a${esc(last)}</span>`:'';}"""
+    old_summary = """  function roomChannelSummaryText(r){const list=roomChannels(r.id),ready=list.filter(ch=>String(ch&&ch.ical_url||'').trim()).length;return `${list.length} \u4e2a\u6e20\u9053 \u00b7 ${ready} \u4e2a\u5df2\u586b iCal`;}"""
+    if old_summary in text and "function roomLatestChannelSync" not in text:
+        text = text.replace(old_summary, new_summary, 1)
+        changed = True
+
+    old_room_sync = """${r.last_sync?`<span class='channel-mini-pill good'>\u4e0a\u6b21\u540c\u6b65\uff1a${esc(r.last_sync)}</span>`:''}"""
+    if old_room_sync in text:
+        text = text.replace(old_room_sync, """${roomSyncPill(r)}""")
+        changed = True
+
+    if changed:
+        path.write_text(text, encoding="utf-8")
+    return changed
+
+
+def patch_mail_auto_sync(app):
+    text = app.read_text(encoding="utf-8")
+    if "_pms_start_mail_auto_sync" in text:
+        return False
+
+    old = '''    threading.Thread(target=worker, daemon=True, name="pms-ical-auto-sync").start()
+
+if __name__ == "__main__":
+    _pms_start_ical_auto_sync()
+    print(f"PMS Firebase REST backend started on port {PORT}")
+    HTTPServer((HOST, PORT), Handler).serve_forever()
+'''
+    new = '''    threading.Thread(target=worker, daemon=True, name="pms-ical-auto-sync").start()
+
+_pms_mail_sync_lock = threading.Lock()
+
+def _pms_run_scheduled_mail_sync():
+    if not _pms_mail_sync_lock.acquire(blocking=False):
+        return
+    try:
+        if not _pms_gmail_enabled():
+            return
+        days = max(1, min(int(os.environ.get("PMS_MAIL_SYNC_DAYS", "3")), 30))
+        max_results = max(1, min(int(os.environ.get("PMS_MAIL_SYNC_MAX_RESULTS", "25")), 50))
+        sync_gmail_mail_events(
+            {"days": days, "max_results": max_results},
+            actor={"id": "system", "username": "system-auto", "role": "admin"},
+        )
+    except Exception:
+        traceback.print_exc()
+    finally:
+        _pms_mail_sync_lock.release()
+
+def _pms_start_mail_auto_sync():
+    enabled = str(os.environ.get("PMS_MAIL_AUTO_SYNC_ENABLED", "1")).strip().lower() in ("1", "true", "yes", "on")
+    if not enabled:
+        return
+    interval = int(os.environ.get("PMS_MAIL_SYNC_INTERVAL_SECONDS", "7200"))
+    if interval <= 0:
+        return
+    def worker():
+        time.sleep(min(120, interval))
+        while True:
+            _pms_run_scheduled_mail_sync()
+            time.sleep(interval)
+    threading.Thread(target=worker, daemon=True, name="pms-mail-auto-sync").start()
+
+if __name__ == "__main__":
+    _pms_start_ical_auto_sync()
+    _pms_start_mail_auto_sync()
+    print(f"PMS Firebase REST backend started on port {PORT}")
+    HTTPServer((HOST, PORT), Handler).serve_forever()
+'''
+    if old not in text:
+        raise RuntimeError("mail auto sync startup hook not found")
+    app.write_text(text.replace(old, new, 1), encoding="utf-8")
+    return True
+
+
+def main():
+    base = Path(__file__).resolve().parent
+    app = base / "app.py"
+    ui = base / "pms_ui_patch.js"
+    if not app.exists():
+        return
+    text = app.read_text(encoding="utf-8")
+    changed = False
+
+    text, did = replace_version(text, 'PMS_PATCH_VERSION = "{}"')
+    changed = changed or did
 
     old_external_keys = '''_PMS_EXTERNAL_STATE_KEYS = ("icalEventArchive", "mailEvents")'''
     new_external_keys = '''_PMS_EXTERNAL_STATE_KEYS = ("icalEventArchive", "mailEvents", "icalSyncHistory")'''
@@ -60,7 +153,7 @@ def main():
     ]
     previous_counts = {}
 '''
-    if old_orphan_hook in text and "channel_listing_id\") not in listing_ids" not in text:
+    if old_orphan_hook in text and 'channel_listing_id") not in listing_ids' not in text:
         text = text.replace(old_orphan_hook, new_orphan_cleanup, 1)
         changed = True
 
@@ -85,9 +178,27 @@ def main():
 
     if changed:
         app.write_text(text, encoding="utf-8")
-        print("patched platform lock display")
+
+    app_changed = False
+    if patch_room_sync_timestamp(app):
+        app_changed = True
+    if patch_mail_auto_sync(app):
+        app_changed = True
+
+    ui_changed = False
+    if ui.exists():
+        ui_text = ui.read_text(encoding="utf-8")
+        ui_text, did = replace_version(ui_text, "window.__PMS_PATCH_VERSION='{}';")
+        if did:
+            ui.write_text(ui_text, encoding="utf-8")
+            ui_changed = True
+        if patch_room_sync_timestamp(ui):
+            ui_changed = True
+
+    if changed or app_changed or ui_changed:
+        print("patched platform lock display, sync timestamp UI, and mail auto sync")
     else:
-        print("platform lock display patch already applied")
+        print("platform lock display, sync timestamp UI, and mail auto sync already applied")
 
 
 if __name__ == "__main__":
