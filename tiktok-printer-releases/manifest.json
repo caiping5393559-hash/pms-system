@@ -1,7 +1,19 @@
 {
-  "latest": "11.36",
-  "generatedAt": "2026-06-23",
+  "latest": "11.38",
+  "generatedAt": "2026-06-25",
   "files": [
+    {
+      "version": "11.38",
+      "file": "tiktok-label-printer-v11.38-current.user.js",
+      "notesZh": "当前页批量打印时，实际打印队列按 Title 排序；弹窗列表默认仍按订单时间显示。",
+      "notesEn": "For current-page batch printing, the actual print queue now sorts by Title while the popup list still defaults to order time."
+    },
+    {
+      "version": "11.37",
+      "file": "tiktok-label-printer-v11.37-current.user.js",
+      "notesZh": "本地 Chrome 扩展安装修复：静态注入、文件标记保护、二维码 CSP 保护。",
+      "notesEn": "Local Chrome extension install fix: static injection, file-marker guard, and QRCode CSP guard."
+    },
     {
       "version": "11.36",
       "file": "tiktok-label-printer-v11.36-current.user.js",

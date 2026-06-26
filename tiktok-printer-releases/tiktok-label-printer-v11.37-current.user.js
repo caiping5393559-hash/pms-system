@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name         WINDOWS电脑 TikTok标签 v11.38 清理稳定版
-// @name:zh-CN   WINDOWS电脑 TikTok标签 v11.38 清理稳定版
+// @name         WINDOWS电脑 TikTok标签 v11.36 清理稳定版
+// @name:zh-CN   WINDOWS电脑 TikTok标签 v11.36 清理稳定版
 // @namespace    local-tiktok-label-printer-windows
-// @version      11.38
-// @description  v11.38：当前页批量打印队列按 Title 排序，弹窗列表仍按订单时间显示
-// @description:zh-CN v11.38：当前页批量打印队列按 Title 排序，弹窗列表仍按订单时间显示
+// @version      11.37
+// @description  v11.36：英文模式覆盖二级窗口和弹出菜单
+// @description:zh-CN v11.36：英文模式覆盖二级窗口和弹出菜单
 // @match        https://*/*
 // @connect      firestore.googleapis.com
 // @connect      raw.githubusercontent.com
@@ -41,7 +41,7 @@ const UI_LANGUAGE_KEY=PREFIX+"tk_ui_language_v1131";
 const LISTEN_PAUSE_REASON_KEY=PREFIX+"tk_listen_pause_reason_v1131";
 const GIVEAWAY_NOTE="FOR FREE";
 
-const SCRIPT_VERSION="11.38";
+const SCRIPT_VERSION="11.37";
 const TK_IS_LOCAL_CHROME_EXTENSION=typeof chrome!=="undefined"&&!!(chrome.runtime&&chrome.runtime.id);
 const QR_CODE_SCRIPT_URL="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js";
 const QR_FALLBACK_API="https://api.qrserver.com/v1/create-qr-code/?size=180x180&format=png&data=";
@@ -71,7 +71,6 @@ const RELEASE_DOC_LATEST=RELEASE_DOC_PREFIX+"latest";
 const RELEASE_GITHUB_RAW_BASE="https://raw.githubusercontent.com/caiping5393559-hash/pms-system/main/tiktok-printer-releases/";
 const RELEASE_GITHUB_MANIFEST_URL=RELEASE_GITHUB_RAW_BASE+"manifest.json";
 const RELEASE_HISTORY_FALLBACK=[
-    {version:"11.38",date:"2026-06-25",notesZh:"当前页批量打印时，实际打印队列按 Title 排序；弹窗列表默认仍按订单时间显示。",notesEn:"For current-page batch printing, the actual print queue now sorts by Title while the popup list still defaults to order time."},
     {version:"11.37",date:"2026-06-24",notesZh:"Local Chrome extension install fix: static injection, file-marker guard, and QRCode CSP guard.",notesEn:"Local Chrome extension install fix: static injection, file-marker guard, and QRCode CSP guard."},
     {version:"11.36",date:"2026-06-23",notesZh:"英文模式扩展到二级窗口、弹出菜单和复核/历史/打印窗口。",notesEn:"Expanded English mode to secondary windows, pop-up menus, review, history, and current-page print dialogs."},
     {version:"11.35",date:"2026-06-23",notesZh:"修复 tk-printer 复核流水集合无权限时导致整批云同步失败；现在会先保存主订单最新复核状态。",notesEn:"Fixed review cloud sync failing completely when the tk-printer review-log collection lacks permission; latest order review state is now saved first."},
@@ -6292,7 +6291,7 @@ function ensurePrintFloatingWindow(){
             .map(id=>currentPrintListInfos.find(o=>o.order===id))
             .filter(Boolean);
 
-        printLabelsBatch(sortCurrentPagePrintQueueByTitle(infos),"手动批量打印当前页面订单",{force:true});
+        printLabelsBatch(infos,"手动批量打印当前页面订单",{force:true});
         renderPrintFloatingRows();
     };
 
@@ -6404,19 +6403,6 @@ function getFilteredPrintListInfos(){
     });
 
     return arr;
-}
-
-function currentPagePrintTitleSortKey(info){
-    const title=norm(info&&info.title);
-    return title?title.toLowerCase():"\uffff";
-}
-
-function sortCurrentPagePrintQueueByTitle(infos){
-    return (infos||[]).slice().sort((a,b)=>{
-        const titleCompare=currentPagePrintTitleSortKey(a).localeCompare(currentPagePrintTitleSortKey(b),undefined,{numeric:true,sensitivity:"base"});
-        if(titleCompare)return titleCompare;
-        return (b&&b.orderDateValue||0)-(a&&a.orderDateValue||0) || String(a&&a.order||"").localeCompare(String(b&&b.order||""));
-    });
 }
 
 function updateSelectedCountInFloatingWindow(){
