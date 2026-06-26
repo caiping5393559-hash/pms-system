@@ -1,6 +1,6 @@
 from pathlib import Path
 
-VERSION_NEW = "2026-06-25-state-zero-guard-v1"
+VERSION_NEW = "2026-06-26-room-e-feed-release-v1"
 
 
 def replace_version(text, token):
@@ -14,6 +14,7 @@ def replace_version(text, token):
         "2026-06-24-firestore-shard-history-v1",
         "2026-06-25-platform-lock-display-v1",
         "2026-06-25-mail-auto-sync-timestamp-v1",
+        "2026-06-25-state-zero-guard-v1",
     ]
     for old in versions:
         old_text = token.format(old)
@@ -149,6 +150,44 @@ def patch_state_zero_guard(path):
     return changed
 
 
+def patch_emergency_empty_feeds(app):
+    text = app.read_text(encoding="utf-8")
+    if "_pms_emergency_empty_feed_ids" in text:
+        return False
+
+    old = '''def make_feed(feed_id):
+    state = normalize_state(load_state())
+    room_id, target_channel_id, target_listing = _pms_channel_feed_target(state, feed_id)
+    if not room_id:
+        return None
+    events = []
+'''
+    new = '''def _pms_empty_ical_calendar(title="PMS Anti Overbooking"):
+    return "BEGIN:VCALENDAR\\r\\nVERSION:2.0\\r\\nPRODID:-//PMS System//Channel Feed//EN\\r\\nCALSCALE:GREGORIAN\\r\\nX-WR-CALNAME:" + _pms_channel_ics_escape(title) + "\\r\\nEND:VCALENDAR\\r\\n"
+
+def _pms_emergency_empty_feed_ids():
+    raw = str(os.environ.get("PMS_ICAL_EMPTY_FEED_IDS", "") or "")
+    return {item.strip().replace(".ics", "") for item in raw.split(",") if item.strip()}
+
+def make_feed(feed_id):
+    state = normalize_state(load_state())
+    room_id, target_channel_id, target_listing = _pms_channel_feed_target(state, feed_id)
+    if not room_id:
+        return None
+    normalized_feed_id = str(feed_id or "").replace(".ics", "")
+    if normalized_feed_id in _pms_emergency_empty_feed_ids():
+        title = "PMS Anti Overbooking"
+        if target_listing:
+            title += " - " + (target_listing.get("platform") or "channel")
+        return _pms_empty_ical_calendar(title)
+    events = []
+'''
+    if old not in text:
+        raise RuntimeError("feed emergency release hook not found")
+    app.write_text(text.replace(old, new, 1), encoding="utf-8")
+    return True
+
+
 def main():
     base = Path(__file__).resolve().parent
     app = base / "app.py"
@@ -228,6 +267,8 @@ def main():
         app_changed = True
     if patch_state_zero_guard(app):
         app_changed = True
+    if patch_emergency_empty_feeds(app):
+        app_changed = True
 
     ui_changed = False
     if ui.exists():
@@ -242,9 +283,9 @@ def main():
             ui_changed = True
 
     if changed or app_changed or ui_changed:
-        print("patched platform lock display, sync timestamp UI, mail auto sync, and zero-state guard")
+        print("patched platform lock display, sync timestamp UI, mail auto sync, zero-state guard, and emergency empty feeds")
     else:
-        print("platform lock display, sync timestamp UI, mail auto sync, and zero-state guard already applied")
+        print("platform lock display, sync timestamp UI, mail auto sync, zero-state guard, and emergency empty feeds already applied")
 
 
 if __name__ == "__main__":
