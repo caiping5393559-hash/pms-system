@@ -1,6 +1,6 @@
 from pathlib import Path
 
-VERSION_NEW = "2026-06-25-mail-auto-sync-timestamp-v1"
+VERSION_NEW = "2026-06-25-state-zero-guard-v1"
 
 
 def replace_version(text, token):
@@ -13,6 +13,7 @@ def replace_version(text, token):
         "2026-06-24-sync-direct-v1",
         "2026-06-24-firestore-shard-history-v1",
         "2026-06-25-platform-lock-display-v1",
+        "2026-06-25-mail-auto-sync-timestamp-v1",
     ]
     for old in versions:
         old_text = token.format(old)
@@ -107,6 +108,47 @@ if __name__ == "__main__":
     return True
 
 
+STATE_ZERO_GUARD_JS = """  function pmsGuardListCount(name){try{const value=window[name]||eval(name)||[];return Array.isArray(value)?value.length:0;}catch(e){const value=window[name]||[];return Array.isArray(value)?value.length:0;}}
+  function pmsGuardStateCount(state,name){const value=state&&state[name];return Array.isArray(value)?value.length:-1;}
+  function pmsGuardUserKey(state){const user=(state&&(state.current_user||state.currentUser))||window.currentUser||{};return [user.role||'',user.id||'',user.username||''].join('|');}
+  function pmsGuardLooksEmptyState(state){if(!state||typeof state!=='object')return false;const hasCore=Array.isArray(state.properties)||Array.isArray(state.rooms)||Array.isArray(state.bookings);if(!hasCore)return false;return pmsGuardStateCount(state,'properties')<=0&&pmsGuardStateCount(state,'rooms')<=0&&pmsGuardStateCount(state,'bookings')<=0;}
+  function pmsGuardLooksUsableState(state){return !!(state&&typeof state==='object'&&(pmsGuardStateCount(state,'properties')>0||pmsGuardStateCount(state,'rooms')>0||pmsGuardStateCount(state,'bookings')>0));}
+  function pmsGuardCurrentHasData(){return pmsGuardListCount('properties')>0||pmsGuardListCount('rooms')>0||pmsGuardListCount('bookings')>0;}
+  function pmsGuardLoadCachedState(userKey){try{const raw=localStorage.getItem('pms:last-good-state:v1');if(!raw)return null;const parsed=JSON.parse(raw);if(!parsed||!parsed.state||!pmsGuardLooksUsableState(parsed.state))return null;if(parsed.userKey&&userKey&&parsed.userKey!==userKey)return null;return parsed.state;}catch(e){return null;}}
+  function pmsGuardSaveCachedState(state){try{if(!pmsGuardLooksUsableState(state))return;localStorage.setItem('pms:last-good-state:v1',JSON.stringify({savedAt:new Date().toISOString(),userKey:pmsGuardUserKey(state),state}));}catch(e){}}
+  function pmsGuardScheduleRetry(){try{window.__pmsEmptyStateRetryCount=(window.__pmsEmptyStateRetryCount||0)+1;if(window.__pmsEmptyStateRetryCount>5)return;setTimeout(()=>{try{if(typeof window.loadState==='function')window.loadState();}catch(e){}},1500*window.__pmsEmptyStateRetryCount);}catch(e){}}
+  function pmsGuardStatePayload(data){const state=(data&&data.state)||data;if(!state||typeof state!=='object')return data;const userKey=pmsGuardUserKey(state);if(pmsGuardLooksEmptyState(state)){const cached=pmsGuardLoadCachedState(userKey);pmsGuardScheduleRetry();if(cached)return {ok:true,state:cached,_pms_cached_state:true};if(pmsGuardCurrentHasData())return null;}window.__pmsEmptyStateRetryCount=0;pmsGuardSaveCachedState(state);return data;}
+  if(!window.__pmsGuardStatePayload)window.__pmsGuardStatePayload=pmsGuardStatePayload;
+"""
+
+
+def patch_state_zero_guard(path):
+    if not path.exists():
+        return False
+    text = path.read_text(encoding="utf-8")
+    changed = False
+    if "__pmsGuardStatePayload" not in text:
+        old_apply = """  function applyState(data){
+    const state=(data&&data.state)||data;"""
+        new_apply = STATE_ZERO_GUARD_JS + """
+  function applyState(data){
+    if(window.__pmsGuardStatePayload){data=window.__pmsGuardStatePayload(data);if(!data)return null;}
+    const state=(data&&data.state)||data;"""
+        if old_apply in text:
+            text = text.replace(old_apply, new_apply, 1)
+            changed = True
+
+    old_object = """  function applyStateObject(data){const state=(data&&data.state)||data;if(!state||typeof state!=='object')return null;"""
+    new_object = STATE_ZERO_GUARD_JS + """  function applyStateObject(data){if(window.__pmsGuardStatePayload){data=window.__pmsGuardStatePayload(data);if(!data)return null;}const state=(data&&data.state)||data;if(!state||typeof state!=='object')return null;"""
+    if old_object in text and "function applyStateObject(data){if(window.__pmsGuardStatePayload)" not in text:
+        text = text.replace(old_object, new_object, 1)
+        changed = True
+
+    if changed:
+        path.write_text(text, encoding="utf-8")
+    return changed
+
+
 def main():
     base = Path(__file__).resolve().parent
     app = base / "app.py"
@@ -184,6 +226,8 @@ def main():
         app_changed = True
     if patch_mail_auto_sync(app):
         app_changed = True
+    if patch_state_zero_guard(app):
+        app_changed = True
 
     ui_changed = False
     if ui.exists():
@@ -194,11 +238,13 @@ def main():
             ui_changed = True
         if patch_room_sync_timestamp(ui):
             ui_changed = True
+        if patch_state_zero_guard(ui):
+            ui_changed = True
 
     if changed or app_changed or ui_changed:
-        print("patched platform lock display, sync timestamp UI, and mail auto sync")
+        print("patched platform lock display, sync timestamp UI, mail auto sync, and zero-state guard")
     else:
-        print("platform lock display, sync timestamp UI, and mail auto sync already applied")
+        print("platform lock display, sync timestamp UI, mail auto sync, and zero-state guard already applied")
 
 
 if __name__ == "__main__":
