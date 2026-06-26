@@ -1,6 +1,6 @@
 from pathlib import Path
 
-VERSION_NEW = "2026-06-26-room-e-feed-release-v1"
+VERSION_NEW = "2026-06-26-room-e-fast-empty-feed-v1"
 
 
 def replace_version(text, token):
@@ -15,6 +15,7 @@ def replace_version(text, token):
         "2026-06-25-platform-lock-display-v1",
         "2026-06-25-mail-auto-sync-timestamp-v1",
         "2026-06-25-state-zero-guard-v1",
+        "2026-06-26-room-e-feed-release-v1",
     ]
     for old in versions:
         old_text = token.format(old)
@@ -170,16 +171,13 @@ def _pms_emergency_empty_feed_ids():
     return {item.strip().replace(".ics", "") for item in raw.split(",") if item.strip()}
 
 def make_feed(feed_id):
+    normalized_feed_id = str(feed_id or "").replace(".ics", "")
+    if normalized_feed_id in _pms_emergency_empty_feed_ids():
+        return _pms_empty_ical_calendar("PMS Anti Overbooking")
     state = normalize_state(load_state())
     room_id, target_channel_id, target_listing = _pms_channel_feed_target(state, feed_id)
     if not room_id:
         return None
-    normalized_feed_id = str(feed_id or "").replace(".ics", "")
-    if normalized_feed_id in _pms_emergency_empty_feed_ids():
-        title = "PMS Anti Overbooking"
-        if target_listing:
-            title += " - " + (target_listing.get("platform") or "channel")
-        return _pms_empty_ical_calendar(title)
     events = []
 '''
     if old not in text:
