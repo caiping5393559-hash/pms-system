@@ -6,7 +6,15 @@ VERSION_LOOP_GUARD = "2026-06-23-ical-loop-guard-v1"
 VERSION_NO_EXTERNAL_LOCKS = "2026-06-23-ical-no-external-locks-v1"
 VERSION_ROOM_ENTRY = "2026-06-24-room-entry-click-v1"
 VERSION_SYNC_DIRECT = "2026-06-24-sync-direct-v1"
-VERSION_NEW = "2026-06-24-firestore-shard-history-v1"
+VERSION_FIRESTORE_HISTORY = "2026-06-24-firestore-shard-history-v1"
+VERSION_PLATFORM_LOCK = "2026-06-25-platform-lock-display-v1"
+VERSION_MAIL_AUTO = "2026-06-25-mail-auto-sync-timestamp-v1"
+VERSION_ZERO_GUARD = "2026-06-25-state-zero-guard-v1"
+VERSION_ROOM_E_RELEASE = "2026-06-26-room-e-feed-release-v1"
+VERSION_ROOM_E_FAST = "2026-06-26-room-e-fast-empty-feed-v1"
+VERSION_FAST_SAVE_LOGOUT = "2026-06-27-fast-save-logout-v1"
+VERSION_CLEANER_PRODUCT = "2026-06-27-cleaner-product-v1"
+VERSION_NEW = "2026-06-27-cleaner-dashboard-v1"
 
 
 def replace_any_once(path, replacements, label):
@@ -176,6 +184,14 @@ def main():
             (f'PMS_PATCH_VERSION = "{VERSION_NO_EXTERNAL_LOCKS}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_ROOM_ENTRY}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_SYNC_DIRECT}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_FIRESTORE_HISTORY}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_PLATFORM_LOCK}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_MAIL_AUTO}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_ZERO_GUARD}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_ROOM_E_RELEASE}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_ROOM_E_FAST}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_FAST_SAVE_LOGOUT}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_CLEANER_PRODUCT}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
         ],
         "app version",
     )
@@ -188,6 +204,14 @@ def main():
             (f"window.__PMS_PATCH_VERSION='{VERSION_NO_EXTERNAL_LOCKS}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_ROOM_ENTRY}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_SYNC_DIRECT}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_FIRESTORE_HISTORY}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_PLATFORM_LOCK}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_MAIL_AUTO}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_ZERO_GUARD}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_ROOM_E_RELEASE}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_ROOM_E_FAST}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_FAST_SAVE_LOGOUT}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANER_PRODUCT}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
         ],
         "ui version",
     )
@@ -199,11 +223,15 @@ def main():
   setTimeout(boot,500);
   setTimeout(boot,1500);
   setTimeout(boot,3000);"""
-    new_boot = """  function boot(){install();const owner=document.getElementById('owner');if(owner){if(!props().length&&typeof window.loadState==='function'&&!S.bootLoadStarted){S.bootLoadStarted=true;window.loadState().then(()=>{if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());renderCleaner();renderOwner();S.bootRendered=true;}).catch(()=>{});return;}if(!S.bootRendered){renderCleaner();renderOwner();S.bootRendered=true;}}else if(document.getElementById('roomSettings')&&!S.bootRendered){renderRoomSettings();S.bootRendered=true;}}
+    room_boot = """  function boot(){install();const owner=document.getElementById('owner');if(owner){if(!props().length&&typeof window.loadState==='function'&&!S.bootLoadStarted){S.bootLoadStarted=true;window.loadState().then(()=>{if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());renderCleaner();renderOwner();S.bootRendered=true;}).catch(()=>{});return;}if(!S.bootRendered){renderCleaner();renderOwner();S.bootRendered=true;}}else if(document.getElementById('roomSettings')&&!S.bootRendered){renderRoomSettings();S.bootRendered=true;}}
   function bootFallback(){install();if(!S.bootRendered)boot();}
   boot();
   setTimeout(bootFallback,120);"""
-    replace_any_once(ui, [(old_boot, new_boot)], "ui boot block")
+    new_boot = """  function boot(){install();const owner=document.getElementById('owner'),cleaner=document.getElementById('cleaner');if(currentIsCleaner()||cleaner){if(!props().length&&typeof window.loadState==='function'&&!S.bootLoadStarted){S.bootLoadStarted=true;window.loadState().then(()=>{if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());renderCleaner();S.bootRendered=true;}).catch(()=>{});return;}if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());if(!S.bootRendered){renderCleaner();S.bootRendered=true;}return;}if(owner){if(!props().length&&typeof window.loadState==='function'&&!S.bootLoadStarted){S.bootLoadStarted=true;window.loadState().then(()=>{if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());renderCleaner();renderOwner();S.bootRendered=true;}).catch(()=>{});return;}if(!S.bootRendered){renderCleaner();renderOwner();S.bootRendered=true;}}else if(document.getElementById('roomSettings')&&!S.bootRendered){renderRoomSettings();S.bootRendered=true;}}
+  function bootFallback(){install();if(!S.bootRendered)boot();}
+  boot();
+  setTimeout(bootFallback,120);"""
+    replace_any_once(ui, [(old_boot, new_boot), (room_boot, new_boot)], "ui boot block")
     patch_property_room_entry(ui)
     patch_direct_ical_sync(app, ui)
     patch_external_sync_history(app)
