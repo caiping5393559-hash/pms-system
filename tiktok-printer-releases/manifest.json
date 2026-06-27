@@ -1,7 +1,13 @@
 {
-  "latest": "11.40",
+  "latest": "11.41",
   "generatedAt": "2026-06-27",
   "files": [
+    {
+      "version": "11.41",
+      "file": "tiktok-label-printer-v11.41-current.user.js",
+      "notesZh": "串改猴匹配范围从所有 HTTPS 页面收窄到 TikTok Seller 页面；云同步改为按需启动，减少只用当前页打印时的启动卡顿。",
+      "notesEn": "Reduced the Tampermonkey match scope from all HTTPS pages to TikTok Seller pages only; cloud sync now starts on demand to reduce startup lag when using current-page printing."
+    },
     {
       "version": "11.40",
       "file": "tiktok-label-printer-v11.40-current.user.js",
