@@ -1,6 +1,6 @@
 from pathlib import Path
 
-VERSION_NEW = "2026-06-27-fast-save-logout-v1"
+VERSION_NEW = "2026-06-27-cleaner-product-v1"
 
 
 def replace_version(text, token):
@@ -17,6 +17,7 @@ def replace_version(text, token):
         "2026-06-25-state-zero-guard-v1",
         "2026-06-26-room-e-feed-release-v1",
         "2026-06-26-room-e-fast-empty-feed-v1",
+        "2026-06-27-fast-save-logout-v1",
     ]
     for old in versions:
         old_text = token.format(old)
@@ -125,9 +126,9 @@ STATE_ZERO_GUARD_JS = """  function pmsGuardListCount(name){try{const value=wind
 """
 
 
-LOGOUT_GUARD_JS = """  function pmsForceLogout(){try{localStorage.removeItem('pms_session');localStorage.removeItem('pms:last-good-state:v1');sessionStorage.clear();}catch(e){}location.href='/logout?ts='+Date.now();}
+LOGOUT_GUARD_JS = """  function pmsForceLogout(){try{Object.keys(localStorage||{}).forEach(function(k){if(/^pms/i.test(k)||k.indexOf('last-good-state')>=0)localStorage.removeItem(k);});sessionStorage.clear();document.cookie.split(';').forEach(function(c){var n=c.split('=')[0].trim();if(n)document.cookie=n+'=; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';});}catch(e){}try{fetch('/api/logout',{method:'POST',keepalive:true});}catch(e){}location.replace('/logout?ts='+Date.now());}
   window.logout=pmsForceLogout;
-  if(!document.__pmsLogoutClickGuard){document.__pmsLogoutClickGuard=true;document.addEventListener('click',function(ev){const btn=ev.target&&ev.target.closest?ev.target.closest('button,a'):null;if(!btn)return;const text=String(btn.textContent||'').trim();const id=String(btn.id||'');const href=String(btn.getAttribute&&btn.getAttribute('href')||'');if(id==='logoutBtn'||text==='退出登录'||href==='/logout'){ev.preventDefault();ev.stopImmediatePropagation();pmsForceLogout();}},true);}
+  if(!document.__pmsLogoutClickGuard){document.__pmsLogoutClickGuard=true;document.addEventListener('click',function(ev){const btn=ev.target&&ev.target.closest?ev.target.closest('button,a'):null;if(!btn)return;const text=String(btn.textContent||'').trim();const id=String(btn.id||'');const href=String(btn.getAttribute&&btn.getAttribute('href')||'');if(id==='logoutBtn'||text==='\\u9000\\u51fa\\u767b\\u5f55'||href==='/logout'){ev.preventDefault();ev.stopImmediatePropagation();pmsForceLogout();}},true);}
 """
 
 
@@ -176,7 +177,21 @@ def patch_state_zero_guard(path):
 def patch_logout_route(app):
     text = app.read_text(encoding="utf-8")
     if 'path == "/logout"' in text:
-        return False
+        changed = False
+        old_api = '''            if path == "/api/logout":
+                json_response(self, {"ok": True}, extra_headers={"Set-Cookie": f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"})
+                return
+'''
+        new_api = '''            if path == "/api/logout":
+                json_response(self, {"ok": True}, extra_headers={"Set-Cookie": f"{SESSION_COOKIE}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax"})
+                return
+'''
+        if old_api in text and new_api not in text:
+            text = text.replace(old_api, new_api, 1)
+            changed = True
+        if changed:
+            app.write_text(text, encoding="utf-8")
+        return changed
     old = '''            path = parsed.path
             if urllib.parse.parse_qs(parsed.query).get("key"):
 '''
@@ -199,6 +214,15 @@ def patch_fast_external_save(app):
     text = app.read_text(encoding="utf-8")
     changed = False
     if "_PMS_EXTERNAL_LAST_HASH" in text:
+        skip_guard = '''        if key not in _PMS_EXTERNAL_LAST_HASH and not rows:
+            continue
+'''
+        anchor = '''        row_hash = _pms_external_rows_hash(rows)
+'''
+        if skip_guard not in text and anchor in text:
+            text = text.replace(anchor, skip_guard + anchor, 1)
+            app.write_text(text, encoding="utf-8")
+            return True
         return False
 
     old_limit = '''_PMS_EXTERNAL_SHARD_RAW_LIMIT = 360000
@@ -245,6 +269,8 @@ def _pms_external_rows_hash(rows):
 '''
     new_save = '''    changed_external_rows = {}
     for key, rows in external_rows.items():
+        if key not in _PMS_EXTERNAL_LAST_HASH and not rows:
+            continue
         row_hash = _pms_external_rows_hash(rows)
         if _PMS_EXTERNAL_LAST_HASH.get(key) != row_hash:
             changed_external_rows[key] = (rows, row_hash)
@@ -264,6 +290,76 @@ def _pms_external_rows_hash(rows):
     if changed:
         app.write_text(text, encoding="utf-8")
     return changed
+
+
+def patch_light_auth_state(app):
+    text = app.read_text(encoding="utf-8")
+    if "_pms_light_auth_state_v1" in text:
+        return False
+    marker = "\nexec(compile(source_text, __file__, \"exec\"))"
+    block = r"""
+
+# _pms_light_auth_state_v1
+light_auth_helper = r'''
+def load_main_state():
+    base_loader = globals().get("_pms_external_base_load_state")
+    if callable(base_loader):
+        return normalize_state(base_loader())
+    return normalize_state(load_state())
+'''
+light_auth_anchor = "\ndef authenticate_user(username, password):\n"
+if "def load_main_state():" not in source_text:
+    if light_auth_anchor not in source_text:
+        raise RuntimeError("light auth helper hook not found")
+    source_text = source_text.replace(light_auth_anchor, "\n" + light_auth_helper + light_auth_anchor, 1)
+
+light_auth_replacements = [
+    (
+        '''def authenticate_user(username, password):
+    state = normalize_state(load_state())
+    user = find_user_for_login(state, username)''',
+        '''def authenticate_user(username, password):
+    state = normalize_state(load_main_state())
+    user = find_user_for_login(state, username)''',
+        "authenticate user light state hook",
+    ),
+    (
+        '''    return find_user_by_id(normalize_state(load_state()), user_id)''',
+        '''    return find_user_by_id(normalize_state(load_main_state()), user_id)''',
+        "current user light state hook",
+    ),
+    (
+        '''    state = normalize_state(load_state())
+    if login_name_exists(state, username):''',
+        '''    state = normalize_state(load_main_state())
+    if login_name_exists(state, username):''',
+        "owner register light state hook",
+    ),
+    (
+        '''    state = normalize_state(load_state())
+    cleaner_code = normalize_cleaner_code(payload.get("cleaner_code")) or generate_cleaner_code(state)''',
+        '''    state = normalize_state(load_main_state())
+    cleaner_code = normalize_cleaner_code(payload.get("cleaner_code")) or generate_cleaner_code(state)''',
+        "cleaner register light state hook",
+    ),
+    (
+        '''    state = normalize_state(load_state())
+    if not any(prop.get("id") == property_id for prop in state["properties"]):''',
+        '''    state = normalize_state(load_main_state())
+    if not any(prop.get("id") == property_id for prop in state["properties"]):''',
+        "property cleaner light state hook",
+    ),
+]
+for old, new, label in light_auth_replacements:
+    if new not in source_text:
+        if old not in source_text:
+            raise RuntimeError(label + " not found")
+        source_text = source_text.replace(old, new, 1)
+"""
+    if marker not in text:
+        raise RuntimeError("light auth patch insertion hook not found")
+    app.write_text(text.replace(marker, block + marker, 1), encoding="utf-8")
+    return True
 
 
 def patch_cleaner_login_username(app):
@@ -440,6 +536,8 @@ def main():
         app_changed = True
     if patch_fast_external_save(app):
         app_changed = True
+    if patch_light_auth_state(app):
+        app_changed = True
     if patch_cleaner_login_username(app):
         app_changed = True
 
@@ -458,9 +556,9 @@ def main():
             ui_changed = True
 
     if changed or app_changed or ui_changed:
-        print("patched platform lock display, sync timestamp UI, mail auto sync, zero-state guard, emergency empty feeds, fast save, logout, and cleaner login")
+        print("patched platform lock display, sync timestamp UI, mail auto sync, zero-state guard, emergency empty feeds, fast save, light auth, logout, and cleaner login")
     else:
-        print("platform lock display, sync timestamp UI, mail auto sync, zero-state guard, emergency empty feeds, fast save, logout, and cleaner login already applied")
+        print("platform lock display, sync timestamp UI, mail auto sync, zero-state guard, emergency empty feeds, fast save, light auth, logout, and cleaner login already applied")
 
 
 if __name__ == "__main__":
