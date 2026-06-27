@@ -1,7 +1,13 @@
 {
-  "latest": "11.41",
+  "latest": "11.42",
   "generatedAt": "2026-06-27",
   "files": [
+    {
+      "version": "11.42",
+      "file": "tiktok-label-printer-v11.42-current.user.js",
+      "notesZh": "新增快捷打印今日 Auction/Giveaway：自动翻页扫描当天订单，筛选非Canceled、打印次数0、有Note的 LIVE Auction；Giveaway 也会打印，Note 写为 Giveaway 加原备注，最后按 Title 排序一次性打印。",
+      "notesEn": "Added quick print for today's Auction/Giveaway orders: auto-paginates today's orders, selects non-canceled, zero-print, noted LIVE Auction orders; Giveaway also prints with Note as Giveaway plus original seller note, then prints once sorted by Title."
+    },
     {
       "version": "11.41",
       "file": "tiktok-label-printer-v11.41-current.user.js",

@@ -1,5 +1,13 @@
 # TikTok 标签打印脚本版本记录
 
+## v11.42 - 2026-06-27
+
+- 新增主菜单按钮“快捷打印今日拍卖”。
+- 自动翻页扫描当天订单，遇到早于今天的订单后停止。
+- 打印条件：今天 + `LIVE Auction`/`LIVE Giveaway` + 非 `Canceled` + 历史打印次数 `0` + 有可打印 Note。
+- Giveaway 标签 Note 改为 `Giveaway` 加原 Seller note；原 note 为空时打印 `Giveaway`。
+- 扫描结束后统一按 Title 排序批量打印，方便同款连续出标。
+
 ## v11.41 - 2026-06-27
 
 - 串改猴 `@match` 从 `https://*/*` 收窄到 TikTok Seller 页面，避免其它网站也加载整套脚本。
