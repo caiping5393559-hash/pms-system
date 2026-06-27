@@ -70,10 +70,6 @@ input,select,textarea{border:1px solid var(--line);border-radius:10px;padding:9p
 
 <main>
   <section id="cleaner" class="section active">
-    <div class="card">
-      <h2>保洁工作台</h2>
-      <div class="small">保洁只能查看绑定房源的任务和备注，可以退出登录；不会显示房东管理入口。</div>
-    </div>
     <div id="cleanerSummary"></div>
     <div class="grid" id="cleanerMetrics"></div>
     <div id="cleanerTodayNotes"></div>
@@ -284,21 +280,21 @@ function scheduleSave(){
 
 function applyStateFromServer(data){
   const state = (data && data.state) || data || {};
-  rooms = Array.isArray(state.rooms) ? state.rooms : [];
-  commonAreas = Array.isArray(state.commonAreas) ? state.commonAreas : [];
-  bookings = Array.isArray(state.bookings) ? state.bookings : [];
-  manualChanges = Array.isArray(state.manualChanges) ? state.manualChanges : [];
-  cleaningNotes = Array.isArray(state.cleaningNotes) ? state.cleaningNotes : [];
-  roomDateNotes = Array.isArray(state.roomDateNotes) ? state.roomDateNotes : [];
-  syncErrors = Array.isArray(state.sync_errors) ? state.sync_errors : [];
-  groups = Array.isArray(state.groups) ? state.groups : [];
-  users = Array.isArray(state.users) ? state.users : [];
-  properties = Array.isArray(state.properties) ? state.properties : [];
-  propertyCleaners = Array.isArray(state.propertyCleaners) ? state.propertyCleaners : [];
-  channelListings = Array.isArray(state.channelListings) ? state.channelListings : [];
-  cleaningTaskConfirmations = Array.isArray(state.cleaningTaskConfirmations) ? state.cleaningTaskConfirmations : [];
+  rooms = Array.isArray(state.rooms) ? state.rooms : rooms;
+  commonAreas = Array.isArray(state.commonAreas) ? state.commonAreas : commonAreas;
+  bookings = Array.isArray(state.bookings) ? state.bookings : bookings;
+  manualChanges = Array.isArray(state.manualChanges) ? state.manualChanges : manualChanges;
+  cleaningNotes = Array.isArray(state.cleaningNotes) ? state.cleaningNotes : cleaningNotes;
+  roomDateNotes = Array.isArray(state.roomDateNotes) ? state.roomDateNotes : roomDateNotes;
+  syncErrors = Array.isArray(state.sync_errors) ? state.sync_errors : syncErrors;
+  groups = Array.isArray(state.groups) ? state.groups : groups;
+  users = Array.isArray(state.users) ? state.users : users;
+  properties = Array.isArray(state.properties) ? state.properties : properties;
+  propertyCleaners = Array.isArray(state.propertyCleaners) ? state.propertyCleaners : propertyCleaners;
+  channelListings = Array.isArray(state.channelListings) ? state.channelListings : channelListings;
+  cleaningTaskConfirmations = Array.isArray(state.cleaningTaskConfirmations) ? state.cleaningTaskConfirmations : cleaningTaskConfirmations;
   currentUser = state.current_user || state.currentUser || currentUser || null;
-  lastSync = state.last_sync || '';
+  lastSync = state.last_sync || lastSync || '';
   Object.assign(window, {rooms, commonAreas, bookings, manualChanges, cleaningNotes, roomDateNotes, syncErrors, groups, users, properties, propertyCleaners, channelListings, cleaningTaskConfirmations, currentUser, lastSync});
   if(window.applyServerState && window.applyServerState !== applyStateFromServer){
     try{ window.applyServerState(state); }catch(e){ console.warn(e); }
