@@ -14,7 +14,8 @@ VERSION_ROOM_E_RELEASE = "2026-06-26-room-e-feed-release-v1"
 VERSION_ROOM_E_FAST = "2026-06-26-room-e-fast-empty-feed-v1"
 VERSION_FAST_SAVE_LOGOUT = "2026-06-27-fast-save-logout-v1"
 VERSION_CLEANER_PRODUCT = "2026-06-27-cleaner-product-v1"
-VERSION_NEW = "2026-06-27-cleaner-dashboard-v1"
+VERSION_CLEANER_DASHBOARD = "2026-06-27-cleaner-dashboard-v1"
+VERSION_NEW = "2026-06-27-cleaner-static-v1"
 
 
 def replace_any_once(path, replacements, label):
@@ -192,6 +193,7 @@ def main():
             (f'PMS_PATCH_VERSION = "{VERSION_ROOM_E_FAST}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_FAST_SAVE_LOGOUT}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_CLEANER_PRODUCT}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_CLEANER_DASHBOARD}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
         ],
         "app version",
     )
@@ -212,6 +214,7 @@ def main():
             (f"window.__PMS_PATCH_VERSION='{VERSION_ROOM_E_FAST}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_FAST_SAVE_LOGOUT}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANER_PRODUCT}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANER_DASHBOARD}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
         ],
         "ui version",
     )

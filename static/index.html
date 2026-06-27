@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>简易 PMS 前端 Demo v8</title>
+<title>PMS 保洁工作台</title>
 <style>
 :root{
   --bg:#f5f7fb; --card:#fff; --text:#182230; --muted:#667085; --line:#d9e1ec;
@@ -31,6 +31,7 @@ th,td{padding:12px 10px;border-bottom:1px solid var(--line);text-align:left;vert
 .today-row td{background:var(--yellow);font-weight:800}.section,.tab-content{display:none}.section.active,.tab-content.active{display:block}
 .month-block{border:1px solid var(--line);border-radius:16px;margin:12px 0;background:#fff;overflow:hidden}.month-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;background:#f8fafc;cursor:pointer;font-weight:900}.month-body{display:none;padding:0}.month-block.open .month-body{display:block}
 .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.property-detail-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
 input,select,textarea{border:1px solid var(--line);border-radius:10px;padding:9px 10px;background:#fff;min-width:130px;font-size:14px} textarea{width:100%;min-height:70px}
 .formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px} label{font-weight:800;display:block;margin:0 0 5px}
 .scroll{overflow:auto}.timeline{display:grid;gap:4px;min-width:920px}.cell{border:1px solid var(--line);border-radius:9px;min-height:38px;padding:6px;font-size:12px;background:#fff}.cell.head{background:#eef4ff;font-weight:800;text-align:center}.cell.room{font-weight:900;background:#f8fafc;position:sticky;left:0;z-index:1}.cell.booked{background:#e6fffb;border-color:#99f6e4;color:#0f766e;font-weight:800}.cell.hasnote{box-shadow:inset 0 0 0 2px #f59e0b}
@@ -59,7 +60,7 @@ input,select,textarea{border:1px solid var(--line);border-radius:10px;padding:9p
 <body>
 <header>
   <div class="header-inner">
-    <div><h1>简易 PMS 前端 Demo v8</h1><div class="small">新增：每个房间可维护各平台公开房源链接。</div></div>
+    <div><h1>PMS 保洁工作台</h1><div class="small">查看绑定房源、当天保洁、未来任务和历史/调整。</div></div>
     <div class="nav">
       <button class="active" onclick="showSection('cleaner', this)">保洁页面</button>
       <button onclick="showSection('owner', this)">房东管理</button>
@@ -70,9 +71,10 @@ input,select,textarea{border:1px solid var(--line);border-radius:10px;padding:9p
 <main>
   <section id="cleaner" class="section active">
     <div class="card">
-      <h2>保洁退房页面</h2>
-      <div class="small">保洁只能看今日/未来/历史保洁、手动调整记录和今日备注；没有修改权限。</div>
+      <h2>保洁工作台</h2>
+      <div class="small">保洁只能查看绑定房源的任务和备注，可以退出登录；不会显示房东管理入口。</div>
     </div>
+    <div id="cleanerSummary"></div>
     <div class="grid" id="cleanerMetrics"></div>
     <div id="cleanerTodayNotes"></div>
     <div class="card"><div class="tabbar">
@@ -261,6 +263,13 @@ let cleaningNotes = [];
 let roomDateNotes = [];
 let lastSync = '';
 let syncErrors = [];
+let groups = [];
+let users = [];
+let properties = [];
+let propertyCleaners = [];
+let channelListings = [];
+let cleaningTaskConfirmations = [];
+let currentUser = null;
 let saveTimer = null;
 
 function withKey(url){
@@ -273,22 +282,37 @@ function scheduleSave(){
   saveTimer = setTimeout(saveState, 500);
 }
 
+function applyStateFromServer(data){
+  const state = (data && data.state) || data || {};
+  rooms = Array.isArray(state.rooms) ? state.rooms : [];
+  commonAreas = Array.isArray(state.commonAreas) ? state.commonAreas : [];
+  bookings = Array.isArray(state.bookings) ? state.bookings : [];
+  manualChanges = Array.isArray(state.manualChanges) ? state.manualChanges : [];
+  cleaningNotes = Array.isArray(state.cleaningNotes) ? state.cleaningNotes : [];
+  roomDateNotes = Array.isArray(state.roomDateNotes) ? state.roomDateNotes : [];
+  syncErrors = Array.isArray(state.sync_errors) ? state.sync_errors : [];
+  groups = Array.isArray(state.groups) ? state.groups : [];
+  users = Array.isArray(state.users) ? state.users : [];
+  properties = Array.isArray(state.properties) ? state.properties : [];
+  propertyCleaners = Array.isArray(state.propertyCleaners) ? state.propertyCleaners : [];
+  channelListings = Array.isArray(state.channelListings) ? state.channelListings : [];
+  cleaningTaskConfirmations = Array.isArray(state.cleaningTaskConfirmations) ? state.cleaningTaskConfirmations : [];
+  currentUser = state.current_user || state.currentUser || currentUser || null;
+  lastSync = state.last_sync || '';
+  Object.assign(window, {rooms, commonAreas, bookings, manualChanges, cleaningNotes, roomDateNotes, syncErrors, groups, users, properties, propertyCleaners, channelListings, cleaningTaskConfirmations, currentUser, lastSync});
+  if(window.applyServerState && window.applyServerState !== applyStateFromServer){
+    try{ window.applyServerState(state); }catch(e){ console.warn(e); }
+  }
+  return state;
+}
+
 async function loadState(){
   const res = await fetch(withKey('/api/state'));
   if(!res.ok){
     document.body.innerHTML = '<div style="padding:30px;font-family:sans-serif"><h2>没有权限或后台未启动</h2><p>请检查访问链接里的 key 是否正确。</p></div>';
     throw new Error('load state failed');
   }
-  const state = await res.json();
-  rooms = state.rooms || [];
-  commonAreas = state.commonAreas || [];
-  bookings = state.bookings || [];
-  manualChanges = state.manualChanges || [];
-  cleaningNotes = state.cleaningNotes || [];
-  roomDateNotes = state.roomDateNotes || [];
-  lastSync = state.last_sync || '';
-  syncErrors = state.sync_errors || [];
-  if(window.applyServerState) window.applyServerState(state);
+  const state = applyStateFromServer(await res.json());
   return state;
 }
 
@@ -302,7 +326,7 @@ async function saveState(){
   if(!res.ok){
     throw new Error(data.error || '保存失败');
   }
-  if(window.applyServerState) window.applyServerState(data.state || data);
+  applyStateFromServer(data.state || data);
   return data;
 }
 
@@ -312,17 +336,9 @@ async function syncIcal(){
   try{
     await saveState();
     const res = await fetch(withKey('/api/sync'), {method:'POST'});
-    const state = await res.json();
-    rooms = state.rooms || [];
-    commonAreas = state.commonAreas || [];
-    bookings = state.bookings || [];
-    manualChanges = state.manualChanges || [];
-    cleaningNotes = state.cleaningNotes || [];
-    roomDateNotes = state.roomDateNotes || [];
-    lastSync = state.last_sync || '';
-    syncErrors = state.sync_errors || [];
-    if(window.applyServerState) window.applyServerState(state);
-    renderCleaner(); renderOwner(); applyRoleMode();
+    const state = applyStateFromServer(await res.json());
+    if(getRoleFromPath()==='cleaner') renderCleaner(); else { renderCleaner(); renderOwner(); }
+    applyRoleMode();
     const message = syncErrors.length ? `iCal 同步完成，但有 ${syncErrors.length} 个链接失败` : 'iCal 同步完成';
     alert(message);
     return state;
@@ -352,9 +368,34 @@ function platformBadge(p){const cls=p==='Airbnb'?'blue':p==='Booking'?'green':p=
 function changeBadge(t){return t==='add'?'<span class="badge green">额外增加</span>':'<span class="badge red">取消保洁</span>';}
 function objectBadge(type){return type==='common'?'<span class="badge orange">公区</span>':'<span class="badge">房间</span>';}
 function priorityBadge(p){return p==='重要'?'<span class="badge red">重要</span>':'<span class="badge blue">普通</span>';}
-function showSection(id, btn){document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
+function showSection(id, btn){document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');}
 function showTab(id, btn){const parent=btn.closest('.section');parent.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));document.getElementById(id).classList.add('active');btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
 function showOwnerTab(id, btn){document.querySelectorAll('#owner > .tab-content').forEach(t=>t.classList.remove('active'));document.getElementById(id).classList.add('active');btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
+
+function logout(){
+  try{
+    Object.keys(localStorage || {}).forEach(k=>{ if(/^pms/i.test(k) || k.includes('last-good-state')) localStorage.removeItem(k); });
+    sessionStorage.clear();
+    document.cookie.split(';').forEach(c=>{const n=c.split('=')[0].trim(); if(n) document.cookie=n+'=; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';});
+  }catch(e){}
+  fetch('/api/logout',{method:'POST',keepalive:true}).catch(()=>{});
+  location.replace('/logout?ts='+Date.now());
+}
+function ensureLogoutButton(){
+  const nav = document.querySelector('.nav');
+  if(!nav) return null;
+  let btn = document.getElementById('logoutBtn');
+  if(!btn){
+    btn = document.createElement('button');
+    btn.id = 'logoutBtn';
+    btn.type = 'button';
+    btn.textContent = '退出登录';
+    nav.appendChild(btn);
+  }
+  btn.style.display = '';
+  btn.onclick = logout;
+  return btn;
+}
 
 function dateRange(start,end){
   let arr=[], n=daysBetween(start, addDays(end,1));
@@ -413,24 +454,78 @@ function renderCleanerNotesToday(){
     all.map(n=>`<div class="note-card ${n.priority==='重要'?'important':''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${targetName(n.target_id,n.target_type)} ${n.roomDate?'日期备注':''}</div><div>${n.note}</div></div>`).join('')+
     `</div>`;
 }
+function escHtml(v){return String(v==null?'':v).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
+function currentCleanerCode(){
+  const u = currentUser || {};
+  return String(u.cleaner_code || u.cleanerCode || '').trim().toUpperCase();
+}
+function propertyTitle(p){
+  const name = String((p && (p.name || p.id)) || '').trim();
+  return name ? '房源：' + name : '未命名房源';
+}
+function cleanerBoundPropertyIds(){
+  const code = currentCleanerCode();
+  if(!code) return new Set();
+  return new Set(propertyCleaners.filter(x=>String(x && x.cleaner_code || '').trim().toUpperCase()===code).map(x=>x.property_id).filter(Boolean));
+}
+function cleanerBoundProperties(){
+  const ids = cleanerBoundPropertyIds();
+  if(!ids.size) return properties;
+  return properties.filter(p=>ids.has(p.id));
+}
+function roomPropertyId(roomId){
+  const first = properties[0] && properties[0].id || 'property_default';
+  const room = rooms.find(r=>r.id===roomId);
+  return room && (room.property_id || first) || first;
+}
+function areaPropertyId(areaId){
+  const first = properties[0] && properties[0].id || 'property_default';
+  const area = commonAreas.find(a=>a.id===areaId);
+  return area && (area.property_id || first) || first;
+}
+function targetPropertyId(targetId, targetType){
+  return targetType === 'common' ? areaPropertyId(targetId) : roomPropertyId(targetId);
+}
+function cleanerCanSeeTarget(targetId, targetType){
+  const ids = cleanerBoundPropertyIds();
+  return !ids.size || ids.has(targetPropertyId(targetId, targetType));
+}
+function cleanerSummaryHtml(){
+  const user = currentUser || {};
+  const name = user.name || user.username || '保洁';
+  const code = currentCleanerCode() || '-';
+  const bound = cleanerBoundProperties();
+  const boundText = bound.length ? bound.map(propertyTitle).join('、') : '还没有绑定房源';
+  return `<div class="card"><div class="property-detail-head"><div><h2>${escHtml(name)}</h2><div class="small">保洁编号：${escHtml(code)} · 已绑定房源：${escHtml(boundText)}</div></div><span class="badge green">${bound.length} 个房源</span></div></div>`;
+}
 function renderCleaner(){
   const rows = actualCleaningRows(addDays(TODAY,-90), addDays(TODAY,180));
-  const todayRows = rows.filter(r=>r.date===TODAY).sort((a,b)=>a.target_type.localeCompare(b.target_type));
-  const futureRows = rows.filter(r=>r.date>TODAY).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,120);
-  const historyRows = rows.filter(r=>r.date<TODAY).sort((a,b)=>b.date.localeCompare(a.date));
+  const visibleRows = rows.filter(r=>cleanerCanSeeTarget(r.target_id, r.target_type));
+  const todayRows = visibleRows.filter(r=>r.date===TODAY).sort((a,b)=>a.target_type.localeCompare(b.target_type));
+  const futureRows = visibleRows.filter(r=>r.date>TODAY).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,120);
+  const historyRows = visibleRows.filter(r=>r.date<TODAY).sort((a,b)=>b.date.localeCompare(a.date));
   const todayNotes = cleaningNotes.filter(n=>n.date===TODAY).length + roomDateNotes.filter(n=>n.date===TODAY).length;
-  document.getElementById('cleanerMetrics').innerHTML = `<div class="metric"><div class="small">今日保洁</div><div class="num">${todayRows.length}</div></div><div class="metric"><div class="small">今日备注</div><div class="num">${todayNotes}</div></div><div class="metric"><div class="small">未来保洁</div><div class="num">${futureRows.length}</div></div><div class="metric"><div class="small">历史保洁</div><div class="num">${historyRows.length}</div></div>`;
-  document.getElementById('cleanerTodayNotes').innerHTML = renderCleanerNotesToday();
-  document.getElementById('cleanerToday').innerHTML = cleaningTable(todayRows);
-  document.getElementById('cleanerFuture').innerHTML = cleaningTable(futureRows);
-  document.getElementById('cleanerManual').innerHTML = renderManualRecordsHTML(manualChanges, false);
+  const visibleRoomCount = rooms.filter(r=>cleanerCanSeeTarget(r.id,'room')).length;
+  const summary = document.getElementById('cleanerSummary');
+  if(summary) summary.innerHTML = cleanerSummaryHtml();
+  const metrics = document.getElementById('cleanerMetrics');
+  if(metrics) metrics.innerHTML = `<div class="metric"><div class="small">已绑定房源</div><div class="num">${cleanerBoundProperties().length}</div></div><div class="metric"><div class="small">可查看房间</div><div class="num">${visibleRoomCount}</div></div><div class="metric"><div class="small">今日保洁</div><div class="num">${todayRows.length}</div></div><div class="metric"><div class="small">今日备注</div><div class="num">${todayNotes}</div></div><div class="metric"><div class="small">未来保洁</div><div class="num">${futureRows.length}</div></div>`;
+  const todayNotesBox = document.getElementById('cleanerTodayNotes');
+  if(todayNotesBox) todayNotesBox.innerHTML = renderCleanerNotesToday();
+  const todayBox = document.getElementById('cleanerToday');
+  if(todayBox) todayBox.innerHTML = cleaningTable(todayRows);
+  const futureBox = document.getElementById('cleanerFuture');
+  if(futureBox) futureBox.innerHTML = cleaningTable(futureRows);
+  const manualBox = document.getElementById('cleanerManual');
+  if(manualBox) manualBox.innerHTML = renderManualRecordsHTML(manualChanges.filter(m=>cleanerCanSeeTarget(m.target_id,m.target_type)), false);
   const groups={}; historyRows.forEach(r=>(groups[monthKey(r.date)] ||= []).push(r));
-  document.getElementById('cleanerHistory').innerHTML = `<div class="card"><h2>历史保洁｜按月统计</h2><div class="small">默认折叠，点月份展开。公区每日保洁也计入历史记录。</div></div>`+
+  const historyBox = document.getElementById('cleanerHistory');
+  if(historyBox) historyBox.innerHTML = `<div class="card"><h2>历史保洁｜按月统计</h2><div class="small">默认折叠，点月份展开。公区每日保洁也计入历史记录。</div></div>`+
     Object.keys(groups).sort().reverse().map((m,idx)=>{
       const manualTotal=manualChanges.filter(x=>monthKey(x.date)===m).reduce((s,x)=>s+adjustAmount(x.amount),0);
       const total=groups[m].reduce((s,r)=>s+targetFee(r.target_id,r.target_type),0)+manualTotal;
       return `<div class="month-block ${idx===0?'open':''}"><div class="month-head" onclick="this.parentElement.classList.toggle('open')"><span>${m} 保洁 ${groups[m].length} 次</span><span>费用：$${total}</span></div><div class="month-body">${cleaningTable(groups[m])}</div></div>`;
-    }).join('');
+    }).join('') || `<div class="card"><p class="small">暂无历史记录</p></div>`;
 }
 function renderOwner(){
   initSelects(); renderOwnerMetrics(); renderDailyWork(); renderOwnerCalendar(); renderSixMonthStats(); renderOwnerBookings(); renderRoomSettings(); renderCommonSettings(); renderManualRecords(); renderCleaningFinance(); renderOwnerNotes();
@@ -775,26 +870,51 @@ function applyRoleMode(){
   const nav = document.querySelector('.nav');
   if(role === 'cleaner'){
     showSection('cleaner', document.querySelector('.nav button'));
-    if(nav) nav.style.display = 'none';
-    document.title = '保洁查看页面';
+    if(nav){
+      nav.style.display = 'flex';
+      nav.querySelectorAll('button').forEach(btn=>{
+        const text = (btn.textContent || '').trim();
+        if(text.includes('房东管理')) btn.style.display = 'none';
+        else if(btn.id !== 'logoutBtn') btn.style.display = 'none';
+      });
+    }
+    ensureLogoutButton();
+    document.title = '保洁工作台';
     const title = document.querySelector('h1');
-    if(title) title.textContent = '保洁查看页面';
+    const subtitle = document.querySelector('h1 + .small');
+    if(title) title.textContent = '保洁工作台';
+    if(subtitle) subtitle.textContent = '查看绑定房源、当天保洁、未来任务和历史/调整。';
   }else{
     const ownerBtn = document.querySelectorAll('.nav button')[1] || document.querySelector('.nav button');
     showSection('owner', ownerBtn);
-    if(nav) nav.style.display = 'flex';
+    if(nav){
+      nav.style.display = 'flex';
+      nav.querySelectorAll('button').forEach(btn=>btn.style.display='');
+    }
+    ensureLogoutButton();
     document.title = '房东管理后台';
     const title = document.querySelector('h1');
+    const subtitle = document.querySelector('h1 + .small');
     if(title) title.textContent = '房东管理后台';
+    if(subtitle) subtitle.textContent = '管理房源、房间、公区、iCal 同步和保洁绑定。';
   }
 }
 
-function refreshAll(){renderCleaner();renderOwner();scheduleSave();}
+function refreshAll(){
+  renderCleaner();
+  if(getRoleFromPath()!=='cleaner') renderOwner();
+  scheduleSave();
+}
 
 async function initApp(){
   try{
     await loadState();
-    manualDate.value=TODAY; noteDate.value=TODAY; noteFilterDate.value=TODAY; roomNoteDate.value=TODAY; workDate.value=TODAY;
+    ['manualDate','noteDate','noteFilterDate','roomNoteDate','workDate'].forEach(id=>{const el=document.getElementById(id); if(el) el.value=TODAY;});
+    if(getRoleFromPath()==='cleaner'){
+      renderCleaner();
+      applyRoleMode();
+      return;
+    }
     renderCleaner(); renderOwner(); applyRoleMode();
   }catch(e){
     console.error(e);
