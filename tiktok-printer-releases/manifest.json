@@ -1,7 +1,13 @@
 {
-  "latest": "11.39",
-  "generatedAt": "2026-06-26",
+  "latest": "11.40",
+  "generatedAt": "2026-06-27",
   "files": [
+    {
+      "version": "11.40",
+      "file": "tiktok-label-printer-v11.40-current.user.js",
+      "notesZh": "应用新版 50x30 标签布局：二维码 19mm，右侧订单号、标题、日期放大并整体下移压紧。",
+      "notesEn": "Applied the new 50x30 label layout: 19mm QR code and larger, lower, tighter right-side order ID, title, and date."
+    },
     {
       "version": "11.39",
       "file": "tiktok-label-printer-v11.39-current.user.js",
