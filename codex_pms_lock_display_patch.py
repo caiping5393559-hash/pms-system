@@ -1,6 +1,6 @@
 from pathlib import Path
 
-VERSION_NEW = "2026-06-26-room-e-fast-empty-feed-v1"
+VERSION_NEW = "2026-06-27-fast-save-logout-v1"
 
 
 def replace_version(text, token):
@@ -16,6 +16,7 @@ def replace_version(text, token):
         "2026-06-25-mail-auto-sync-timestamp-v1",
         "2026-06-25-state-zero-guard-v1",
         "2026-06-26-room-e-feed-release-v1",
+        "2026-06-26-room-e-fast-empty-feed-v1",
     ]
     for old in versions:
         old_text = token.format(old)
@@ -124,6 +125,27 @@ STATE_ZERO_GUARD_JS = """  function pmsGuardListCount(name){try{const value=wind
 """
 
 
+LOGOUT_GUARD_JS = """  function pmsForceLogout(){try{localStorage.removeItem('pms_session');localStorage.removeItem('pms:last-good-state:v1');sessionStorage.clear();}catch(e){}location.href='/logout?ts='+Date.now();}
+  window.logout=pmsForceLogout;
+  if(!document.__pmsLogoutClickGuard){document.__pmsLogoutClickGuard=true;document.addEventListener('click',function(ev){const btn=ev.target&&ev.target.closest?ev.target.closest('button,a'):null;if(!btn)return;const text=String(btn.textContent||'').trim();const id=String(btn.id||'');const href=String(btn.getAttribute&&btn.getAttribute('href')||'');if(id==='logoutBtn'||text==='退出登录'||href==='/logout'){ev.preventDefault();ev.stopImmediatePropagation();pmsForceLogout();}},true);}
+"""
+
+
+def patch_logout_js(path):
+    if not path.exists():
+        return False
+    text = path.read_text(encoding="utf-8")
+    if "pmsForceLogout" in text:
+        return False
+    marker = ")();"
+    idx = text.rfind(marker)
+    if idx < 0:
+        return False
+    text = text[:idx] + LOGOUT_GUARD_JS + text[idx:]
+    path.write_text(text, encoding="utf-8")
+    return True
+
+
 def patch_state_zero_guard(path):
     if not path.exists():
         return False
@@ -149,6 +171,153 @@ def patch_state_zero_guard(path):
     if changed:
         path.write_text(text, encoding="utf-8")
     return changed
+
+
+def patch_logout_route(app):
+    text = app.read_text(encoding="utf-8")
+    if 'path == "/logout"' in text:
+        return False
+    old = '''            path = parsed.path
+            if urllib.parse.parse_qs(parsed.query).get("key"):
+'''
+    new = '''            path = parsed.path
+            if path == "/logout":
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.send_header("Set-Cookie", f"{SESSION_COOKIE}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax")
+                self.end_headers()
+                return
+            if urllib.parse.parse_qs(parsed.query).get("key"):
+'''
+    if old not in text:
+        raise RuntimeError("logout route hook not found")
+    app.write_text(text.replace(old, new, 1), encoding="utf-8")
+    return True
+
+
+def patch_fast_external_save(app):
+    text = app.read_text(encoding="utf-8")
+    changed = False
+    if "_PMS_EXTERNAL_LAST_HASH" in text:
+        return False
+
+    old_limit = '''_PMS_EXTERNAL_SHARD_RAW_LIMIT = 360000
+'''
+    new_limit = '''_PMS_EXTERNAL_SHARD_RAW_LIMIT = 360000
+_PMS_EXTERNAL_LAST_HASH = {}
+
+
+def _pms_external_rows_hash(rows):
+    try:
+        raw = json.dumps(rows if isinstance(rows, list) else [], ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    except Exception:
+        raw = json.dumps([], separators=(",", ":")).encode("utf-8")
+    return hashlib.sha1(raw).hexdigest()
+'''
+    if old_limit not in text:
+        raise RuntimeError("external storage hash hook not found")
+    text = text.replace(old_limit, new_limit, 1)
+    changed = True
+
+    old_load = '''        for key in _PMS_EXTERNAL_STATE_KEYS:
+            rows = _pms_external_read(key)
+            if rows is not None:
+                state[key] = rows
+    return normalize_state(state)
+'''
+    new_load = '''        for key in _PMS_EXTERNAL_STATE_KEYS:
+            rows = _pms_external_read(key)
+            if rows is not None:
+                state[key] = rows
+                _PMS_EXTERNAL_LAST_HASH[key] = _pms_external_rows_hash(rows)
+    return normalize_state(state)
+'''
+    if old_load not in text:
+        raise RuntimeError("external load hash hook not found")
+    text = text.replace(old_load, new_load, 1)
+
+    old_save = '''    for key, rows in external_rows.items():
+        _pms_external_write(key, rows)
+    saved = _pms_external_base_save_state(compact_state)
+    for key, rows in external_rows.items():
+        saved[key] = rows
+    return normalize_state(saved)
+'''
+    new_save = '''    changed_external_rows = {}
+    for key, rows in external_rows.items():
+        row_hash = _pms_external_rows_hash(rows)
+        if _PMS_EXTERNAL_LAST_HASH.get(key) != row_hash:
+            changed_external_rows[key] = (rows, row_hash)
+    for key, pair in changed_external_rows.items():
+        rows, row_hash = pair
+        _pms_external_write(key, rows)
+        _PMS_EXTERNAL_LAST_HASH[key] = row_hash
+    saved = _pms_external_base_save_state(compact_state)
+    for key, rows in external_rows.items():
+        saved[key] = rows
+    return normalize_state(saved)
+'''
+    if old_save not in text:
+        raise RuntimeError("external save skip hook not found")
+    text = text.replace(old_save, new_save, 1)
+
+    if changed:
+        app.write_text(text, encoding="utf-8")
+    return changed
+
+
+def patch_cleaner_login_username(app):
+    text = app.read_text(encoding="utf-8")
+    if "_pms_cleaner_login_name_v1" in text:
+        return False
+    marker = "\nexec(compile(source_text, __file__, \"exec\"))"
+    block = r"""
+
+# _pms_cleaner_login_name_v1
+cleaner_login_candidates_old = '''        candidates = [
+            str(user.get("username") or ""),
+            str(user.get("cleaner_code") or ""),
+            str(user.get("phone") or ""),
+        ]'''
+cleaner_login_candidates_new = '''        candidates = [
+            str(user.get("username") or ""),
+            str(user.get("name") or ""),
+            str(user.get("cleaner_code") or ""),
+            str(user.get("phone") or ""),
+        ]'''
+if cleaner_login_candidates_new not in source_text:
+    if cleaner_login_candidates_old not in source_text:
+        raise RuntimeError("cleaner login candidates hook not found")
+    source_text = source_text.replace(cleaner_login_candidates_old, cleaner_login_candidates_new, 1)
+
+cleaner_register_user_old = '''    user = {
+        "id": f"cleaner_{cleaner_code.lower().replace('-', '_')}",
+        "role": "cleaner",
+        "name": name,
+        "phone": phone,
+        "cleaner_code": cleaner_code,
+        "password_hash": password_hash(password),
+        "created_at": now_utc_iso(),
+    }'''
+cleaner_register_user_new = '''    user = {
+        "id": f"cleaner_{cleaner_code.lower().replace('-', '_')}",
+        "role": "cleaner",
+        "username": name,
+        "name": name,
+        "phone": phone,
+        "cleaner_code": cleaner_code,
+        "password_hash": password_hash(password),
+        "created_at": now_utc_iso(),
+    }'''
+if cleaner_register_user_new not in source_text:
+    if cleaner_register_user_old not in source_text:
+        raise RuntimeError("cleaner register username hook not found")
+    source_text = source_text.replace(cleaner_register_user_old, cleaner_register_user_new, 1)
+"""
+    if marker not in text:
+        raise RuntimeError("cleaner login patch insertion hook not found")
+    app.write_text(text.replace(marker, block + marker, 1), encoding="utf-8")
+    return True
 
 
 def patch_emergency_empty_feeds(app):
@@ -204,8 +373,6 @@ def main():
         text = text.replace(old_external_keys, new_external_keys, 1)
         changed = True
 
-    # Show platform-side Airbnb manual blocks in PMS again. The feed exporter below
-    # skips imported iCal locks, so visible platform locks won't be sent back to Airbnb.
     old_skip_lock = '''        lock_reason = ical_lock_reason(summary, description, status)
         if lock_reason:
             continue
@@ -267,6 +434,14 @@ def main():
         app_changed = True
     if patch_emergency_empty_feeds(app):
         app_changed = True
+    if patch_logout_route(app):
+        app_changed = True
+    if patch_logout_js(app):
+        app_changed = True
+    if patch_fast_external_save(app):
+        app_changed = True
+    if patch_cleaner_login_username(app):
+        app_changed = True
 
     ui_changed = False
     if ui.exists():
@@ -279,11 +454,13 @@ def main():
             ui_changed = True
         if patch_state_zero_guard(ui):
             ui_changed = True
+        if patch_logout_js(ui):
+            ui_changed = True
 
     if changed or app_changed or ui_changed:
-        print("patched platform lock display, sync timestamp UI, mail auto sync, zero-state guard, and emergency empty feeds")
+        print("patched platform lock display, sync timestamp UI, mail auto sync, zero-state guard, emergency empty feeds, fast save, logout, and cleaner login")
     else:
-        print("platform lock display, sync timestamp UI, mail auto sync, zero-state guard, and emergency empty feeds already applied")
+        print("platform lock display, sync timestamp UI, mail auto sync, zero-state guard, emergency empty feeds, fast save, logout, and cleaner login already applied")
 
 
 if __name__ == "__main__":
