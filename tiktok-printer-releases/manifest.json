@@ -1,7 +1,13 @@
 {
-  "latest": "11.38",
-  "generatedAt": "2026-06-25",
+  "latest": "11.39",
+  "generatedAt": "2026-06-26",
   "files": [
+    {
+      "version": "11.39",
+      "file": "tiktok-label-printer-v11.39-current.user.js",
+      "notesZh": "放大 50x30 标签二维码到 18mm，并调整右侧订单号、标题、时间位置，避免压住二维码。",
+      "notesEn": "Enlarged the 50x30 label QR code to 18mm and shifted the order ID, title, and time to avoid overlap."
+    },
     {
       "version": "11.38",
       "file": "tiktok-label-printer-v11.38-current.user.js",
