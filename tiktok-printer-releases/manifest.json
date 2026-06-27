@@ -1,7 +1,13 @@
 {
-  "latest": "11.42",
+  "latest": "11.45",
   "generatedAt": "2026-06-27",
   "files": [
+    {
+      "version": "11.45",
+      "file": "tiktok-label-printer-v11.45-current.user.js",
+      "notesZh": "修复本地 Chrome 扩展报错：打印窗口内联脚本违反 CSP。现在打印窗口不再包含 script 标签，发送打印任务和关闭按钮由外层插件绑定。",
+      "notesEn": "Fixed local Chrome extension CSP errors caused by inline scripts inside the print iframe. The send-print and close buttons are now bound by the outer plugin code."
+    },
     {
       "version": "11.42",
       "file": "tiktok-label-printer-v11.42-current.user.js",
