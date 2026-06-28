@@ -1,7 +1,13 @@
 {
-  "latest": "11.47",
-  "generatedAt": "2026-06-27",
+  "latest": "11.48",
+  "generatedAt": "2026-06-28",
   "files": [
+    {
+      "version": "11.48",
+      "file": "tiktok-label-printer-v11.48-current.user.js",
+      "notesZh": "新增打印前安全闸：同批重复订单号直接拦截；Title 为空、未识别或疑似字段错位直接拦截；同一订单历史 Title 与当前 Title 冲突直接拦截；当前页/快捷/复核批量打印会先查云端打印次数，云端已打印时需要二次确认。",
+      "notesEn": "Added print safety gates: duplicate order IDs in one batch are blocked; empty/unrecognized/suspicious titles are blocked; title conflicts with local print history are blocked; current-page, quick, and review batch printing now checks cloud print counts and asks for confirmation when an order was already printed."
+    },
     {
       "version": "11.47",
       "file": "tiktok-label-printer-v11.47-current.user.js",
