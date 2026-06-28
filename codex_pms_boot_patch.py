@@ -16,7 +16,8 @@ VERSION_FAST_SAVE_LOGOUT = "2026-06-27-fast-save-logout-v1"
 VERSION_CLEANER_PRODUCT = "2026-06-27-cleaner-product-v1"
 VERSION_CLEANER_DASHBOARD = "2026-06-27-cleaner-dashboard-v1"
 VERSION_CLEANER_STATIC = "2026-06-27-cleaner-static-v1"
-VERSION_NEW = "2026-06-27-cleaner-static-v2"
+VERSION_CLEANER_STATIC_V2 = "2026-06-27-cleaner-static-v2"
+VERSION_NEW = "2026-06-27-login-ready-v1"
 
 
 def replace_any_once(path, replacements, label):
@@ -166,7 +167,7 @@ def patch_external_sync_history(app):
     if changed:
         app.write_text(text, encoding="utf-8")
         print("patched Firestore external iCal history storage")
-    elif new_keys in text and new_ui_loader in text:
+    elif new_keys in text and 'for key in ("mailEvents", "icalSyncHistory"):' in text:
         print("already patched Firestore external iCal history storage")
     else:
         raise RuntimeError("external iCal history storage hook not found")
@@ -196,6 +197,7 @@ def main():
             (f'PMS_PATCH_VERSION = "{VERSION_CLEANER_PRODUCT}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_CLEANER_DASHBOARD}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_CLEANER_STATIC}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_CLEANER_STATIC_V2}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
         ],
         "app version",
     )
@@ -218,6 +220,7 @@ def main():
             (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANER_PRODUCT}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANER_DASHBOARD}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANER_STATIC}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANER_STATIC_V2}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
         ],
         "ui version",
     )
@@ -233,7 +236,7 @@ def main():
   function bootFallback(){install();if(!S.bootRendered)boot();}
   boot();
   setTimeout(bootFallback,120);"""
-    new_boot = """  function boot(){install();const owner=document.getElementById('owner'),cleaner=document.getElementById('cleaner');if(currentIsCleaner()||cleaner){if(!props().length&&typeof window.loadState==='function'&&!S.bootLoadStarted){S.bootLoadStarted=true;window.loadState().then(()=>{if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());renderCleaner();S.bootRendered=true;}).catch(()=>{});return;}if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());if(!S.bootRendered){renderCleaner();S.bootRendered=true;}return;}if(owner){if(!props().length&&typeof window.loadState==='function'&&!S.bootLoadStarted){S.bootLoadStarted=true;window.loadState().then(()=>{if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());renderCleaner();renderOwner();S.bootRendered=true;}).catch(()=>{});return;}if(!S.bootRendered){renderCleaner();renderOwner();S.bootRendered=true;}}else if(document.getElementById('roomSettings')&&!S.bootRendered){renderRoomSettings();S.bootRendered=true;}}
+    new_boot = """  function boot(){install();removeLegacyIntroCards();const owner=document.getElementById('owner'),cleaner=document.getElementById('cleaner');if(currentIsCleaner()||cleaner){if(!props().length&&typeof window.loadState==='function'&&!S.bootLoadStarted){S.bootLoadStarted=true;ensureDataGate('正在加载保洁数据...');window.loadState().then(()=>{if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());renderCleaner();S.bootRendered=true;clearDataGate();}).catch(()=>{clearDataGate();});return;}if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());if(!S.bootRendered){renderCleaner();S.bootRendered=true;}return;}if(owner){if(!props().length&&typeof window.loadState==='function'&&!S.bootLoadStarted){S.bootLoadStarted=true;ensureDataGate('正在加载房源数据...');window.loadState().then(()=>{if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());renderCleaner();renderOwner();S.bootRendered=true;clearDataGate();}).catch(()=>{clearDataGate();});return;}if(!S.bootRendered){renderCleaner();renderOwner();S.bootRendered=true;}}else if(document.getElementById('roomSettings')&&!S.bootRendered){renderRoomSettings();S.bootRendered=true;}}
   function bootFallback(){install();if(!S.bootRendered)boot();}
   boot();
   setTimeout(bootFallback,120);"""

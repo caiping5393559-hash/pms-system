@@ -86,11 +86,6 @@ input,select,textarea{border:1px solid var(--line);border-radius:10px;padding:9p
   </section>
 
   <section id="owner" class="section">
-    <div class="card">
-      <h2>房东管理页面</h2>
-      <div class="small">房东可查看指定日期工作表、设置备注、设置房间和公区、查看未来预订、调整实际保洁。</div>
-    </div>
-
     <div class="grid" id="ownerMetrics"></div>
 
     <div class="card">
@@ -278,8 +273,32 @@ function scheduleSave(){
   saveTimer = setTimeout(saveState, 500);
 }
 
+function stateDataCount(state){
+  const s = (state && state.state) || state || {};
+  return ['users','properties','propertyCleaners','rooms','commonAreas','bookings','channelListings'].reduce((n,key) => n + (Array.isArray(s[key]) ? s[key].length : 0), 0);
+}
+
+function currentDataCount(){
+  return [users, properties, propertyCleaners, rooms, commonAreas, bookings, channelListings].reduce((n,list) => n + (Array.isArray(list) ? list.length : 0), 0);
+}
+
+function isTransientEmptyState(state){
+  const s = (state && state.state) || state || {};
+  const hasArrayPayload = ['properties','propertyCleaners','rooms','commonAreas','bookings','channelListings'].some(key => Array.isArray(s[key]));
+  return hasArrayPayload && stateDataCount(s) === 0;
+}
+
+function sleep(ms){
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function applyStateFromServer(data){
   const state = (data && data.state) || data || {};
+  currentUser = state.current_user || state.currentUser || currentUser || null;
+  if(isTransientEmptyState(state) && currentDataCount()){
+    Object.assign(window, {currentUser});
+    return state;
+  }
   rooms = Array.isArray(state.rooms) ? state.rooms : rooms;
   commonAreas = Array.isArray(state.commonAreas) ? state.commonAreas : commonAreas;
   bookings = Array.isArray(state.bookings) ? state.bookings : bookings;
@@ -293,7 +312,6 @@ function applyStateFromServer(data){
   propertyCleaners = Array.isArray(state.propertyCleaners) ? state.propertyCleaners : propertyCleaners;
   channelListings = Array.isArray(state.channelListings) ? state.channelListings : channelListings;
   cleaningTaskConfirmations = Array.isArray(state.cleaningTaskConfirmations) ? state.cleaningTaskConfirmations : cleaningTaskConfirmations;
-  currentUser = state.current_user || state.currentUser || currentUser || null;
   lastSync = state.last_sync || lastSync || '';
   Object.assign(window, {rooms, commonAreas, bookings, manualChanges, cleaningNotes, roomDateNotes, syncErrors, groups, users, properties, propertyCleaners, channelListings, cleaningTaskConfirmations, currentUser, lastSync});
   if(window.applyServerState && window.applyServerState !== applyStateFromServer){
@@ -303,13 +321,20 @@ function applyStateFromServer(data){
 }
 
 async function loadState(){
-  const res = await fetch(withKey('/api/state'));
-  if(!res.ok){
-    document.body.innerHTML = '<div style="padding:30px;font-family:sans-serif"><h2>没有权限或后台未启动</h2><p>请检查访问链接里的 key 是否正确。</p></div>';
-    throw new Error('load state failed');
+  let lastState = null;
+  for(let attempt=0; attempt<8; attempt++){
+    const res = await fetch(withKey('/api/state'));
+    if(!res.ok){
+      document.body.innerHTML = '<div style="padding:30px;font-family:sans-serif"><h2>没有权限或后台未启动</h2><p>请检查访问链接里的 key 是否正确。</p></div>';
+      throw new Error('load state failed');
+    }
+    lastState = applyStateFromServer(await res.json());
+    if(currentDataCount() || stateDataCount(lastState) || attempt === 7){
+      return lastState;
+    }
+    await sleep(attempt < 2 ? 700 : 1200);
   }
-  const state = applyStateFromServer(await res.json());
-  return state;
+  return lastState;
 }
 
 async function saveState(){

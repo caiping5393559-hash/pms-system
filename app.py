@@ -22,7 +22,14 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-27-cleaner-static-v2"
+PMS_PATCH_VERSION = "2026-06-27-login-ready-v1"
+legacy_owner_intro = """    <div class="card">
+      <h2>房东管理页面</h2>
+      <div class="small">房东可查看指定日期工作表、设置备注、设置房间和公区、查看未来预订、调整实际保洁。</div>
+    </div>
+
+"""
+source_text = source_text.replace(legacy_owner_intro, "", 1)
 if "import threading\nimport time\n" not in source_text:
     source_text = source_text.replace(
         "import urllib.error\n",
@@ -473,7 +480,7 @@ admin_ui_patch = r'''
 ui_patch += admin_ui_patch
 final_ui_override = r'''
 (function(){
-  const VERSION='2026-06-27-cleaner-static-v2';
+  const VERSION='2026-06-27-login-ready-v1';
   window.__PMS_PATCH_VERSION=VERSION;
   const S=window.__pmsInlineState||(window.__pmsInlineState={});
   S.mailEdits=S.mailEdits||{};
@@ -4019,15 +4026,36 @@ def pms_state_response_for_user(state, actor):
     return filtered
 
 
+def _pms_ui_state_data_count(state):
+    if not isinstance(state, dict):
+        return 0
+    total = 0
+    for key in ("users", "properties", "propertyCleaners", "rooms", "commonAreas", "bookings", "channelListings"):
+        value = state.get(key)
+        if isinstance(value, list):
+            total += len(value)
+    return total
+
+
 def pms_load_state_for_ui():
-    if not firebase_credentials_configured():
-        return normalize_state(load_state())
-    state = _pms_external_base_load_state()
-    for key in ("mailEvents", "icalSyncHistory"):
-        rows = _pms_external_read(key)
-        if rows is not None:
-            state[key] = rows
-    return normalize_state(state)
+    attempts = max(1, int(os.environ.get("PMS_STATE_LOAD_ATTEMPTS", "4") or "4"))
+    delay = max(0.1, float(os.environ.get("PMS_STATE_LOAD_RETRY_SECONDS", "0.7") or "0.7"))
+    last_state = None
+    for attempt in range(attempts):
+        if not firebase_credentials_configured():
+            state = normalize_state(load_state())
+        else:
+            state = _pms_external_base_load_state()
+            for key in ("mailEvents", "icalSyncHistory"):
+                rows = _pms_external_read(key)
+                if rows is not None:
+                    state[key] = rows
+            state = normalize_state(state)
+        last_state = state
+        if _pms_ui_state_data_count(state) or attempt == attempts - 1:
+            return state
+        time.sleep(delay)
+    return normalize_state(last_state or load_state())
 '''
 if "_pms_external_event_storage_v1" not in source_text:
     if auto_sync_marker in source_text:

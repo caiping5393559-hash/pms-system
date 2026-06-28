@@ -1,6 +1,6 @@
 from pathlib import Path
 
-VERSION_NEW = "2026-06-27-cleaner-static-v2"
+VERSION_NEW = "2026-06-27-login-ready-v1"
 
 
 def replace_version(text, token):
@@ -21,6 +21,7 @@ def replace_version(text, token):
         "2026-06-27-cleaner-product-v1",
         "2026-06-27-cleaner-dashboard-v1",
         "2026-06-27-cleaner-static-v1",
+        "2026-06-27-cleaner-static-v2",
     ]
     for old in versions:
         old_text = token.format(old)
