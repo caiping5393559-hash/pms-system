@@ -391,7 +391,16 @@ function objectBadge(type){return type==='common'?'<span class="badge orange">�
 function priorityBadge(p){return p==='重要'?'<span class="badge red">重要</span>':'<span class="badge blue">普通</span>';}
 function showSection(id, btn){document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');}
 function showTab(id, btn){const parent=btn.closest('.section');parent.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));document.getElementById(id).classList.add('active');btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
-function showOwnerTab(id, btn){document.querySelectorAll('#owner > .tab-content').forEach(t=>t.classList.remove('active'));document.getElementById(id).classList.add('active');btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
+function showOwnerTab(id, btn){
+  document.querySelectorAll('#owner > .tab-content').forEach(t=>t.classList.remove('active'));
+  const tab=document.getElementById(id);
+  if(tab) tab.classList.add('active');
+  if(btn&&btn.parentElement){
+    btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  renderOwnerTab(id);
+}
 
 function logout(){
   try{
@@ -548,8 +557,34 @@ function renderCleaner(){
       return `<div class="month-block ${idx===0?'open':''}"><div class="month-head" onclick="this.parentElement.classList.toggle('open')"><span>${m} 保洁 ${groups[m].length} 次</span><span>费用：$${total}</span></div><div class="month-body">${cleaningTable(groups[m])}</div></div>`;
     }).join('') || `<div class="card"><p class="small">暂无历史记录</p></div>`;
 }
+function activeOwnerTabId(){
+  const active=document.querySelector('#owner > .tab-content.active');
+  return active&&active.id?active.id:'ownerDailyWork';
+}
+function renderOwnerTab(id){
+  const tab=id||activeOwnerTabId();
+  if(tab==='ownerCalendar'){
+    renderOwnerCalendar();
+    renderSixMonthStats();
+    renderOwnerBookings();
+  }else if(tab==='ownerCleaning'){
+    renderManualRecords();
+    renderCleaningFinance();
+  }else if(tab==='ownerRooms'){
+    renderRoomSettings();
+    renderCommonSettings();
+  }else if(tab==='ownerNotes'){
+    renderOwnerNotes();
+  }else if(tab==='ownerMail'&&typeof renderOwnerMail==='function'){
+    renderOwnerMail();
+  }else{
+    renderDailyWork();
+  }
+}
 function renderOwner(){
-  initSelects(); renderOwnerMetrics(); renderDailyWork(); renderOwnerCalendar(); renderSixMonthStats(); renderOwnerBookings(); renderRoomSettings(); renderCommonSettings(); renderManualRecords(); renderCleaningFinance(); renderOwnerNotes();
+  initSelects();
+  renderOwnerMetrics();
+  renderOwnerTab(activeOwnerTabId());
 }
 function initSelects(){
   const roomOpts = `<option value="">全部房间</option>`+rooms.map(r=>`<option value="${r.id}">${r.name}</option>`).join('');
