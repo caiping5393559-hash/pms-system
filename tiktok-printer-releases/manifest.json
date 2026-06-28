@@ -1,7 +1,13 @@
 {
-  "latest": "11.48",
+  "latest": "11.49",
   "generatedAt": "2026-06-28",
   "files": [
+    {
+      "version": "11.49",
+      "file": "tiktok-label-printer-v11.49-current.user.js",
+      "notesZh": "批量打印安全升级：当前页批量、快捷打印、复核批量只要发现本地或云端已打印订单就停止整批；单独补打保留，但会先确认订单号、Title、Note、本地/云端打印次数。",
+      "notesEn": "Batch print safety upgrade: current-page batch, quick print, and review batch stop when any selected order was already printed locally or in the cloud; single-order reprint is still supported with an explicit confirmation showing order ID, title, note, and print counts."
+    },
     {
       "version": "11.48",
       "file": "tiktok-label-printer-v11.48-current.user.js",
