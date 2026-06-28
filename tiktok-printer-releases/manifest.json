@@ -1,7 +1,13 @@
 {
-  "latest": "11.46",
+  "latest": "11.47",
   "generatedAt": "2026-06-27",
   "files": [
+    {
+      "version": "11.47",
+      "file": "tiktok-label-printer-v11.47-current.user.js",
+      "notesZh": "收窄标签订单号后 6 位数字，并增加右侧安全边距，避免最后一位打印出格。",
+      "notesEn": "Narrowed the final six order digits and added right-side safety spacing to prevent the last digit from printing outside the label."
+    },
     {
       "version": "11.46",
       "file": "tiktok-label-printer-v11.46-current.user.js",
