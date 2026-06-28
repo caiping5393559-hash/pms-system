@@ -34,7 +34,7 @@ th,td{padding:12px 10px;border-bottom:1px solid var(--line);text-align:left;vert
 .property-detail-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
 input,select,textarea{border:1px solid var(--line);border-radius:10px;padding:9px 10px;background:#fff;min-width:130px;font-size:14px} textarea{width:100%;min-height:70px}
 .formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px} label{font-weight:800;display:block;margin:0 0 5px}
-.scroll{overflow:auto}.timeline{display:grid;gap:4px;min-width:920px}.cell{border:1px solid var(--line);border-radius:9px;min-height:38px;padding:6px;font-size:12px;background:#fff}.cell.head{background:#eef4ff;font-weight:800;text-align:center}.cell.room{font-weight:900;background:#f8fafc;position:sticky;left:0;z-index:1}.cell.booked{background:#e6fffb;border-color:#99f6e4;color:#0f766e;font-weight:800}.cell.hasnote{box-shadow:inset 0 0 0 2px #f59e0b}
+.scroll{overflow:auto}.timeline{display:grid;gap:4px;min-width:920px}.cell{border:1px solid var(--line);border-radius:9px;min-height:38px;padding:6px;font-size:12px;background:#fff;position:relative}.cell.head{background:#eef4ff;font-weight:800;text-align:center}.cell.room{font-weight:900;background:#f8fafc;position:sticky;left:0;z-index:1}.cell.booked{background:#e6fffb;border-color:#99f6e4;color:#0f766e;font-weight:800}.cell.hasnote{box-shadow:inset 0 0 0 2px #f59e0b}.cell.weekend{outline:2px solid #f59e0b;outline-offset:-2px}.cell.head.weekend{background:#fffbeb;color:#92400e;border-color:#f59e0b}.cell.weekend-sun{outline-color:#f97316}.cell.head.weekend-sun{background:#fff7ed;color:#9a3412;border-color:#fb923c}.weekend-label{display:block;font-size:11px;font-weight:900;line-height:1.1;margin-top:2px;color:#b45309}.weekend-cell-label{position:absolute;left:5px;bottom:3px;font-size:10px;font-weight:900;line-height:1;color:#b45309;background:rgba(255,255,255,.78);border-radius:999px;padding:2px 5px;pointer-events:none}
 .room-card{display:grid;grid-template-columns:1.2fr .7fr auto;gap:10px;align-items:end;border:1px solid var(--line);border-radius:14px;padding:12px;background:#fff;margin-bottom:10px}
 .common-card{background:#fffbeb;border-color:#fde68a}
 .note-card{background:#fffdf5;border:1px solid #facc15;border-radius:14px;padding:12px;margin:8px 0}
@@ -612,6 +612,11 @@ function renderRoomDateNotesForWork(date, room_id){
   return notes.map(n=>`<div class="note-card ${n.priority==='重要'?'important':''}"><div class="note-title">${priorityBadge(n.priority)} 房间日期备注</div><div>${n.note}</div></div>`).join('');
 }
 function setRangePreset(n){document.getElementById('rangeStart').value=TODAY;document.getElementById('rangeEnd').value=addDays(TODAY,n-1);renderOwnerCalendar();}
+function weekendDayIndex(value){const d=new Date(String(value||'')+'T00:00:00'),day=d.getDay();return day===0||day===6?day:-1;}
+function weekendClass(value){const day=weekendDayIndex(value);return day===0?'weekend weekend-sun':day===6?'weekend weekend-sat':'';}
+function weekendLabel(value){const day=weekendDayIndex(value);return day===0?'周日':day===6?'周六':'';}
+function calendarDayHeaderHtml(day){const label=weekendLabel(day);return `<div class="cell head ${weekendClass(day)}">${day.slice(5)}${label?`<span class="weekend-label">${label}</span>`:''}</div>`;}
+function weekendCellMarker(day){const label=weekendLabel(day);return label?`<span class="weekend-cell-label">${label}</span>`:'';}
 function renderOwnerCalendar(){
   if(!document.getElementById('rangeStart').value){setRangePreset(14); return;}
   const start=document.getElementById('rangeStart').value, end=document.getElementById('rangeEnd').value;
@@ -620,13 +625,13 @@ function renderOwnerCalendar(){
   const days=Array.from({length:dayCount},(_,i)=>addDays(start,i));
   const showRooms=selectedRoom?rooms.filter(r=>r.id===selectedRoom):rooms;
   const grid=document.getElementById('calendarGrid'); grid.style.gridTemplateColumns=`120px repeat(${days.length}, 1fr)`;
-  let html=`<div class="cell head">房间 / 日期</div>`+days.map(d=>`<div class="cell head">${d.slice(5)}</div>`).join('');
+  let html=`<div class="cell head">房间 / 日期</div>`+days.map(calendarDayHeaderHtml).join('');
   showRooms.forEach(room=>{
     html += `<div class="cell room">${room.name}</div>`;
     days.forEach(day=>{
       const b=bookings.find(x=>x.room_id===room.id && x.checkin<=day && x.checkout>day);
       const hasNote = roomDateNoteFor(day, room.id).length > 0;
-      html += `<div class="cell ${b?'booked':''} ${hasNote?'hasnote':''}">${b?b.platform:''}${hasNote?'<br>备注':''}</div>`;
+      html += `<div class="cell ${weekendClass(day)} ${b?'booked':''} ${hasNote?'hasnote':''}">${b?b.platform:''}${hasNote?'<br>备注':''}${weekendCellMarker(day)}</div>`;
     });
   });
   grid.innerHTML=html;

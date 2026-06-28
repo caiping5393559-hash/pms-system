@@ -17,7 +17,8 @@ VERSION_CLEANER_PRODUCT = "2026-06-27-cleaner-product-v1"
 VERSION_CLEANER_DASHBOARD = "2026-06-27-cleaner-dashboard-v1"
 VERSION_CLEANER_STATIC = "2026-06-27-cleaner-static-v1"
 VERSION_CLEANER_STATIC_V2 = "2026-06-27-cleaner-static-v2"
-VERSION_NEW = "2026-06-27-login-ready-v1"
+VERSION_LOGIN_READY = "2026-06-27-login-ready-v1"
+VERSION_NEW = "2026-06-27-weekend-calendar-v1"
 
 
 def replace_any_once(path, replacements, label):
@@ -198,6 +199,7 @@ def main():
             (f'PMS_PATCH_VERSION = "{VERSION_CLEANER_DASHBOARD}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_CLEANER_STATIC}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_CLEANER_STATIC_V2}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_LOGIN_READY}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
         ],
         "app version",
     )
@@ -221,6 +223,7 @@ def main():
             (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANER_DASHBOARD}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANER_STATIC}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANER_STATIC_V2}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_LOGIN_READY}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
         ],
         "ui version",
     )
