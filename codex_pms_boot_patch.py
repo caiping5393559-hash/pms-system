@@ -18,7 +18,10 @@ VERSION_CLEANER_DASHBOARD = "2026-06-27-cleaner-dashboard-v1"
 VERSION_CLEANER_STATIC = "2026-06-27-cleaner-static-v1"
 VERSION_CLEANER_STATIC_V2 = "2026-06-27-cleaner-static-v2"
 VERSION_LOGIN_READY = "2026-06-27-login-ready-v1"
-VERSION_NEW = "2026-06-27-weekend-calendar-v1"
+VERSION_WEEKEND_CALENDAR = "2026-06-27-weekend-calendar-v1"
+VERSION_OWNER_TAB_LAZY = "2026-06-28-owner-tab-lazy-render-v1"
+VERSION_PROPERTY_GUARD = "2026-06-28-property-module-guard-v1"
+VERSION_NEW = "2026-06-28-property-module-final-v1"
 
 
 def replace_any_once(path, replacements, label):
@@ -200,6 +203,9 @@ def main():
             (f'PMS_PATCH_VERSION = "{VERSION_CLEANER_STATIC}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_CLEANER_STATIC_V2}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_LOGIN_READY}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_WEEKEND_CALENDAR}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_OWNER_TAB_LAZY}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_PROPERTY_GUARD}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
         ],
         "app version",
     )
@@ -224,6 +230,9 @@ def main():
             (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANER_STATIC}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANER_STATIC_V2}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_LOGIN_READY}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_WEEKEND_CALENDAR}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_OWNER_TAB_LAZY}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_PROPERTY_GUARD}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
         ],
         "ui version",
     )

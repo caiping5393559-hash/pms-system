@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-28-property-module-guard-v1"
+PMS_PATCH_VERSION = "2026-06-28-property-module-final-v1"
 legacy_owner_intro = """    <div class="card">
       <h2>房东管理页面</h2>
       <div class="small">房东可查看指定日期工作表、设置备注、设置房间和公区、查看未来预订、调整实际保洁。</div>
@@ -480,7 +480,7 @@ admin_ui_patch = r'''
 ui_patch += admin_ui_patch
 final_ui_override = r'''
 (function(){
-  const VERSION='2026-06-28-property-module-guard-v1';
+  const VERSION='2026-06-28-property-module-final-v1';
   window.__PMS_PATCH_VERSION=VERSION;
   const S=window.__pmsInlineState||(window.__pmsInlineState={});
   S.mailEdits=S.mailEdits||{};
@@ -877,32 +877,37 @@ final_ui_override = r'''
     setActiveProp(id);
     const btn=document.querySelector('button[onclick*="ownerRooms"]');
     if(typeof showOwnerTab==='function')showOwnerTab('ownerRooms',btn||null);
+    ensurePropertyModuleVisible();
     renderRoomSettings();
   }
   function backToPropertyList(){setActiveProp('');renderRoomSettings();}
+  function ensurePropertyModuleVisible(){try{if(typeof window.ensureOwnerPropertyModuleVisible==='function')window.ensureOwnerPropertyModuleVisible();else if(typeof window.renderOwnerMetrics==='function')window.renderOwnerMetrics();}catch(e){console.warn('PMS final property module guard skipped',e);}}
 
   const pmsFinalBaseShowOwnerTab=typeof window.showOwnerTab==='function'?window.showOwnerTab:null;
   function pmsFinalActiveOwnerTabId(){const active=document.querySelector('#owner > .tab-content.active');return active&&active.id?active.id:'ownerDailyWork';}
   function pmsFinalRenderOwnerTab(id){const tab=id||pmsFinalActiveOwnerTabId();try{if(tab==='ownerCalendar'){if(typeof window.renderOwnerCalendar==='function')window.renderOwnerCalendar();if(typeof window.renderSixMonthStats==='function')window.renderSixMonthStats();if(typeof window.renderOwnerBookings==='function')window.renderOwnerBookings();}else if(tab==='ownerCleaning'){if(typeof window.renderManualRecords==='function')window.renderManualRecords();if(typeof window.renderCleaningFinance==='function')window.renderCleaningFinance();}else if(tab==='ownerRooms'){renderRoomSettings();}else if(tab==='ownerNotes'){if(typeof window.renderOwnerNotes==='function')window.renderOwnerNotes();}else if(tab==='ownerMail'){renderOwnerMail();}else if(typeof window.renderDailyWork==='function'){window.renderDailyWork();}}catch(e){console.warn('PMS final tab render skipped',e);}}
-  function showOwnerTab(id,btn){if(pmsFinalBaseShowOwnerTab&&pmsFinalBaseShowOwnerTab!==showOwnerTab){pmsFinalBaseShowOwnerTab(id,btn);}else{document.querySelectorAll('#owner > .tab-content').forEach(t=>t.classList.remove('active'));const tab=document.getElementById(id);if(tab)tab.classList.add('active');if(btn&&btn.parentElement){btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}}pmsFinalRenderOwnerTab(id);}
-  function refreshOwnerScopedViews(){if(typeof window.initSelects==='function')window.initSelects();if(typeof window.renderOwnerMetrics==='function')window.renderOwnerMetrics();pmsFinalRenderOwnerTab();}
+  function showOwnerTab(id,btn){if(pmsFinalBaseShowOwnerTab&&pmsFinalBaseShowOwnerTab!==showOwnerTab){pmsFinalBaseShowOwnerTab(id,btn);}else{document.querySelectorAll('#owner > .tab-content').forEach(t=>t.classList.remove('active'));const tab=document.getElementById(id);if(tab)tab.classList.add('active');if(btn&&btn.parentElement){btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}}pmsFinalRenderOwnerTab(id);ensurePropertyModuleVisible();}
+  function refreshOwnerScopedViews(){if(typeof window.initSelects==='function')window.initSelects();if(typeof window.renderOwnerMetrics==='function')window.renderOwnerMetrics();ensurePropertyModuleVisible();pmsFinalRenderOwnerTab();ensurePropertyModuleVisible();}
   const baseRenderOwner=window.__pmsFinalBaseRenderOwner||window.renderOwner;
   window.__pmsFinalBaseRenderOwner=baseRenderOwner;
   function renderOwner(){
     const user=current();
     if(user&&user.role==='admin'&&typeof baseRenderOwner==='function')return baseRenderOwner();
     if(typeof baseRenderOwner==='function')baseRenderOwner();
+    ensurePropertyModuleVisible();
     ensureOwnerMailTab();
     pmsFinalRenderOwnerTab();
+    ensurePropertyModuleVisible();
   }
   function install(){
     Object.assign(window,{savePropertyMail,clearPropertyMail,copyMailAddress,editPropertyMail,cancelPropertyMailEdit,renderPropertyMailPanel,ensureOwnerMailTab,openPropertyMailTab,renderOwnerMail,syncPropertyIcal,renderChannelListingsPanel,renderRoomCard,renderPropertyDetail,renderRoomSettings,openPropertyRooms,backToPropertyList,showOwnerTab,refreshOwnerScopedViews,renderOwner});
     try{savePropertyMail=window.savePropertyMail;clearPropertyMail=window.clearPropertyMail;syncPropertyIcal=window.syncPropertyIcal;renderRoomSettings=window.renderRoomSettings;renderOwner=window.renderOwner}catch(e){}
     ensureFinalCss();
     ensureOwnerMailTab();
+    ensurePropertyModuleVisible();
   }
   install();
-  [0,120,500,1500,3000].forEach(t=>setTimeout(install,t));
+  [0,120,500,1500,3000].forEach(t=>setTimeout(()=>{install();ensurePropertyModuleVisible();},t));
 })();
 '''
 ui_patch += final_ui_override
