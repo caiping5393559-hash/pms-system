@@ -255,7 +255,15 @@ def main():
   function bootFallback(){install();if(!S.bootRendered)boot();}
   boot();
   setTimeout(bootFallback,120);"""
-    replace_any_once(ui, [(old_boot, new_boot), (room_boot, new_boot)], "ui boot block")
+    ui_text = ui.read_text(encoding="utf-8")
+    if (
+        "function boot(){install();removeLegacyIntroCards();" in ui_text
+        and "S.bootLoadStarted" in ui_text
+        and "clearDataGate()" in ui_text
+    ):
+        print("already patched ui boot block")
+    else:
+        replace_any_once(ui, [(old_boot, new_boot), (room_boot, new_boot)], "ui boot block")
     patch_property_room_entry(ui)
     patch_direct_ical_sync(app, ui)
     patch_external_sync_history(app)
