@@ -1,7 +1,13 @@
 {
-  "latest": "11.50",
+  "latest": "11.51",
   "generatedAt": "2026-06-29",
   "files": [
+    {
+      "version": "11.51",
+      "file": "tiktok-label-printer-v11.51-current.user.js",
+      "notesZh": "快捷打印和复核改为安全采集：降低滚动速度、缩小步长并自动多次补扫；当 100/Page 且还有下一页但采集数量不足时，停止打印/复核并提示漏扫风险，避免少单被当成完整结果。",
+      "notesEn": "Quick print and review now use safer collection: slower smaller scroll steps with automatic rescans; when 100/Page still has a next page but collected orders are fewer than expected, printing/review stops with a missing-row warning instead of treating the partial page as complete."
+    },
     {
       "version": "11.50",
       "file": "tiktok-label-printer-v11.50-current.user.js",
