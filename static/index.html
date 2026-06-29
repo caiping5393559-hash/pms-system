@@ -35,6 +35,7 @@ th,td{padding:12px 10px;border-bottom:1px solid var(--line);text-align:left;vert
 input,select,textarea{border:1px solid var(--line);border-radius:10px;padding:9px 10px;background:#fff;min-width:130px;font-size:14px} textarea{width:100%;min-height:70px}
 .formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px} label{font-weight:800;display:block;margin:0 0 5px}
 .scroll{overflow:auto}.timeline{display:grid;gap:4px;min-width:920px}.cell{border:1px solid var(--line);border-radius:9px;min-height:38px;padding:6px;font-size:12px;background:#fff;position:relative}.cell.head{background:#eef4ff;font-weight:800;text-align:center}.cell.room{font-weight:900;background:#f8fafc;position:sticky;left:0;z-index:1}.cell.booked{background:#e6fffb;border-color:#99f6e4;color:#0f766e;font-weight:800}.cell.locked{background:#fff1f2;border-color:#fda4af;color:#9f1239;font-weight:900}.cell.hasnote{box-shadow:inset 0 0 0 2px #f59e0b}.cell.weekend{outline:2px solid #f59e0b;outline-offset:-2px}.cell.head.weekend{background:#fffbeb;color:#92400e;border-color:#f59e0b}.cell.weekend-sun{outline-color:#f97316}.cell.head.weekend-sun{background:#fff7ed;color:#9a3412;border-color:#fb923c}.weekend-label{display:block;font-size:11px;font-weight:900;line-height:1.1;margin-top:2px;color:#b45309}.weekend-cell-label{position:absolute;left:5px;bottom:3px;font-size:10px;font-weight:900;line-height:1;color:#b45309;background:rgba(255,255,255,.78);border-radius:999px;padding:2px 5px;pointer-events:none}
+.cell.calendar-booked,.cell.locked{min-height:50px;overflow:hidden}.cell .cell-platform{display:block;max-width:100%;font-size:12px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cell .cell-corner{position:absolute;z-index:2;font-size:11.5px;font-weight:900;line-height:1;color:#0f766e}.cell .cell-out{left:6px;top:6px}.cell .cell-in{right:6px;bottom:6px}.cell .cell-note{position:absolute;right:4px;bottom:3px;font-size:10px;font-weight:900;color:#92400e}.cell.stay-only{display:flex;align-items:center;justify-content:center;background:#ccfbf1;border-color:#5eead4;color:#0f766e;text-align:center}.cell.checkout-only,.cell.checkin-only,.cell.turnover{background:#fff;border-color:#5eead4;color:#0f766e}.cell.checkout-only:before,.cell.checkin-only:before{content:"";position:absolute;inset:0;z-index:0}.cell.checkout-only:before{background:linear-gradient(to bottom right,#ccfbf1 0 calc(50% - 1px),transparent calc(50% + 1px) 100%)}.cell.checkin-only:before{background:linear-gradient(to bottom right,transparent 0 calc(50% - 1px),#ccfbf1 calc(50% + 1px) 100%)}.cell.turnover{background:#ccfbf1;border-color:#14b8a6}.cell.checkout-only:after,.cell.checkin-only:after,.cell.turnover:after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom right,transparent 0 calc(50% - 1.2px),#0f766e calc(50% - 1.2px) calc(50% + 1.2px),transparent calc(50% + 1.2px) 100%);opacity:.82;z-index:1}.cell.calendar-booked>*{position:relative;z-index:2}.cell.locked{display:flex;align-items:center;justify-content:center;text-align:center}
 .room-card{display:grid;grid-template-columns:1.2fr .7fr auto;gap:10px;align-items:end;border:1px solid var(--line);border-radius:14px;padding:12px;background:#fff;margin-bottom:10px}
 .common-card{background:#fffbeb;border-color:#fde68a}
 .note-card{background:#fffdf5;border:1px solid #facc15;border-radius:14px;padding:12px;margin:8px 0}
@@ -120,11 +121,11 @@ input,select,textarea{border:1px solid var(--line);border-radius:10px;padding:9p
         <h2>未来房态总览</h2>
         <div class="toolbar">
           <span class="small">默认未来 14 天，可切换 28 天，也可指定日期范围：</span>
-          <button class="smallbtn primary" onclick="setRangePreset(14)">未来14天</button>
-          <button class="smallbtn" onclick="setRangePreset(28)">未来28天</button>
-          <input id="rangeStart" type="date" onchange="renderOwnerCalendar()">
-          <input id="rangeEnd" type="date" onchange="renderOwnerCalendar()">
-          <select id="ownerRoomFilter" onchange="renderOwnerCalendar()"></select>
+          <button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">未来14天</button>
+          <button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">未来28天</button>
+          <input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()">
+          <input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()">
+          <select id="ownerRoomFilter" onchange="refreshCalendarRangeViews()"></select>
         </div>
         <div class="scroll"><div id="calendarGrid" class="timeline"></div></div>
         <p class="small">黄色边框表示该房间该日期有房东备注，例如纪念日布置、生日布置、婴儿床准备等。</p>
@@ -664,7 +665,39 @@ function renderRoomDateNotesForWork(date, room_id){
   if(!notes.length) return '';
   return notes.map(n=>`<div class="note-card ${n.priority==='重要'?'important':''}"><div class="note-title">${priorityBadge(n.priority)} 房间日期备注</div><div>${n.note}</div></div>`).join('');
 }
-function setRangePreset(n){document.getElementById('rangeStart').value=TODAY;document.getElementById('rangeEnd').value=addDays(TODAY,n-1);renderOwnerCalendar();}
+function calendarRange(){
+  let start=document.getElementById('rangeStart').value||TODAY;
+  let end=document.getElementById('rangeEnd').value||addDays(TODAY,13);
+  if(start>end){const t=start;start=end;end=t;}
+  let dayCount=daysBetween(start, addDays(end,1));
+  if(dayCount<1) dayCount=1;
+  if(dayCount>90) dayCount=90;
+  return {start,end:addDays(start,dayCount-1),endExclusive:addDays(start,dayCount),dayCount};
+}
+function rangePresetButtons(n){
+  const want=String(n);
+  return Array.from(document.querySelectorAll('button')).filter(btn=>{
+    const preset=String(btn.dataset.rangePreset||''), code=String(btn.getAttribute('onclick')||''), text=String(btn.textContent||'').replace(/\s+/g,'');
+    return preset===want || code.includes(`setRangePreset(${want})`) || text.includes(`未来${want}天`);
+  });
+}
+function updateRangePresetButtons(){
+  const r=calendarRange();
+  [14,28].forEach(n=>{
+    rangePresetButtons(n).forEach(btn=>{
+      btn.dataset.rangePreset=String(n);
+      btn.classList.toggle('primary', r.start===TODAY && r.dayCount===n && r.end===addDays(TODAY,n-1));
+    });
+  });
+}
+function refreshCalendarRangeViews(){renderOwnerMetrics();renderOwnerCalendar();renderOwnerBookings();}
+function setRangePreset(n){
+  const days=Math.max(1,Math.min(90,Number(n)||14));
+  document.getElementById('rangeStart').value=TODAY;
+  document.getElementById('rangeEnd').value=addDays(TODAY,days-1);
+  updateRangePresetButtons();
+  refreshCalendarRangeViews();
+}
 function weekendDayIndex(value){const d=new Date(String(value||'')+'T00:00:00'),day=d.getDay();return day===0||day===6?day:-1;}
 function weekendClass(value){const day=weekendDayIndex(value);return day===0?'weekend weekend-sun':day===6?'weekend weekend-sat':'';}
 function weekendLabel(value){const day=weekendDayIndex(value);return day===0?'周日':day===6?'周六':'';}
@@ -672,23 +705,35 @@ function calendarDayHeaderHtml(day){const label=weekendLabel(day);return `<div c
 function weekendCellMarker(day){const label=weekendLabel(day);return label?`<span class="weekend-cell-label">${label}</span>`:'';}
 function renderOwnerCalendar(){
   if(!document.getElementById('rangeStart').value){setRangePreset(14); return;}
-  const start=document.getElementById('rangeStart').value, end=document.getElementById('rangeEnd').value;
+  const range=calendarRange(), start=range.start, end=range.end;
   const selectedRoom=document.getElementById('ownerRoomFilter').value;
-  let dayCount = daysBetween(start, addDays(end,1)); if(dayCount<1) dayCount=1; if(dayCount>90) dayCount=90;
-  const days=Array.from({length:dayCount},(_,i)=>addDays(start,i));
+  const days=Array.from({length:range.dayCount},(_,i)=>addDays(start,i));
   const showRooms=selectedRoom?rooms.filter(r=>r.id===selectedRoom):rooms;
   const grid=document.getElementById('calendarGrid'); grid.style.gridTemplateColumns=`120px repeat(${days.length}, 1fr)`;
   let html=`<div class="cell head">房间 / 日期</div>`+days.map(calendarDayHeaderHtml).join('');
   showRooms.forEach(room=>{
     html += `<div class="cell room">${room.name}</div>`;
     days.forEach(day=>{
-      const b=bookings.find(x=>x.room_id===room.id && x.checkin<=day && x.checkout>day);
-      const locked=b&&isLockedBooking(b);
+      const real=realBookings().filter(x=>x.room_id===room.id);
+      const locks=lockBookings().filter(x=>x.room_id===room.id);
+      const checkout=real.find(x=>x.checkout===day);
+      const checkin=real.find(x=>x.checkin===day);
+      const stay=real.find(x=>x.checkin<day && x.checkout>day);
+      const lock=locks.find(x=>x.checkin<=day && x.checkout>day);
       const hasNote = roomDateNoteFor(day, room.id).length > 0;
-      html += `<div class="cell ${weekendClass(day)} ${b?(locked?'locked':'booked'):''} ${hasNote?'hasnote':''}">${b?(locked?'不开放':b.platform):''}${hasNote?'<br>备注':''}${weekendCellMarker(day)}</div>`;
+      const classes=['cell', ...weekendClass(day).split(' ').filter(Boolean)];
+      let body='';
+      if(checkout&&checkin){classes.push('calendar-booked','turnover');body='<span class="cell-corner cell-out">退房</span><span class="cell-corner cell-in">入住</span>';}
+      else if(checkout){classes.push('calendar-booked','checkout-only');body='<span class="cell-corner cell-out">退房</span>';}
+      else if(checkin){classes.push('calendar-booked','checkin-only');body='<span class="cell-corner cell-in">入住</span>';}
+      else if(stay){classes.push('calendar-booked','stay-only');body=`<span class="cell-platform">${stay.platform||'订单'}</span>`;}
+      else if(lock){classes.push('locked');body='<span class="cell-platform">不开放锁定</span>';}
+      if(hasNote){classes.push('hasnote');body+='<span class="cell-note">备注</span>';}
+      html += `<div class="${classes.join(' ')}">${body}${weekendCellMarker(day)}</div>`;
     });
   });
   grid.innerHTML=html;
+  updateRangePresetButtons();
 }
 function renderSixMonthStats(){
   const end=addDays(TODAY,183);

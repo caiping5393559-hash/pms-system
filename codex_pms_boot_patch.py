@@ -22,7 +22,8 @@ VERSION_WEEKEND_CALENDAR = "2026-06-27-weekend-calendar-v1"
 VERSION_OWNER_TAB_LAZY = "2026-06-28-owner-tab-lazy-render-v1"
 VERSION_PROPERTY_GUARD = "2026-06-28-property-module-guard-v1"
 VERSION_PROPERTY_FINAL = "2026-06-28-property-module-final-v1"
-VERSION_NEW = "2026-06-29-lock-layout-v1"
+VERSION_LOCK_LAYOUT = "2026-06-29-lock-layout-v1"
+VERSION_NEW = "2026-06-29-calendar-range-v1"
 
 
 def replace_any_once(path, replacements, label):
@@ -208,6 +209,7 @@ def main():
             (f'PMS_PATCH_VERSION = "{VERSION_OWNER_TAB_LAZY}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_PROPERTY_GUARD}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_PROPERTY_FINAL}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_LOCK_LAYOUT}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
         ],
         "app version",
     )
@@ -236,6 +238,7 @@ def main():
             (f"window.__PMS_PATCH_VERSION='{VERSION_OWNER_TAB_LAZY}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_PROPERTY_GUARD}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_PROPERTY_FINAL}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_LOCK_LAYOUT}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
         ],
         "ui version",
     )
