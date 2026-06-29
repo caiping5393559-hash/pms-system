@@ -34,17 +34,19 @@ th,td{padding:12px 10px;border-bottom:1px solid var(--line);text-align:left;vert
 .property-detail-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
 input,select,textarea{border:1px solid var(--line);border-radius:10px;padding:9px 10px;background:#fff;min-width:130px;font-size:14px} textarea{width:100%;min-height:70px}
 .formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px} label{font-weight:800;display:block;margin:0 0 5px}
-.scroll{overflow:auto}.timeline{display:grid;gap:4px;min-width:920px}.cell{border:1px solid var(--line);border-radius:9px;min-height:38px;padding:6px;font-size:12px;background:#fff;position:relative}.cell.head{background:#eef4ff;font-weight:800;text-align:center}.cell.room{font-weight:900;background:#f8fafc;position:sticky;left:0;z-index:1}.cell.booked{background:#e6fffb;border-color:#99f6e4;color:#0f766e;font-weight:800}.cell.hasnote{box-shadow:inset 0 0 0 2px #f59e0b}.cell.weekend{outline:2px solid #f59e0b;outline-offset:-2px}.cell.head.weekend{background:#fffbeb;color:#92400e;border-color:#f59e0b}.cell.weekend-sun{outline-color:#f97316}.cell.head.weekend-sun{background:#fff7ed;color:#9a3412;border-color:#fb923c}.weekend-label{display:block;font-size:11px;font-weight:900;line-height:1.1;margin-top:2px;color:#b45309}.weekend-cell-label{position:absolute;left:5px;bottom:3px;font-size:10px;font-weight:900;line-height:1;color:#b45309;background:rgba(255,255,255,.78);border-radius:999px;padding:2px 5px;pointer-events:none}
+.scroll{overflow:auto}.timeline{display:grid;gap:4px;min-width:920px}.cell{border:1px solid var(--line);border-radius:9px;min-height:38px;padding:6px;font-size:12px;background:#fff;position:relative}.cell.head{background:#eef4ff;font-weight:800;text-align:center}.cell.room{font-weight:900;background:#f8fafc;position:sticky;left:0;z-index:1}.cell.booked{background:#e6fffb;border-color:#99f6e4;color:#0f766e;font-weight:800}.cell.locked{background:#fff1f2;border-color:#fda4af;color:#9f1239;font-weight:900}.cell.hasnote{box-shadow:inset 0 0 0 2px #f59e0b}.cell.weekend{outline:2px solid #f59e0b;outline-offset:-2px}.cell.head.weekend{background:#fffbeb;color:#92400e;border-color:#f59e0b}.cell.weekend-sun{outline-color:#f97316}.cell.head.weekend-sun{background:#fff7ed;color:#9a3412;border-color:#fb923c}.weekend-label{display:block;font-size:11px;font-weight:900;line-height:1.1;margin-top:2px;color:#b45309}.weekend-cell-label{position:absolute;left:5px;bottom:3px;font-size:10px;font-weight:900;line-height:1;color:#b45309;background:rgba(255,255,255,.78);border-radius:999px;padding:2px 5px;pointer-events:none}
 .room-card{display:grid;grid-template-columns:1.2fr .7fr auto;gap:10px;align-items:end;border:1px solid var(--line);border-radius:14px;padding:12px;background:#fff;margin-bottom:10px}
 .common-card{background:#fffbeb;border-color:#fde68a}
 .note-card{background:#fffdf5;border:1px solid #facc15;border-radius:14px;padding:12px;margin:8px 0}
 .note-card.important{background:#fff1f2;border-color:#fb7185}
 .note-card .note-title{font-weight:900;margin-bottom:5px}
-.work-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
-.work-card{border:1px solid var(--line);border-radius:16px;background:#fff;padding:14px}
+.work-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px}
+.work-card{border:1px solid var(--line);border-radius:16px;background:#fff;padding:8px;min-width:0}
+.work-card h3{font-size:15px;line-height:1.12;margin:0 0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .work-card.checkout{border-color:#fca5a5;background:#fff7f7}
 .work-card.checkin{border-color:#93c5fd;background:#eff6ff}
 .work-card.stay{border-color:#86efac;background:#f0fdf4}
+.work-card.locked{border-color:#fda4af;background:#fff1f2;color:#9f1239}
 
 .ical-box{border:1px dashed var(--line);background:#f8fafc;border-radius:12px;padding:10px;margin-top:8px}
 .public-link-box{border:1px dashed #99f6e4;background:#f0fdfa;border-radius:12px;padding:10px;margin-top:8px}
@@ -386,6 +388,18 @@ function rowFeeText(row){const base=targetFee(row.target_id,row.target_type), de
 function roomName(id){return targetName(id,'room');}
 function roomFee(id){return targetFee(id,'room');}
 function platformBadge(p){const cls=p==='Airbnb'?'blue':p==='Booking'?'green':p==='Vrbo'?'yellow':p==='微信直订'?'purple':''; return `<span class="badge ${cls}">${p}</span>`;}
+function isLockedBooking(b){
+  if(!b) return false;
+  const kind=[b.booking_type,b.kind,b.type,b.event_type,b.eventType].map(v=>String(v||'').toLowerCase()).join(' ');
+  const text=[kind,b.status,b.summary,b.lock_reason,b.lockReason,b.reason,b.description,b.platform,b.source,b.guest,b.title,b.name].map(v=>String(v||'').toLowerCase()).join(' ');
+  if(b.is_locked||b.isLocked||b.locked||b.blocked||b.is_blocked||b.isBlocked||kind.includes('lock')||kind.includes('block')) return true;
+  if(/不开放|锁定|锁房|手动锁|手动关闭|关闭|不可订|封锁|暂停开放|blocked|calendar blocked|closed|unavailable|not available|not open|manual lock|manual block|owner block|hold/.test(text)) return true;
+  if(/reserved|reservation|confirmed|accepted|booked|预订|订单|入住/.test(text)) return false;
+  return false;
+}
+function realBookings(){return bookings.filter(b=>!isLockedBooking(b));}
+function lockBookings(){return bookings.filter(isLockedBooking);}
+function lockReason(b){return String((b&&(b.lock_reason||b.lockReason||b.status||b.summary||b.reason))||'手动不开放锁定');}
 function changeBadge(t){return t==='add'?'<span class="badge green">额外增加</span>':'<span class="badge red">取消保洁</span>';}
 function objectBadge(type){return type==='common'?'<span class="badge orange">公区</span>':'<span class="badge">房间</span>';}
 function priorityBadge(p){return p==='重要'?'<span class="badge red">重要</span>':'<span class="badge blue">普通</span>';}
@@ -433,7 +447,7 @@ function dateRange(start,end){
   return arr;
 }
 function systemCleaningRows(){
-  return bookings.map(b=>({date:b.checkout, target_id:b.room_id, target_type:'room', source:b.platform, type:'system', booking:b, actual:true, reason:'系统退房自动生成'}))
+  return realBookings().map(b=>({date:b.checkout, target_id:b.room_id, target_type:'room', source:b.platform, type:'system', booking:b, actual:true, reason:'系统退房自动生成'}))
 }
 function commonAreaRows(start=null,end=null){
   const s=start || addDays(TODAY,-90), e=end || addDays(TODAY,180);
@@ -616,13 +630,16 @@ function renderOwnerMetrics(){
 function renderDailyWork(){
   if(!workDate.value) workDate.value = TODAY;
   const d = workDate.value;
-  const checkouts = bookings.filter(b=>b.checkout===d).sort((a,b)=>roomName(a.room_id).localeCompare(roomName(b.room_id)));
-  const checkins = bookings.filter(b=>b.checkin===d).sort((a,b)=>roomName(a.room_id).localeCompare(roomName(b.room_id)));
-  const stays = bookings.filter(b=>b.checkin<d && b.checkout>d).sort((a,b)=>roomName(a.room_id).localeCompare(roomName(b.room_id)));
+  const base = realBookings();
+  const locked = lockBookings().filter(b=>b.checkin<=d && b.checkout>d).sort((a,b)=>roomName(a.room_id).localeCompare(roomName(b.room_id)));
+  const checkouts = base.filter(b=>b.checkout===d).sort((a,b)=>roomName(a.room_id).localeCompare(roomName(b.room_id)));
+  const checkins = base.filter(b=>b.checkin===d).sort((a,b)=>roomName(a.room_id).localeCompare(roomName(b.room_id)));
+  const stays = base.filter(b=>b.checkin<d && b.checkout>d).sort((a,b)=>roomName(a.room_id).localeCompare(roomName(b.room_id)));
   const cleanRows = actualCleaningRows(d,d).filter(r=>r.date===d);
   const notes = [...cleaningNotes.filter(n=>n.date===d), ...roomDateNotes.filter(n=>n.date===d).map(n=>({date:n.date,target_id:n.room_id,target_type:'room',note:n.note,priority:n.priority,created_by:n.created_by, roomDate:true}))];
 
-  dailyWorkMetrics.innerHTML = `<div class="metric"><div class="small">退房</div><div class="num">${checkouts.length}</div></div><div class="metric"><div class="small">入住</div><div class="num">${checkins.length}</div></div><div class="metric"><div class="small">在住房间</div><div class="num">${stays.length}</div></div><div class="metric"><div class="small">保洁任务</div><div class="num">${cleanRows.length}</div></div>`;
+  dailyWorkMetrics.style.gridTemplateColumns='repeat(auto-fit,minmax(108px,1fr))';
+  dailyWorkMetrics.innerHTML = `<div class="metric"><div class="small">退房</div><div class="num">${checkouts.length}</div></div><div class="metric"><div class="small">入住</div><div class="num">${checkins.length}</div></div><div class="metric"><div class="small">在住房间</div><div class="num">${stays.length}</div></div><div class="metric"><div class="small">不开放锁定</div><div class="num">${locked.length}</div></div><div class="metric"><div class="small">保洁任务</div><div class="num">${cleanRows.length}</div></div>`;
 
   function bookingCards(title, rows, cls){
     return `<div class="work-card ${cls}"><h3>${title}（${rows.length}）</h3>` + (rows.length ? rows.map(b=>{
@@ -637,6 +654,7 @@ function renderDailyWork(){
     ${bookingCards('今日退房', checkouts, 'checkout')}
     ${bookingCards('今日入住', checkins, 'checkin')}
     ${bookingCards('今日在住', stays, 'stay')}
+    <div class="work-card locked"><h3>不开放锁定（${locked.length}）</h3>${locked.length ? locked.map(b=>`<div class="note-card"><div class="note-title"><span class="badge orange">${roomName(b.room_id)}</span> <span class="badge red">不开放锁定</span></div><div>${b.checkin} → ${b.checkout}</div><div class="small">原因：${lockReason(b)}</div></div>`).join('') : '<p class="small">暂无</p>'}</div>
   </div>
   <div class="card"><h2>当天保洁任务</h2>${cleaningTable(cleanRows)}</div>
   <div class="card"><h2>当天备注</h2>${notes.length ? notes.map(n=>`<div class="note-card ${n.priority==='重要'?'important':''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${targetName(n.target_id,n.target_type)} ${n.roomDate?'日期备注':''}</div><div>${n.note}</div></div>`).join('') : '<p class="small">暂无备注</p>'}</div>`;
@@ -665,8 +683,9 @@ function renderOwnerCalendar(){
     html += `<div class="cell room">${room.name}</div>`;
     days.forEach(day=>{
       const b=bookings.find(x=>x.room_id===room.id && x.checkin<=day && x.checkout>day);
+      const locked=b&&isLockedBooking(b);
       const hasNote = roomDateNoteFor(day, room.id).length > 0;
-      html += `<div class="cell ${weekendClass(day)} ${b?'booked':''} ${hasNote?'hasnote':''}">${b?b.platform:''}${hasNote?'<br>备注':''}${weekendCellMarker(day)}</div>`;
+      html += `<div class="cell ${weekendClass(day)} ${b?(locked?'locked':'booked'):''} ${hasNote?'hasnote':''}">${b?(locked?'不开放':b.platform):''}${hasNote?'<br>备注':''}${weekendCellMarker(day)}</div>`;
     });
   });
   grid.innerHTML=html;
@@ -685,7 +704,7 @@ function renderOwnerBookings(){
   const pf=document.getElementById('platformFilter').value, rf=document.getElementById('bookingRoomFilter').value;
   let rows=bookings.filter(b=>b.checkout>=TODAY); if(pf) rows=rows.filter(b=>b.platform===pf); if(rf) rows=rows.filter(b=>b.room_id===rf);
   rows.sort((a,b)=>a.checkin.localeCompare(b.checkin));
-  document.getElementById('ownerBookings').innerHTML=`<table><tr><th>入住</th><th>退房</th><th>房间</th><th>平台</th><th>客人</th><th>状态</th><th>日期备注</th></tr>`+rows.map(b=>`<tr><td>${b.checkin}</td><td>${b.checkout}</td><td><span class="badge">${roomName(b.room_id)}</span></td><td>${platformBadge(b.platform)}</td><td>${b.guest||''}</td><td>${b.status||''}</td><td>${roomDateNotes.filter(n=>n.room_id===b.room_id && n.date>=b.checkin && n.date<=b.checkout).length}</td></tr>`).join('')+`</table>`;
+  document.getElementById('ownerBookings').innerHTML=`<table><tr><th>入住/开始</th><th>退房/结束</th><th>房间</th><th>平台</th><th>客人</th><th>状态</th><th>日期备注</th></tr>`+rows.map(b=>{const locked=isLockedBooking(b);return `<tr><td>${b.checkin}</td><td>${b.checkout}</td><td><span class="badge">${roomName(b.room_id)}</span></td><td>${platformBadge(b.platform)}</td><td>${locked?'':(b.guest||'')}</td><td>${locked?'<span class="badge red">不开放锁定</span> '+lockReason(b):(b.status||'')}</td><td>${roomDateNotes.filter(n=>n.room_id===b.room_id && n.date>=b.checkin && n.date<=b.checkout).length}</td></tr>`;}).join('')+`</table>`;
 }
 function renderRoomSettings(){
   const syncStatus = document.getElementById('syncIcalStatus');
