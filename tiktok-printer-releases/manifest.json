@@ -1,7 +1,13 @@
 {
-  "latest": "11.49",
-  "generatedAt": "2026-06-28",
+  "latest": "11.50",
+  "generatedAt": "2026-06-29",
   "files": [
+    {
+      "version": "11.50",
+      "file": "tiktok-label-printer-v11.50-current.user.js",
+      "notesZh": "快捷打印当日订单性能优化：只在快捷扫描中启用快速采集和快速翻页，减少 100+ 单等待时间；复核扫描仍保留稳模式；状态栏显示每页和总扫描耗时。",
+      "notesEn": "Quick-print performance optimization: today's quick print now uses fast page collection and fast pagination to reduce waits for 100+ orders; review scanning keeps the safer steady mode; status now shows per-page and total scan time."
+    },
     {
       "version": "11.49",
       "file": "tiktok-label-printer-v11.49-current.user.js",
