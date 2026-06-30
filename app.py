@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-30-owner-property-sync-v1"
+PMS_PATCH_VERSION = "2026-06-30-calendar-history-v1"
 legacy_owner_intro = """    <div class="card">
       <h2>房东管理页面</h2>
       <div class="small">房东可查看指定日期工作表、设置备注、设置房间和公区、查看未来预订、调整实际保洁。</div>
@@ -480,7 +480,7 @@ admin_ui_patch = r'''
 ui_patch += admin_ui_patch
 final_ui_override = r'''
 (function(){
-  const VERSION='2026-06-30-owner-property-sync-v1';
+  const VERSION='2026-06-30-calendar-history-v1';
   window.__PMS_PATCH_VERSION=VERSION;
   const S=window.__pmsInlineState||(window.__pmsInlineState={});
   S.mailEdits=S.mailEdits||{};
@@ -2380,6 +2380,79 @@ def _pms_channel_backfill_legacy_room_icals(state, allowed_room_ids):
         state["channelListings"] = state.get("channelListings", []) + added
 
 
+def _pms_channel_archive_booking(row):
+    if not isinstance(row, dict):
+        return None
+    checkin = str(row.get("checkin") or "")
+    checkout = str(row.get("checkout") or "")
+    if not checkin or not checkout or checkout <= checkin:
+        return None
+    kind = "lock" if row.get("is_locked") or row.get("kind") == "lock" else "booking"
+    stable_id = hashlib.sha1(str(row.get("id") or "|".join([
+        str(row.get("channel_listing_id") or ""),
+        str(row.get("uid") or row.get("external_event_uid") or ""),
+        checkin,
+        checkout,
+        kind,
+    ])).encode("utf-8")).hexdigest()[:24]
+    return {
+        "id": "ical_archived_" + stable_id,
+        "room_id": row.get("room_id"),
+        "channel_listing_id": row.get("channel_listing_id"),
+        "external_event_uid": row.get("uid") or row.get("external_event_uid") or row.get("uid_hash") or stable_id,
+        "platform": row.get("platform") or "iCal",
+        "channel_note": row.get("channel_note") or "",
+        "listing_url": row.get("listing_url") or "",
+        "guest": "",
+        "checkin": checkin,
+        "checkout": checkout,
+        "status": "不开放锁定" if kind == "lock" else (row.get("summary") or "iCal历史订单"),
+        "source": "ical",
+        "booking_type": kind,
+        "is_locked": kind == "lock",
+        "lock_reason": row.get("lock_reason") or "",
+        "summary": row.get("summary") or row.get("status") or "",
+        "restored_from_archive": True,
+    }
+
+
+def _pms_channel_restore_historical_archive_bookings(state, successful_listing_ids, successful_room_ids, today):
+    existing_keys = {
+        "|".join([
+            str(item.get("channel_listing_id") or ""),
+            str(item.get("external_event_uid") or ""),
+            str(item.get("checkin") or ""),
+            str(item.get("checkout") or ""),
+            str(item.get("booking_type") or ("lock" if item.get("is_locked") else "booking")),
+        ])
+        for item in state.get("bookings", [])
+        if isinstance(item, dict) and item.get("source") == "ical"
+    }
+    restored = []
+    for row in state.get("icalEventArchive", []):
+        if not isinstance(row, dict):
+            continue
+        if row.get("channel_listing_id") not in successful_listing_ids and row.get("room_id") not in successful_room_ids:
+            continue
+        if str(row.get("checkout") or row.get("checkin") or "") >= today:
+            continue
+        booking = _pms_channel_archive_booking(row)
+        if not booking:
+            continue
+        key = "|".join([
+            str(booking.get("channel_listing_id") or ""),
+            str(booking.get("external_event_uid") or ""),
+            str(booking.get("checkin") or ""),
+            str(booking.get("checkout") or ""),
+            str(booking.get("booking_type") or ("lock" if booking.get("is_locked") else "booking")),
+        ])
+        if key in existing_keys:
+            continue
+        existing_keys.add(key)
+        restored.append(booking)
+    return restored
+
+
 def sync_icals(actor=None, property_id=None, incoming_channels=None):
     state = normalize_state(load_state())
     allowed_property_ids = _pms_channel_allowed_property_ids(actor, state)
@@ -2526,17 +2599,23 @@ def sync_icals(actor=None, property_id=None, incoming_channels=None):
             sync_errors.append({"room_id": listing.get("room_id"), "channel_listing_id": listing.get("id"), "platform": listing.get("platform"), "error": error})
             _pms_channel_append_ical_history(state, listing, now, "error", raw_events=[], error=error)
     if successful_listing_ids:
+        new_booking_ids = {item.get("id") for item in new_bookings if isinstance(item, dict) and item.get("id")}
+        def _pms_should_replace_booking(item):
+            if not isinstance(item, dict) or item.get("source") != "ical":
+                return False
+            if not (
+                item.get("channel_listing_id") in successful_listing_ids
+                or (not item.get("channel_listing_id") and item.get("room_id") in successful_room_ids)
+            ):
+                return False
+            booking_date = str(item.get("checkout") or item.get("checkin") or "")
+            return booking_date >= today or item.get("id") in new_booking_ids
+
         state["bookings"] = [
             b for b in state.get("bookings", [])
-            if not (
-                isinstance(b, dict)
-                and b.get("source") == "ical"
-                and (
-                    b.get("channel_listing_id") in successful_listing_ids
-                    or (not b.get("channel_listing_id") and b.get("room_id") in successful_room_ids)
-                )
-            )
+            if not _pms_should_replace_booking(b)
         ]
+        new_bookings.extend(_pms_channel_restore_historical_archive_bookings(state, successful_listing_ids, successful_room_ids, today))
         state["bookings"].extend(new_bookings)
     state["sync_errors"] = sync_errors
     state["last_sync"] = now
