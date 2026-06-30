@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-30-owner-review-v1"
+PMS_PATCH_VERSION = "2026-06-30-owner-property-sync-v1"
 legacy_owner_intro = """    <div class="card">
       <h2>房东管理页面</h2>
       <div class="small">房东可查看指定日期工作表、设置备注、设置房间和公区、查看未来预订、调整实际保洁。</div>
@@ -480,7 +480,7 @@ admin_ui_patch = r'''
 ui_patch += admin_ui_patch
 final_ui_override = r'''
 (function(){
-  const VERSION='2026-06-30-owner-review-v1';
+  const VERSION='2026-06-30-owner-property-sync-v1';
   window.__PMS_PATCH_VERSION=VERSION;
   const S=window.__pmsInlineState||(window.__pmsInlineState={});
   S.mailEdits=S.mailEdits||{};
@@ -816,6 +816,10 @@ final_ui_override = r'''
     try{
       collectVisibleIcal(id);
       const rows=propRooms(id).flatMap(r=>roomChannels(r.id).map(ch=>readChannelForm(ch.id)||ch));
+      const importRows=rows.filter(r=>String(r&&r.ical_url||'').trim());
+      const newOnly=rows.length&&!importRows.length&&rows.every(r=>r&&r.is_new_listing);
+      if(!rows.length)throw new Error('请先在房间里添加渠道，并保存平台导出的 iCal。');
+      if(!importRows.length&&!newOnly)throw new Error('这个房源还没有保存可读取的平台导出 iCal。');
       const controller=window.AbortController?new AbortController():null;
       const timer=controller?setTimeout(()=>controller.abort(),90000):null;
       const res=await fetch(url('/api/sync'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:id,channelListings:rows}),signal:controller?controller.signal:undefined});
@@ -831,6 +835,12 @@ final_ui_override = r'''
       const channelCount=channels().filter(ch=>roomIds.has(ch.room_id)).length;
       const bookingCount=channels().filter(ch=>roomIds.has(ch.room_id)).reduce((n,ch)=>n+Number(ch.synced_booking_count||0),0);
       const errs=list('syncErrors').filter(e=>roomIds.has(e.room_id));
+      if(importRows.length&&!errs.length&&bookingCount===0){
+        S.syncResults[id]={kind:'error',text:'iCal 已读取，但导入 0 条订单，请检查是否复制了平台 Export calendar 链接'};
+        if(typeof window.renderRoomSettings==='function')window.renderRoomSettings();
+        alert('iCal 已读取，但导入 0 条订单。请确认复制的是 Airbnb/平台导出的 Export calendar 链接，不是房源页面链接。');
+        return data;
+      }
       S.syncResults[id]={kind:errs.length?'error':'ok',text:errs.length?`同步完成，但 ${errs.length} 个渠道失败`:`同步完成：${channelCount} 个渠道，导入 ${bookingCount} 条`};
       if(typeof window.renderRoomSettings==='function')window.renderRoomSettings();
       if(errs.length)alert(`iCal 同步完成，但有 ${errs.length} 个渠道失败。错误已显示在对应房间。`);
@@ -853,6 +863,12 @@ final_ui_override = r'''
     const platform=ch.platform||'Airbnb';
     const feed=channelFeedUrl(ch);
     return `<div class="channel-card channel-edit-compact"><div class="channel-card-head"><div><div class="channel-title">${esc(channelLabel(ch))}</div>${channelStatus(ch)}</div><div class="channel-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存渠道</button><button class="smallbtn" onclick="cancelChannelEdit('${esc(ch.id)}')">取消</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-grid"><label>平台<select id="${channelInputId(ch.id,'platform')}"><option${platform==='Airbnb'?' selected':''}>Airbnb</option><option${platform==='Booking'?' selected':''}>Booking</option><option${platform==='Vrbo'?' selected':''}>Vrbo</option><option${platform==='Other'?' selected':''}>Other</option></select></label><label>同平台备注<input id="${channelInputId(ch.id,'channel_note')}" value="${esc(ch.channel_note||'')}" placeholder="例如：老账号、新账号、Booking A"></label><label>是否平台新发布房源<select id="${channelInputId(ch.id,'is_new_listing')}"><option value="false"${ch.is_new_listing?'':' selected'}>否，已有或可能已有订单</option><option value="true"${ch.is_new_listing?' selected':''}>是，新发布没有订单</option></select></label><label>该平台房源链接（可选）<input id="${channelInputId(ch.id,'listing_url')}" value="${esc(ch.listing_url||'')}" placeholder="粘贴这个渠道的房源页面链接"></label></div><div class="channel-url-grid"><label>该平台导出的 iCal<input id="${channelInputId(ch.id,'ical_url')}" value="${esc(ch.ical_url||'')}" placeholder="粘贴平台 Export calendar 导出的 .ics 链接"></label><div class="channel-copyline"><input readonly value="${esc(feed)}"><button class="smallbtn primary" onclick="copyChannelFeed('${esc(ch.id)}',this)">复制防超卖 iCal</button></div></div><div class="channel-edit-hint">同一个真实房间上架多个 Airbnb / Booking 时，每个渠道单独建一条记录，并填写备注区分账号或平台房源。</div></div>`;
+  }
+  function renderChannelSummaryCard(ch){
+    const hasIcal=String(ch.ical_url||'').trim();
+    const rowClass=hasIcal?'ready':'warn';
+    const quick=hasIcal?'':`<div class="final-channel-quick" style="display:grid;grid-template-columns:minmax(240px,1fr) auto;gap:8px;align-items:center;margin-top:8px"><input id="${channelInputId(ch.id,'ical_url')}" value="${esc(ch.ical_url||'')}" placeholder="粘贴平台 Export calendar iCal 链接"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存 iCal</button></div>`;
+    return `<div class="final-channel-row ${rowClass}"><div><div class="final-channel-title">${esc(channelLabel(ch))}</div><div class="final-channel-line">${channelStatus(ch)}${ch.channel_note?`<span class="final-mini">${esc(ch.channel_note)}</span>`:'<span class="final-mini warn">备注未填</span>'}</div><div class="final-channel-line"><strong>导入 iCal</strong>${shortUrl(ch.ical_url)}<strong>房源链接</strong>${shortUrl(ch.listing_url)}<strong>防超卖 iCal</strong>${shortUrl(channelFeedUrl(ch))}</div>${quick}</div><div class="channel-actions"><button class="smallbtn" onclick="window.diagnoseChannelIcal&&window.diagnoseChannelIcal('${esc(ch.id)}',this)">检查</button><button class="smallbtn primary" onclick="copyChannelFeed('${esc(ch.id)}',this)">复制防超卖</button><button class="smallbtn primary" onclick="editChannelListing('${esc(ch.id)}')">修改</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div>`;
   }
   function renderChannelCard(ch){return S.channelEdits&&S.channelEdits[ch.id]?renderChannelEditCard(ch):renderChannelSummaryCard(ch);}
   function renderChannelListingsPanel(r){
@@ -883,7 +899,7 @@ final_ui_override = r'''
     const currentProp=activeProp();
     if(currentProp&&!props().some(p=>String(p.id)===String(currentProp.id)))setActiveProp('');
     const p=activeProp();
-    if(!props().length){root.innerHTML='<div class="empty-panel"><strong>还没有房源</strong><div class="small" style="margin-top:8px">先在上方房源管理模块添加房源。</div></div>';return;}
+    if(!props().length){root.innerHTML='<div class="empty-panel"><strong>还没有房源</strong><div class="small" style="margin-top:8px">先添加房源，再进入房间管理配置房间和 iCal。</div><div style="margin-top:10px"><button class="smallbtn primary" onclick="addProperty()">添加房源</button></div></div>';return;}
     root.innerHTML=p?renderPropertyDetail(p):'<div class="empty-panel"><strong>从上方房源管理进入房间管理</strong><div class="small" style="margin-top:8px">上方已经可以完成房源筛选、添加、改名、删除；这里只在进入某个房源后显示房间、公区、iCal 和保洁绑定。</div></div>';
     root.querySelectorAll('.property-mail-panel').forEach(el=>el.remove());
   }
@@ -2328,6 +2344,42 @@ def _pms_channel_merge_sync_payload(state, incoming_channels, allowed_room_ids):
     ] + incoming
 
 
+def _pms_channel_backfill_legacy_room_icals(state, allowed_room_ids):
+    legacy_fields = (
+        ("airbnb_ical", "Airbnb"),
+        ("booking_ical", "Booking"),
+        ("vrbo_ical", "Vrbo"),
+        ("other_ical", "Other"),
+    )
+    existing_keys = {
+        (str(item.get("room_id") or ""), _pms_channel_text(item.get("ical_url")))
+        for item in state.get("channelListings", [])
+        if isinstance(item, dict)
+    }
+    added = []
+    for room in state.get("rooms", []):
+        if not isinstance(room, dict) or room.get("id") not in allowed_room_ids:
+            continue
+        for field, platform in legacy_fields:
+            url = _pms_channel_text(room.get(field))
+            if not url or (str(room.get("id") or ""), url) in existing_keys:
+                continue
+            seed = f"{room.get('id')}|{field}|{url}"
+            raw = {
+                "id": "legacy_channel_" + hashlib.sha1(seed.encode("utf-8")).hexdigest()[:18],
+                "room_id": room.get("id"),
+                "platform": platform,
+                "channel_note": "Legacy iCal",
+                "ical_url": url,
+                "listing_url": "",
+                "is_new_listing": False,
+            }
+            added.append(_pms_channel_clean_listing(raw, state))
+            existing_keys.add((str(room.get("id") or ""), url))
+    if added:
+        state["channelListings"] = state.get("channelListings", []) + added
+
+
 def sync_icals(actor=None, property_id=None, incoming_channels=None):
     state = normalize_state(load_state())
     allowed_property_ids = _pms_channel_allowed_property_ids(actor, state)
@@ -2340,10 +2392,15 @@ def sync_icals(actor=None, property_id=None, incoming_channels=None):
         if isinstance(room, dict) and room.get("property_id") in allowed_property_ids
     }
     _pms_channel_merge_sync_payload(state, incoming_channels, allowed_room_ids)
+    _pms_channel_backfill_legacy_room_icals(state, allowed_room_ids)
     listings = [
         item for item in state.get("channelListings", [])
         if item.get("room_id") in allowed_room_ids
     ]
+    if not listings:
+        raise RuntimeError("No iCal channel is configured for this property. Add a room channel and save the platform export iCal first.")
+    if not any(_pms_channel_text(item.get("ical_url")) for item in listings) and not all(item.get("is_new_listing") for item in listings):
+        raise RuntimeError("No platform export iCal URL is saved for this property.")
     listing_ids = {item.get("id") for item in listings if item.get("id")}
     state["bookings"] = [
         booking for booking in state.get("bookings", [])
@@ -4061,8 +4118,48 @@ def _pms_ui_sync_history_summary(rows):
     return clean[-80:]
 
 
+def _pms_actor_group_ids(actor):
+    if not actor:
+        return []
+    group_ids = actor.get("group_ids")
+    if isinstance(group_ids, list):
+        clean = [str(item) for item in group_ids if str(item or "").strip()]
+    else:
+        clean = []
+    group_id = str(actor.get("group_id") or "").strip()
+    if group_id and group_id not in clean:
+        clean.append(group_id)
+    return clean
+
+
+def _pms_ensure_owner_default_property(state, actor):
+    if not actor or actor.get("role") != "owner":
+        return state
+    group_ids = _pms_actor_group_ids(actor)
+    if not group_ids:
+        return state
+    if any(
+        isinstance(prop, dict) and prop.get("group_id") in group_ids
+        for prop in state.get("properties", [])
+    ):
+        return state
+    property_id = unique_state_id(state, "property")
+    state.setdefault("properties", []).append({
+        "id": property_id,
+        "group_id": group_ids[0],
+        "name": "Default property",
+        "created_at": now_utc_iso(),
+        "auto_repaired": True,
+    })
+    try:
+        return normalize_state(save_state(state))
+    except Exception:
+        return state
+
+
 def pms_state_response_for_user(state, actor):
     normalized = normalize_state(state)
+    normalized = _pms_ensure_owner_default_property(normalized, actor)
     normalized["icalEventArchive"] = []
     normalized["icalSyncHistory"] = _pms_ui_sync_history_summary(normalized.get("icalSyncHistory", []))
     filtered = filter_state_for_user(normalized, actor)
@@ -4071,7 +4168,7 @@ def pms_state_response_for_user(state, actor):
     if actor:
         public_actor = {
             key: actor.get(key, "")
-            for key in ("id", "role", "username", "name", "phone", "cleaner_code", "group_id")
+            for key in ("id", "role", "username", "name", "phone", "cleaner_code", "group_id", "group_ids")
             if actor.get(key) not in (None, "")
         }
         filtered["current_user"] = public_actor

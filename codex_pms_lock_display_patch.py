@@ -1,6 +1,6 @@
 from pathlib import Path
 
-VERSION_NEW = "2026-06-30-owner-review-v1"
+VERSION_NEW = "2026-06-30-owner-property-sync-v1"
 
 
 def replace_version(text, token):

@@ -28,7 +28,8 @@ VERSION_WEEKEND_PROPERTY = "2026-06-29-weekend-property-v1"
 VERSION_CLEANING_ARCHIVE = "2026-06-29-cleaning-archive-v1"
 VERSION_CLEANING_DAILY_BILL = "2026-06-29-cleaning-daily-bill-v1"
 VERSION_CLEANING_HISTORY_FUTURE = "2026-06-29-cleaning-history-future-v1"
-VERSION_NEW = "2026-06-30-owner-review-v1"
+VERSION_OWNER_REVIEW = "2026-06-30-owner-review-v1"
+VERSION_NEW = "2026-06-30-owner-property-sync-v1"
 
 
 def replace_any_once(path, replacements, label):
@@ -220,6 +221,7 @@ def main():
             (f'PMS_PATCH_VERSION = "{VERSION_CLEANING_ARCHIVE}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_CLEANING_DAILY_BILL}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
             (f'PMS_PATCH_VERSION = "{VERSION_CLEANING_HISTORY_FUTURE}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
+            (f'PMS_PATCH_VERSION = "{VERSION_OWNER_REVIEW}"', f'PMS_PATCH_VERSION = "{VERSION_NEW}"'),
         ],
         "app version",
     )
@@ -254,6 +256,7 @@ def main():
             (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANING_ARCHIVE}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANING_DAILY_BILL}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
             (f"window.__PMS_PATCH_VERSION='{VERSION_CLEANING_HISTORY_FUTURE}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
+            (f"window.__PMS_PATCH_VERSION='{VERSION_OWNER_REVIEW}';", f"window.__PMS_PATCH_VERSION='{VERSION_NEW}';"),
         ],
         "ui version",
     )
