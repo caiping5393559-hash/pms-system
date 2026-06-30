@@ -1,6 +1,6 @@
 from pathlib import Path
 
-VERSION_NEW = "2026-06-29-cleaning-history-future-v1"
+VERSION_NEW = "2026-06-30-owner-review-v1"
 
 
 def replace_version(text, token):
@@ -32,6 +32,7 @@ def replace_version(text, token):
         "2026-06-29-weekend-property-v1",
         "2026-06-29-cleaning-archive-v1",
         "2026-06-29-cleaning-daily-bill-v1",
+        "2026-06-29-cleaning-history-future-v1",
     ]
     for old in versions:
         old_text = token.format(old)
@@ -152,11 +153,11 @@ def patch_logout_js(path):
     text = path.read_text(encoding="utf-8")
     if "pmsForceLogout" in text:
         return False
-    marker = ")();"
+    marker = "})();"
     idx = text.rfind(marker)
     if idx < 0:
         return False
-    text = text[:idx] + LOGOUT_GUARD_JS + text[idx:]
+    text = text[:idx] + LOGOUT_GUARD_JS + marker + text[idx + len(marker):]
     path.write_text(text, encoding="utf-8")
     return True
 

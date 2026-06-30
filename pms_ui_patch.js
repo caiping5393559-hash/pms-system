@@ -1,6 +1,6 @@
 (function(){
   const S=window.__pmsInlineState||(window.__pmsInlineState={rooms:{},areas:{},ical:{},feed:{},propertyNames:{}});
-  window.__PMS_PATCH_VERSION='2026-06-29-cleaning-history-future-v1';
+  window.__PMS_PATCH_VERSION='2026-06-30-owner-review-v1';
   S.channelEdits=S.channelEdits||{};
   S.syncResults=S.syncResults||{};
   S.icalDiagnostics=S.icalDiagnostics||{};
@@ -647,7 +647,9 @@
   function renderChannelListingsPanel(r){ensureRoomChannelCompactV2Css();ensureChannelStateCss();const list=roomChannels(r.id),ready=list.filter(ch=>String(ch&&ch.ical_url||'').trim()).length,needs=list.filter(ch=>channelNeedsReview(ch)||channelHasInferredLock(ch)||ch.sync_error||!String(ch&&ch.ical_url||'').trim()).length,cards=list.map(renderChannelCard).join('');return `<div class="channel-panel"><div class="channel-panel-head"><div><h3>渠道 / iCal</h3><div class="channel-panel-summary"><span class="channel-mini-pill">${list.length} 个渠道</span><span class="channel-mini-pill good">${ready} 个已填 iCal</span>${needs?`<span class="channel-mini-pill warn">${needs} 个需处理</span>`:''}</div></div><div class="channel-actions"><button class="smallbtn primary" onclick="addChannelListing('${esc(r.id)}',this)">添加渠道</button><button class="smallbtn" onclick="clearRoomChannels('${esc(r.id)}',this)">清空渠道/iCal</button></div></div>${cards||`<div class="channel-empty"><strong>还没有渠道上架记录</strong><div class="small">先添加 Airbnb 渠道，把该房间在 Airbnb 导出的 iCal 粘贴进来；第二个平台再新增一条渠道记录。</div></div>`}</div>`;}
   function propertySyncResultHtml(propertyId){const item=S.syncResults&&S.syncResults[propertyId];return item?`<span class="sync-inline-status ${esc(item.kind||'')}">${esc(item.text||'')}</span>`:'';}
   function roomChannelSummaryText(r){const list=roomChannels(r.id),ready=list.filter(ch=>String(ch&&ch.ical_url||'').trim()).length;return `${list.length} 个渠道 · ${ready} 个已填 iCal`;}
-  function renderRoomCard(r){ensureRoomChannelCompactV2Css();ensureChannelReviewCss();const edit=!!S.rooms[r.id],channels=roomChannelSummaryText(r);const basic=edit?`<div class='inline-edit-card'><div><label>房间名字</label><input id='${roomNameId(r.id)}' value='${esc(r.name||'')}'></div><div><label>清洁费</label><input id='${roomFeeId(r.id)}' type='number' value='${esc(r.cleaning_fee||0)}'></div><div class='text-actions'><button class='smallbtn primary' onclick='saveRoomBasics("${esc(r.id)}",this)'>保存</button><button class='smallbtn' onclick='cancelRoomBasics("${esc(r.id)}")'>取消</button><button class='smallbtn' onclick='deleteRoomUi("${esc(r.id)}",this)'>删除</button></div></div>`:`<div class='room-compact-head'><div><div class='room-compact-title'><span class='readonly-title'>${esc(objectDisplayName(r,'room')||'房间')}</span><span class='readonly-meta'>清洁费：$${Number(r.cleaning_fee||0)}</span></div><div class='room-compact-sub'><span class='channel-mini-pill'>${esc(channels)}</span>${r.last_sync?`<span class='channel-mini-pill good'>上次同步：${esc(r.last_sync)}</span>`:''}</div></div><div class='text-actions'><button class='smallbtn' onclick='editRoomBasics("${esc(r.id)}",this)'>修改</button><button class='smallbtn' onclick='deleteRoomUi("${esc(r.id)}",this)'>删除</button></div></div>`;return `<div class='room-setting-card'>${basic}${renderChannelListingsPanel(r)}${roomSyncStatus(r)}<div class='room-sync-row'><button class='smallbtn primary' onclick='syncPropertyIcal("${esc(roomPropId(r.id))}",this)'>同步当前房源 iCal</button>${propertySyncResultHtml(roomPropId(r.id))}<span class='small'>读取当前房源下每个房间的所有渠道 iCal。</span></div></div>`;}
+  function roomLatestChannelSync(r){const times=roomChannels(r.id).map(ch=>String(ch&&ch.last_sync||'').trim()).filter(Boolean).sort();return times.length?times[times.length-1]:String(r&&r.last_sync||'').trim();}
+  function roomSyncPill(r){const last=roomLatestChannelSync(r);return last?`<span class='channel-mini-pill good' title='自动同步和手动点击同步都会更新这个时间'>最近 iCal 同步：${esc(last)}</span>`:'';}
+  function renderRoomCard(r){ensureRoomChannelCompactV2Css();ensureChannelReviewCss();const edit=!!S.rooms[r.id],channels=roomChannelSummaryText(r);const basic=edit?`<div class='inline-edit-card'><div><label>房间名字</label><input id='${roomNameId(r.id)}' value='${esc(r.name||'')}'></div><div><label>清洁费</label><input id='${roomFeeId(r.id)}' type='number' value='${esc(r.cleaning_fee||0)}'></div><div class='text-actions'><button class='smallbtn primary' onclick='saveRoomBasics("${esc(r.id)}",this)'>保存</button><button class='smallbtn' onclick='cancelRoomBasics("${esc(r.id)}")'>取消</button><button class='smallbtn' onclick='deleteRoomUi("${esc(r.id)}",this)'>删除</button></div></div>`:`<div class='room-compact-head'><div><div class='room-compact-title'><span class='readonly-title'>${esc(objectDisplayName(r,'room')||'房间')}</span><span class='readonly-meta'>清洁费：$${Number(r.cleaning_fee||0)}</span></div><div class='room-compact-sub'><span class='channel-mini-pill'>${esc(channels)}</span>${roomSyncPill(r)}</div></div><div class='text-actions'><button class='smallbtn' onclick='editRoomBasics("${esc(r.id)}",this)'>修改</button><button class='smallbtn' onclick='deleteRoomUi("${esc(r.id)}",this)'>删除</button></div></div>`;return `<div class='room-setting-card'>${basic}${renderChannelListingsPanel(r)}${roomSyncStatus(r)}<div class='room-sync-row'><button class='smallbtn primary' onclick='syncPropertyIcal("${esc(roomPropId(r.id))}",this)'>同步当前房源 iCal</button>${propertySyncResultHtml(roomPropId(r.id))}<span class='small'>读取当前房源下每个房间的所有渠道 iCal。</span></div></div>`;}
   async function persistPropertyChannels(propertyId){const roomIds=new Set(propRooms(propertyId).map(r=>r.id));const rows=channelList().filter(ch=>ch&&roomIds.has(ch.room_id)).map(ch=>readChannelForm(ch.id)||ch);if(!rows.length)return null;const res=await fetch(apiUrl('/api/state'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channelListings:rows})});const data=await res.json().catch(()=>({ok:false,error:'服务器没有返回有效结果'}));if(!res.ok||data.ok===false)throw new Error(data.error||'保存当前房源渠道失败');await afterState(data);return data;}
   async function syncPropertyIcal(propertyId,btn){const id=propertyId||(activeProp()&&activeProp().id);if(!id)return alert('请先进入一个房源');S.syncResults=S.syncResults||{};const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='同步中...';}S.syncResults[id]={kind:'loading',text:'同步中：先保存当前房源渠道...'};renderRoomSettings();try{collectIcalInputs(id);await persistPropertyChannels(id);S.syncResults[id]={kind:'loading',text:'同步中：正在读取 iCal，请稍等...'};renderRoomSettings();const started=Date.now();const controller=window.AbortController?new AbortController():null;const timer=controller?setTimeout(()=>controller.abort(),70000):null;const res=await fetch(apiUrl('/api/sync'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:id}),signal:controller?controller.signal:undefined});if(timer)clearTimeout(timer);const data=await res.json().catch(()=>({ok:false,error:'服务器没有返回有效结果'}));if(!res.ok||data.ok===false){const debug=data.debug_id?` 编号：${data.debug_id}`:'';const detail=data.detail?`（${data.detail}）`:'';throw new Error((data.error||'iCal 同步失败')+debug+detail);}applySyncState(data);refreshOwnerScopedViews();const roomIds=new Set(propRooms(id).map(r=>r.id)),errs=syncErrorList().filter(e=>roomIds.has(e.room_id)),channelCount=channelList().filter(ch=>roomIds.has(ch.room_id)).length,bookingCount=channelList().filter(ch=>roomIds.has(ch.room_id)).reduce((n,ch)=>n+Number(ch.synced_booking_count||0),0),seconds=Math.max(1,Math.round((Date.now()-started)/1000));S.syncResults[id]={kind:errs.length?'error':'ok',text:errs.length?`同步完成 ${seconds} 秒，但 ${errs.length} 个渠道失败`:`同步完成 ${seconds} 秒：${channelCount} 个渠道，导入 ${bookingCount} 条`};renderRoomSettings();if(errs.length)alert(`iCal 同步完成，但有 ${errs.length} 个渠道失败。错误已显示在对应房间。`);return data;}catch(e){const msg=e&&e.name==='AbortError'?'同步超过 70 秒已停止，请先检查是否有失效 iCal 链接。':(e&&e.message?e.message:String(e||'未知错误'));S.syncResults[id]={kind:'error',text:'同步失败：'+msg};renderRoomSettings();alert('同步失败：'+msg);return null;}finally{if(btn){btn.disabled=false;btn.textContent=old||'同步当前房源 iCal';}}}
   function readPropertyMailForm(propertyId){const p=props().find(x=>x.id===propertyId)||{};const row=propertyMailSetting(propertyId);return {id:row.id||('mail_property_'+propertyId),property_id:propertyId,owner_id:(current()&&current().id)||row.owner_id||'',group_id:p.group_id||row.group_id||groupId(),source_email:(document.getElementById(mailInputId(propertyId,'source_email'))||{}).value||'',pms_forward_address:mailAddressForProperty(propertyId),forward_status:(document.getElementById(mailInputId(propertyId,'forward_status'))||{}).value||'not_set',notes:(document.getElementById(mailInputId(propertyId,'notes'))||{}).value||'',updated_at:new Date().toISOString().slice(0,19)};}
@@ -680,6 +682,124 @@
   function propertyChannelPayload(propertyId){const roomIds=new Set(propRooms(propertyId).map(r=>r.id));return channelList().filter(ch=>ch&&roomIds.has(ch.room_id)).map(ch=>readChannelForm(ch.id)||ch);}
   syncPropertyIcal=async function(propertyId,btn){const id=propertyId||(activeProp()&&activeProp().id);if(!id)return alert('请先进入一个房源');S.syncResults=S.syncResults||{};const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='同步中...';}try{collectIcalInputs(id);const rows=propertyChannelPayload(id);S.syncResults[id]={kind:'loading',text:'同步中：正在直接读取平台 iCal...'};renderRoomSettings();const started=Date.now();const controller=window.AbortController?new AbortController():null;const timer=controller?setTimeout(()=>controller.abort(),70000):null;const res=await fetch(apiUrl('/api/sync'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:id,channelListings:rows}),signal:controller?controller.signal:undefined});if(timer)clearTimeout(timer);const data=await res.json().catch(()=>({ok:false,error:'服务器没有返回有效结果'}));if(!res.ok||data.ok===false){const debug=data.debug_id?` 编号：${data.debug_id}`:'';const detail=data.detail?`（${data.detail}）`:'';throw new Error((data.error||'iCal 同步失败')+debug+detail);}applySyncState(data);refreshOwnerScopedViews();const roomIds=new Set(propRooms(id).map(r=>r.id)),errs=syncErrorList().filter(e=>roomIds.has(e.room_id)),channelCount=channelList().filter(ch=>roomIds.has(ch.room_id)).length,bookingCount=channelList().filter(ch=>roomIds.has(ch.room_id)).reduce((n,ch)=>n+Number(ch.synced_booking_count||0),0),seconds=Math.max(1,Math.round((Date.now()-started)/1000));S.syncResults[id]={kind:errs.length?'error':'ok',text:errs.length?`同步完成 ${seconds} 秒，但 ${errs.length} 个渠道失败`:`同步完成 ${seconds} 秒：${channelCount} 个渠道，导入 ${bookingCount} 条`};renderRoomSettings();if(errs.length)alert(`iCal 同步完成，但有 ${errs.length} 个渠道失败。错误已显示在对应房间。`);return data;}catch(e){const msg=e&&e.name==='AbortError'?'同步超过 70 秒已停止，请先检查是否有失效 iCal 链接。':(e&&e.message?e.message:String(e||'未知错误'));S.syncResults[id]={kind:'error',text:'同步失败：'+msg};renderRoomSettings();alert('同步失败：'+msg);return null;}finally{if(btn){btn.disabled=false;btn.textContent=old||'同步当前房源 iCal';}}};
   window.syncPropertyIcal=syncPropertyIcal;
+  const pmsBaseCleaningTaskControlsForReview=cleaningTaskControls;
+  const pmsBaseNoteStatusBadgeForReview=typeof noteStatusBadge==='function'?noteStatusBadge:null;
+  function canResolveCancellationReview(){
+    const u=current()||{},path=String(location&&location.pathname||'');
+    if(typeof currentIsCleaner==='function'&&currentIsCleaner())return false;
+    return u.role==='owner'||u.role==='admin'||path.includes('/owner');
+  }
+  function reviewNoteId(note){return pmsStableId('note',note);}
+  function cancellationReviewNoteForRow(row){
+    if(!row)return null;
+    const type=row.target_type||'room',rowNoteId=String(row.note_id||'');
+    const notes=ownerCleanNotes().filter(n=>n&&n.cancellation_review&&!n.deleted&&!n._deleted&&!n.inactive);
+    if(rowNoteId){
+      const direct=notes.find(n=>reviewNoteId(n)===rowNoteId||String(n.id||'')===rowNoteId);
+      if(direct)return direct;
+    }
+    return notes.find(n=>n.date===row.date&&String(n.target_id||'')===String(row.target_id||'')&&(n.target_type||'room')===type)||null;
+  }
+  function reviewStatusText(note){
+    const status=String((note&&note.owner_review_status)||'pending');
+    if(status==='clean_needed')return '房东已确认：需要保洁';
+    if(status==='moved_next_day')return '房东已改到第二天';
+    if(status==='no_cleaning')return '房东已确认：不需要保洁';
+    return '等待房东确认';
+  }
+  function ensureOwnerReviewCss(){
+    let s=document.getElementById('pmsOwnerReviewStyles');
+    if(!s){s=document.createElement('style');s.id='pmsOwnerReviewStyles';document.head.appendChild(s);}
+    s.textContent=`.owner-review-box{width:100%;border:1px solid #fbbf24;background:#fffbeb;border-radius:8px;padding:8px;margin-bottom:8px}.owner-review-title{font-weight:900;color:#92400e;margin-bottom:6px}.owner-review-actions{display:flex;gap:6px;flex-wrap:wrap}.owner-review-actions .danger{border-color:#fecaca;color:#b91c1c;background:#fff1f2}.owner-review-status{display:inline-flex;border-radius:999px;padding:3px 8px;font-size:12px;font-weight:900;border:1px solid #fbbf24;background:#fff7ed;color:#92400e}`;
+  }
+  function cancellationReviewControls(row){
+    const note=cancellationReviewNoteForRow(row);
+    if(!note||!canResolveCancellationReview())return '';
+    ensureOwnerReviewCss();
+    const key=encodeURIComponent(cleaningTaskKey(row)),status=String(note.owner_review_status||'pending');
+    if(status!=='pending')return `<div class="owner-review-box"><span class="owner-review-status">${esc(reviewStatusText(note))}</span></div>`;
+    return `<div class="owner-review-box"><div class="owner-review-title">房东复核：客人可能取消或订单变化</div><div class="owner-review-actions"><button class="smallbtn primary" onclick="resolveCancellationReview(decodeURIComponent('${esc(key)}'),'keep',this)">确认需要保洁</button><button class="smallbtn" onclick="resolveCancellationReview(decodeURIComponent('${esc(key)}'),'move_next_day',this)">改到第二天</button><button class="smallbtn danger" onclick="resolveCancellationReview(decodeURIComponent('${esc(key)}'),'cancel',this)">不需要保洁</button></div></div>`;
+  }
+  function upsertReviewManualRemove(row,note,actor,now,reason){
+    const noteId=reviewNoteId(note),id='manual_review_remove_'+safe(noteId+'_'+row.date);
+    const list=manualList(),idx=list.findIndex(m=>m&&m.id===id);
+    const next={...(idx>=0?list[idx]:{}),id,date:row.date,target_id:row.target_id,target_type:row.target_type||'room',type:'remove',amount:0,reason,source:'房东复核',from_note:true,review_cancel:true,note_id:noteId,created_by:actor,created_at:(idx>=0?list[idx].created_at:now),updated_at:now};
+    if(idx>=0)list.splice(idx,1,next);else list.unshift(next);
+    setManualList(list);
+  }
+  function upsertRescheduledReviewNote(row,note,actor,now){
+    const nextDate=addDays(row.date,1),sourceId=reviewNoteId(note),id='note_review_next_'+safe(sourceId+'_'+nextDate);
+    const list=cleanNoteList(),idx=list.findIndex(n=>n&&n.id===id);
+    const amount=taskAmount(row)||targetFee(row.target_id,row.target_type||'room')||0;
+    const text=`房东确认改到第二天保洁：${cleanTargetName(row.target_id,row.target_type||'room')}，原复核日期 ${row.date}。${note.note||''}`;
+    const next={...(idx>=0?list[idx]:{}),id,date:nextDate,target_id:row.target_id,target_type:row.target_type||'room',note:text,priority:'房东确认',note_type:'cancel_review_rescheduled',amount,amount_present:true,source:'房东复核改期',created_by:actor,created_at:(idx>=0?list[idx].created_at:now),updated_at:now,parent_review_note_id:sourceId,checkin:note.checkin||'',checkout:note.checkout||'',platform:note.platform||'',channel_listing_id:note.channel_listing_id||'',owner_review_status:'clean_needed'};
+    if(idx>=0)list.splice(idx,1,next);else list.unshift(next);
+    setCleaningNoteList(list);
+    return nextDate;
+  }
+  async function persistCancellationReview(btn){
+    const old=btn&&btn.textContent;
+    if(btn){btn.disabled=true;btn.textContent='保存中...';}
+    try{
+      const res=await fetch(apiUrl('/api/state'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({manualChanges:manualList(),cleaningNotes:cleanNoteList()})});
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok||data.ok===false)throw new Error(data.error||'保存房东确认失败');
+      await afterState(data);
+      return data;
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent=old||'保存';}
+    }
+  }
+  async function resolveCancellationReview(key,action,btn){
+    const row=(S.cleaningTaskRowsByKey||{})[key];
+    if(!row)return alert('找不到这条保洁任务，请刷新后再试。');
+    const note=cancellationReviewNoteForRow(row);
+    if(!note)return alert('找不到对应的房东复核提醒。');
+    if(action==='cancel'&&!confirm('确认这天不需要保洁？系统会取消当天这条保洁任务。'))return;
+    if(action==='move_next_day'&&!confirm('确认改到第二天保洁？系统会取消当天任务，并新增第二天保洁。'))return;
+    const now=new Date().toISOString().slice(0,19),actor=(current()&&(current().name||current().username||current().id))||'房东';
+    note.id=note.id||reviewNoteId(note);
+    note.owner_review_action=action;
+    note.owner_reviewed_by=actor;
+    note.owner_reviewed_at=now;
+    note.updated_at=now;
+    let msg='已保存房东确认';
+    if(action==='keep'){
+      note.owner_review_status='clean_needed';
+      note.owner_review_note='房东确认需要保洁，保留当天任务。';
+      msg='已确认需要保洁，当前任务会保留。';
+    }else if(action==='move_next_day'){
+      note.owner_review_status='moved_next_day';
+      note.owner_review_note='房东确认改到第二天保洁，取消当天任务。';
+      note.inactive=true;
+      upsertReviewManualRemove(row,note,actor,now,'房东复核：旧订单变化，保洁改到第二天。');
+      const nextDate=upsertRescheduledReviewNote(row,note,actor,now);
+      msg=`已改到 ${nextDate} 保洁，今天这条任务已取消。`;
+    }else{
+      note.owner_review_status='no_cleaning';
+      note.owner_review_note='房东确认不需要保洁，取消当天任务。';
+      note.inactive=true;
+      upsertReviewManualRemove(row,note,actor,now,'房东复核：确认不需要保洁。');
+      msg='已取消当天这条保洁任务。';
+    }
+    try{
+      await persistCancellationReview(btn);
+      refreshAll();
+      alert(msg);
+    }catch(e){
+      alert('保存房东确认失败：'+(e&&e.message?e.message:e));
+    }
+  }
+  noteStatusBadge=function(n){
+    if(n&&n.owner_review_status)return `<span class="badge purple">${esc(reviewStatusText(n))}</span>`;
+    return pmsBaseNoteStatusBadgeForReview?pmsBaseNoteStatusBadgeForReview(n):'<span class="badge green">有效</span>';
+  };
+  cleaningTaskControls=function(row){
+    const base=pmsBaseCleaningTaskControlsForReview(row);
+    const review=cancellationReviewControls(row);
+    return review?`<div class="clean-task-with-review">${review}${base}</div>`:base;
+  };
+  window.resolveCancellationReview=resolveCancellationReview;
   const pmsBaseShowOwnerTab=typeof window.showOwnerTab==='function'?window.showOwnerTab:null;
   function pmsActiveOwnerTabId(){const active=document.querySelector('#owner > .tab-content.active');return active&&active.id?active.id:'ownerDailyWork';}
   function pmsRenderOwnerTab(id){const tab=id||pmsActiveOwnerTabId();try{if(tab==='ownerCalendar'){renderOwnerCalendar();renderSixMonthStats();renderOwnerBookings();}else if(tab==='ownerCleaning'){renderManualRecords();renderCleaningFinance();}else if(tab==='ownerRooms'){renderRoomSettings();}else if(tab==='ownerNotes'){renderOwnerNotes();}else if(tab==='ownerMail'){renderOwnerMail();}else{renderDailyWork();}}catch(e){console.warn('PMS tab render skipped',e);}}

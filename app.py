@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-29-cleaning-history-future-v1"
+PMS_PATCH_VERSION = "2026-06-30-owner-review-v1"
 legacy_owner_intro = """    <div class="card">
       <h2>房东管理页面</h2>
       <div class="small">房东可查看指定日期工作表、设置备注、设置房间和公区、查看未来预订、调整实际保洁。</div>
@@ -480,7 +480,7 @@ admin_ui_patch = r'''
 ui_patch += admin_ui_patch
 final_ui_override = r'''
 (function(){
-  const VERSION='2026-06-29-cleaning-history-future-v1';
+  const VERSION='2026-06-30-owner-review-v1';
   window.__PMS_PATCH_VERSION=VERSION;
   const S=window.__pmsInlineState||(window.__pmsInlineState={});
   S.mailEdits=S.mailEdits||{};
@@ -511,7 +511,20 @@ final_ui_override = r'''
   function url(path){return typeof window.withKey==='function'?window.withKey(path):path;}
   function nowIso(){return new Date().toISOString().slice(0,19);}
 
+  function pmsGuardListCount(name){try{const value=window[name]||eval(name)||[];return Array.isArray(value)?value.length:0;}catch(e){const value=window[name]||[];return Array.isArray(value)?value.length:0;}}
+  function pmsGuardStateCount(state,name){const value=state&&state[name];return Array.isArray(value)?value.length:-1;}
+  function pmsGuardUserKey(state){const user=(state&&(state.current_user||state.currentUser))||window.currentUser||{};return [user.role||'',user.id||'',user.username||''].join('|');}
+  function pmsGuardLooksEmptyState(state){if(!state||typeof state!=='object')return false;const hasCore=Array.isArray(state.properties)||Array.isArray(state.rooms)||Array.isArray(state.bookings);if(!hasCore)return false;return pmsGuardStateCount(state,'properties')<=0&&pmsGuardStateCount(state,'rooms')<=0&&pmsGuardStateCount(state,'bookings')<=0;}
+  function pmsGuardLooksUsableState(state){return !!(state&&typeof state==='object'&&(pmsGuardStateCount(state,'properties')>0||pmsGuardStateCount(state,'rooms')>0||pmsGuardStateCount(state,'bookings')>0));}
+  function pmsGuardCurrentHasData(){return pmsGuardListCount('properties')>0||pmsGuardListCount('rooms')>0||pmsGuardListCount('bookings')>0;}
+  function pmsGuardLoadCachedState(userKey){try{const raw=localStorage.getItem('pms:last-good-state:v1');if(!raw)return null;const parsed=JSON.parse(raw);if(!parsed||!parsed.state||!pmsGuardLooksUsableState(parsed.state))return null;if(parsed.userKey&&userKey&&parsed.userKey!==userKey)return null;return parsed.state;}catch(e){return null;}}
+  function pmsGuardSaveCachedState(state){try{if(!pmsGuardLooksUsableState(state))return;localStorage.setItem('pms:last-good-state:v1',JSON.stringify({savedAt:new Date().toISOString(),userKey:pmsGuardUserKey(state),state}));}catch(e){}}
+  function pmsGuardScheduleRetry(){try{window.__pmsEmptyStateRetryCount=(window.__pmsEmptyStateRetryCount||0)+1;if(window.__pmsEmptyStateRetryCount>5)return;setTimeout(()=>{try{if(typeof window.loadState==='function')window.loadState();}catch(e){}},1500*window.__pmsEmptyStateRetryCount);}catch(e){}}
+  function pmsGuardStatePayload(data){const state=(data&&data.state)||data;if(!state||typeof state!=='object')return data;const userKey=pmsGuardUserKey(state);if(pmsGuardLooksEmptyState(state)){const cached=pmsGuardLoadCachedState(userKey);pmsGuardScheduleRetry();if(cached)return {ok:true,state:cached,_pms_cached_state:true};if(pmsGuardCurrentHasData())return null;}window.__pmsEmptyStateRetryCount=0;pmsGuardSaveCachedState(state);return data;}
+  if(!window.__pmsGuardStatePayload)window.__pmsGuardStatePayload=pmsGuardStatePayload;
+
   function applyState(data){
+    if(window.__pmsGuardStatePayload){data=window.__pmsGuardStatePayload(data);if(!data)return null;}
     const state=(data&&data.state)||data;
     if(!state||typeof state!=='object')return state;
     if(Array.isArray(state.properties))setList('properties',state.properties);
@@ -909,6 +922,9 @@ final_ui_override = r'''
   }
   install();
   [0,120,500,1500,3000].forEach(t=>setTimeout(()=>{install();ensurePropertyModuleVisible();},t));
+  function pmsForceLogout(){try{Object.keys(localStorage||{}).forEach(function(k){if(/^pms/i.test(k)||k.indexOf('last-good-state')>=0)localStorage.removeItem(k);});sessionStorage.clear();document.cookie.split(';').forEach(function(c){var n=c.split('=')[0].trim();if(n)document.cookie=n+'=; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';});}catch(e){}try{fetch('/api/logout',{method:'POST',keepalive:true});}catch(e){}location.replace('/logout?ts='+Date.now());}
+  window.logout=pmsForceLogout;
+  if(!document.__pmsLogoutClickGuard){document.__pmsLogoutClickGuard=true;document.addEventListener('click',function(ev){const btn=ev.target&&ev.target.closest?ev.target.closest('button,a'):null;if(!btn)return;const text=String(btn.textContent||'').trim();const id=String(btn.id||'');const href=String(btn.getAttribute&&btn.getAttribute('href')||'');if(id==='logoutBtn'||text==='\u9000\u51fa\u767b\u5f55'||href==='/logout'){ev.preventDefault();ev.stopImmediatePropagation();pmsForceLogout();}},true);}
 })();
 '''
 ui_patch += final_ui_override
@@ -931,6 +947,12 @@ old_get_start = """            parsed, _ = parse_query(self.path)
 """
 new_get_start = """            parsed, _ = parse_query(self.path)
             path = parsed.path
+            if path == "/logout":
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.send_header("Set-Cookie", f"{SESSION_COOKIE}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax")
+                self.end_headers()
+                return
             if urllib.parse.parse_qs(parsed.query).get("key"):
                 self.send_response(302)
                 self.send_header("Location", "/login")
@@ -1819,8 +1841,6 @@ def _pms_channel_parse_ics(text, listing):
         if uid.lower().endswith("@pms-system") or feed_marker in event_text:
             continue
         lock_reason = ical_lock_reason(summary, description, status)
-        if lock_reason:
-            continue
         stable_id = hashlib.sha1((str(listing_id) + "|" + uid).encode("utf-8")).hexdigest()[:24]
         rows.append({
             "id": "ical_" + stable_id,
@@ -2325,6 +2345,16 @@ def sync_icals(actor=None, property_id=None, incoming_channels=None):
         if item.get("room_id") in allowed_room_ids
     ]
     listing_ids = {item.get("id") for item in listings if item.get("id")}
+    state["bookings"] = [
+        booking for booking in state.get("bookings", [])
+        if not (
+            isinstance(booking, dict)
+            and booking.get("source") == "ical"
+            and booking.get("room_id") in allowed_room_ids
+            and booking.get("channel_listing_id")
+            and booking.get("channel_listing_id") not in listing_ids
+        )
+    ]
     previous_counts = {}
     previous_bookings_by_listing = {}
     for booking in state.get("bookings", []):
@@ -2471,7 +2501,17 @@ def _pms_channel_ics_escape(text):
     return str(text or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
 
 
+def _pms_empty_ical_calendar(title="PMS Anti Overbooking"):
+    return "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//PMS System//Channel Feed//EN\r\nCALSCALE:GREGORIAN\r\nX-WR-CALNAME:" + _pms_channel_ics_escape(title) + "\r\nEND:VCALENDAR\r\n"
+
+def _pms_emergency_empty_feed_ids():
+    raw = str(os.environ.get("PMS_ICAL_EMPTY_FEED_IDS", "") or "")
+    return {item.strip().replace(".ics", "") for item in raw.split(",") if item.strip()}
+
 def make_feed(feed_id):
+    normalized_feed_id = str(feed_id or "").replace(".ics", "")
+    if normalized_feed_id in _pms_emergency_empty_feed_ids():
+        return _pms_empty_ical_calendar("PMS Anti Overbooking")
     state = normalize_state(load_state())
     room_id, target_channel_id, target_listing = _pms_channel_feed_target(state, feed_id)
     if not room_id:
@@ -3821,6 +3861,15 @@ _pms_external_event_storage_v1 = True
 
 _PMS_EXTERNAL_STATE_KEYS = ("icalEventArchive", "mailEvents", "icalSyncHistory")
 _PMS_EXTERNAL_SHARD_RAW_LIMIT = 360000
+_PMS_EXTERNAL_LAST_HASH = {}
+
+
+def _pms_external_rows_hash(rows):
+    try:
+        raw = json.dumps(rows if isinstance(rows, list) else [], ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    except Exception:
+        raw = json.dumps([], separators=(",", ":")).encode("utf-8")
+    return hashlib.sha1(raw).hexdigest()
 
 
 def _pms_external_doc_url(suffix):
@@ -3939,6 +3988,7 @@ def load_state():
             rows = _pms_external_read(key)
             if rows is not None:
                 state[key] = rows
+                _PMS_EXTERNAL_LAST_HASH[key] = _pms_external_rows_hash(rows)
     return normalize_state(state)
 
 
@@ -3951,8 +4001,17 @@ def save_state(state):
     compact_state = dict(state)
     for key in _PMS_EXTERNAL_STATE_KEYS:
         external_rows[key] = compact_state.pop(key, [])
+    changed_external_rows = {}
     for key, rows in external_rows.items():
+        if key not in _PMS_EXTERNAL_LAST_HASH and not rows:
+            continue
+        row_hash = _pms_external_rows_hash(rows)
+        if _PMS_EXTERNAL_LAST_HASH.get(key) != row_hash:
+            changed_external_rows[key] = (rows, row_hash)
+    for key, pair in changed_external_rows.items():
+        rows, row_hash = pair
         _pms_external_write(key, rows)
+        _PMS_EXTERNAL_LAST_HASH[key] = row_hash
     saved = _pms_external_base_save_state(compact_state)
     for key, rows in external_rows.items():
         saved[key] = rows
@@ -4210,8 +4269,42 @@ def _pms_start_ical_auto_sync():
             time.sleep(interval)
     threading.Thread(target=worker, daemon=True, name="pms-ical-auto-sync").start()
 
+_pms_mail_sync_lock = threading.Lock()
+
+def _pms_run_scheduled_mail_sync():
+    if not _pms_mail_sync_lock.acquire(blocking=False):
+        return
+    try:
+        if not _pms_gmail_enabled():
+            return
+        days = max(1, min(int(os.environ.get("PMS_MAIL_SYNC_DAYS", "3")), 30))
+        max_results = max(1, min(int(os.environ.get("PMS_MAIL_SYNC_MAX_RESULTS", "25")), 50))
+        sync_gmail_mail_events(
+            {"days": days, "max_results": max_results},
+            actor={"id": "system", "username": "system-auto", "role": "admin"},
+        )
+    except Exception:
+        traceback.print_exc()
+    finally:
+        _pms_mail_sync_lock.release()
+
+def _pms_start_mail_auto_sync():
+    enabled = str(os.environ.get("PMS_MAIL_AUTO_SYNC_ENABLED", "1")).strip().lower() in ("1", "true", "yes", "on")
+    if not enabled:
+        return
+    interval = int(os.environ.get("PMS_MAIL_SYNC_INTERVAL_SECONDS", "7200"))
+    if interval <= 0:
+        return
+    def worker():
+        time.sleep(min(120, interval))
+        while True:
+            _pms_run_scheduled_mail_sync()
+            time.sleep(interval)
+    threading.Thread(target=worker, daemon=True, name="pms-mail-auto-sync").start()
+
 if __name__ == "__main__":
     _pms_start_ical_auto_sync()
+    _pms_start_mail_auto_sync()
     print(f"PMS Firebase REST backend started on port {PORT}")
     HTTPServer((HOST, PORT), Handler).serve_forever()
 '''
@@ -4219,5 +4312,105 @@ if "_pms_start_ical_auto_sync" not in source_text:
     if auto_sync_marker not in source_text:
         raise RuntimeError("auto iCal sync startup hook not found")
     source_text = source_text.replace(auto_sync_marker, auto_sync_block, 1)
+
+
+# _pms_light_auth_state_v1
+light_auth_helper = r'''
+def load_main_state():
+    base_loader = globals().get("_pms_external_base_load_state")
+    if callable(base_loader):
+        return normalize_state(base_loader())
+    return normalize_state(load_state())
+'''
+light_auth_anchor = "\ndef authenticate_user(username, password):\n"
+if "def load_main_state():" not in source_text:
+    if light_auth_anchor not in source_text:
+        raise RuntimeError("light auth helper hook not found")
+    source_text = source_text.replace(light_auth_anchor, "\n" + light_auth_helper + light_auth_anchor, 1)
+
+light_auth_replacements = [
+    (
+        '''def authenticate_user(username, password):
+    state = normalize_state(load_state())
+    user = find_user_for_login(state, username)''',
+        '''def authenticate_user(username, password):
+    state = normalize_state(load_main_state())
+    user = find_user_for_login(state, username)''',
+        "authenticate user light state hook",
+    ),
+    (
+        '''    return find_user_by_id(normalize_state(load_state()), user_id)''',
+        '''    return find_user_by_id(normalize_state(load_main_state()), user_id)''',
+        "current user light state hook",
+    ),
+    (
+        '''    state = normalize_state(load_state())
+    if login_name_exists(state, username):''',
+        '''    state = normalize_state(load_main_state())
+    if login_name_exists(state, username):''',
+        "owner register light state hook",
+    ),
+    (
+        '''    state = normalize_state(load_state())
+    cleaner_code = normalize_cleaner_code(payload.get("cleaner_code")) or generate_cleaner_code(state)''',
+        '''    state = normalize_state(load_main_state())
+    cleaner_code = normalize_cleaner_code(payload.get("cleaner_code")) or generate_cleaner_code(state)''',
+        "cleaner register light state hook",
+    ),
+    (
+        '''    state = normalize_state(load_state())
+    if not any(prop.get("id") == property_id for prop in state["properties"]):''',
+        '''    state = normalize_state(load_main_state())
+    if not any(prop.get("id") == property_id for prop in state["properties"]):''',
+        "property cleaner light state hook",
+    ),
+]
+for old, new, label in light_auth_replacements:
+    if new not in source_text:
+        if old not in source_text:
+            raise RuntimeError(label + " not found")
+        source_text = source_text.replace(old, new, 1)
+
+
+# _pms_cleaner_login_name_v1
+cleaner_login_candidates_old = '''        candidates = [
+            str(user.get("username") or ""),
+            str(user.get("cleaner_code") or ""),
+            str(user.get("phone") or ""),
+        ]'''
+cleaner_login_candidates_new = '''        candidates = [
+            str(user.get("username") or ""),
+            str(user.get("name") or ""),
+            str(user.get("cleaner_code") or ""),
+            str(user.get("phone") or ""),
+        ]'''
+if cleaner_login_candidates_new not in source_text:
+    if cleaner_login_candidates_old not in source_text:
+        raise RuntimeError("cleaner login candidates hook not found")
+    source_text = source_text.replace(cleaner_login_candidates_old, cleaner_login_candidates_new, 1)
+
+cleaner_register_user_old = '''    user = {
+        "id": f"cleaner_{cleaner_code.lower().replace('-', '_')}",
+        "role": "cleaner",
+        "name": name,
+        "phone": phone,
+        "cleaner_code": cleaner_code,
+        "password_hash": password_hash(password),
+        "created_at": now_utc_iso(),
+    }'''
+cleaner_register_user_new = '''    user = {
+        "id": f"cleaner_{cleaner_code.lower().replace('-', '_')}",
+        "role": "cleaner",
+        "username": name,
+        "name": name,
+        "phone": phone,
+        "cleaner_code": cleaner_code,
+        "password_hash": password_hash(password),
+        "created_at": now_utc_iso(),
+    }'''
+if cleaner_register_user_new not in source_text:
+    if cleaner_register_user_old not in source_text:
+        raise RuntimeError("cleaner register username hook not found")
+    source_text = source_text.replace(cleaner_register_user_old, cleaner_register_user_new, 1)
 
 exec(compile(source_text, __file__, "exec"))
