@@ -1,7 +1,13 @@
 {
-  "latest": "11.51",
+  "latest": "11.52",
   "generatedAt": "2026-06-29",
   "files": [
+    {
+      "version": "11.52",
+      "file": "tiktok-label-printer-v11.52-current.user.js",
+      "notesZh": "Free sample 订单改为识别成样品订单；复核统计、商品维度分析和订单明细里从橱窗订单单独拆出样品订单，避免样品被算进橱窗订单。",
+      "notesEn": "Free sample orders are now classified as sample orders. Review statistics, product analysis, and order details separate sample orders from showcase orders so samples are no longer counted as showcase orders."
+    },
     {
       "version": "11.51",
       "file": "tiktok-label-printer-v11.51-current.user.js",
