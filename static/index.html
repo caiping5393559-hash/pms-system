@@ -702,7 +702,7 @@ function weekendDayIndex(value){const d=new Date(String(value||'')+'T00:00:00'),
 function weekendClass(value){const day=weekendDayIndex(value);return day===0?'weekend weekend-sun':day===6?'weekend weekend-sat':'';}
 function weekendLabel(value){const day=weekendDayIndex(value);return day===0?'周日':day===6?'周六':'';}
 function calendarDayHeaderHtml(day){const label=weekendLabel(day);return `<div class="cell head ${weekendClass(day)}">${day.slice(5)}${label?`<span class="weekend-label">${label}</span>`:''}</div>`;}
-function weekendCellMarker(day){const label=weekendLabel(day);return label?`<span class="weekend-cell-label">${label}</span>`:'';}
+function weekendCellMarker(day){return '';}
 function renderOwnerCalendar(){
   if(!document.getElementById('rangeStart').value){setRangePreset(14); return;}
   const range=calendarRange(), start=range.start, end=range.end;
