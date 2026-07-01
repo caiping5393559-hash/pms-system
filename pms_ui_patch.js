@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-01-fast-save-v15';
+  const VERSION = '2026-07-01-ui-flatten-v16';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -520,7 +520,16 @@
     pane('ownerCalendar', `<div class="card"><h2>未来房态总览</h2><div class="toolbar"><span class="small">默认未来 14 天，可切换 28 天，也可指定日期范围：</span><button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">未来14天</button><button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">未来28天</button><input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()"><input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()"><select id="ownerRoomFilter" onchange="refreshCalendarRangeViews()"></select></div><div class="scroll"><div id="calendarGrid" class="timeline"></div></div></div><div class="card"><h2>未来区间统计</h2><div id="sixMonthStats"></div></div><div class="card"><div class="toolbar"><strong>未来预订列表</strong><select id="platformFilter" onchange="renderOwnerBookings()"><option value="">全部平台</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>Other</option><option>微信直订</option></select><select id="bookingRoomFilter" onchange="renderOwnerBookings()"></select></div><div id="ownerBookings"></div></div>`);
     pane('ownerCleaning', `<div id="ownerCleaningShell"></div>`);
     pane('ownerNotes', `<div id="ownerNotesShell"></div>`);
-    pane('ownerRooms', `<div class="card"><h2>房间设置</h2><p class="small">从上方房源管理进入单个房源后，在这里管理房间、公区、iCal 和保洁绑定。</p><div id="roomSettings"></div></div>`);
+    pane('ownerRooms', `<div id="roomSettingsUnifiedShell" class="room-settings-shell"><div id="roomSettings"></div></div>`);
+    ensureRoomSettingsShell();
+  }
+  function ensureRoomSettingsShell(){
+    const pane = qs('ownerRooms');
+    if(!pane) return qs('roomSettings');
+    if(!qs('roomSettingsUnifiedShell')){
+      pane.innerHTML = `<div id="roomSettingsUnifiedShell" class="room-settings-shell"><div id="roomSettings"></div></div>`;
+    }
+    return qs('roomSettings');
   }
   function ensureCleanerContainers(){
     const root = qs('cleaner');
@@ -544,8 +553,15 @@
       .property-title{font-size:18px;font-weight:900;color:#0f172a}
       .property-card input,.room-setting-card input,.room-setting-card select,.mail-panel input,.mail-panel textarea{width:100%;min-width:0}
       .property-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+      .room-settings-shell{display:grid;gap:14px}
+      #roomSettings{display:grid;gap:14px}
+      #roomSettings > .property-detail-head{border:1px solid var(--line);background:#fff;border-radius:8px;padding:14px}
+      #roomSettings .settings-section{border:1px solid var(--line);background:#fff;border-radius:8px;padding:14px}
+      #roomSettings .settings-section .property-detail-head{padding:0 0 10px;border-bottom:1px solid var(--line);margin-bottom:10px}
       .room-setting-list{display:grid;gap:16px;margin-top:12px}
       .room-head{border:1px solid #d8e1ef;background:#f8fafc;border-radius:8px;padding:10px}
+      .room-setting-card .property-subcard{border:0;background:transparent;padding:12px 0 0;margin-top:12px;border-top:1px dashed var(--line)}
+      .room-setting-card .property-subcard .property-detail-head{padding:0;border:0;margin:0}
       .room-basics{display:grid;grid-template-columns:minmax(180px,1fr) minmax(120px,.45fr) auto;gap:8px;align-items:end;width:100%}
       .channel-list{display:grid;gap:10px;margin-top:10px}
       .channel-card{border:1px solid #bae6fd;background:#f8fcff;border-radius:8px;padding:10px;display:grid;gap:8px}
@@ -1155,15 +1171,15 @@
   }
   function renderCleanerPanel(prop){
     const cleaners = propCleaners(prop.id);
-    return `<div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">保洁绑定</h3><div class="small">输入保洁编号后绑定到这个房源。</div></div></div><div class="channel-row"><input id="cleanerCode_${safe(prop.id)}" placeholder="例如 CLN-1091"><button class="smallbtn primary" onclick="bindPropertyCleanerUi('${esc(prop.id)}',this)">绑定保洁</button></div><div class="property-meta">${cleaners.length ? cleaners.map(c => `<span class="badge green">${esc(c.cleaner_code)} <button class="tiny-link" onclick="unbindPropertyCleanerUi('${esc(prop.id)}','${esc(c.cleaner_code)}',this)">删除</button></span>`).join('') : '<span class="small">还没有绑定保洁。</span>'}</div></div>`;
+    return `<div class="settings-section"><div class="property-detail-head"><div><h3 style="margin:0">保洁绑定</h3><div class="small">输入保洁编号后绑定到这个房源。</div></div></div><div class="channel-row"><input id="cleanerCode_${safe(prop.id)}" placeholder="例如 CLN-1091"><button class="smallbtn primary" onclick="bindPropertyCleanerUi('${esc(prop.id)}',this)">绑定保洁</button></div><div class="property-meta">${cleaners.length ? cleaners.map(c => `<span class="badge green">${esc(c.cleaner_code)} <button class="tiny-link" onclick="unbindPropertyCleanerUi('${esc(prop.id)}','${esc(c.cleaner_code)}',this)">删除</button></span>`).join('') : '<span class="small">还没有绑定保洁。</span>'}</div></div>`;
   }
   function renderCommonAreaPanel(prop){
     const areas = propAreas(prop.id);
-    return `<div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">公区设置</h3><div class="small">公区默认每天保洁，费用计入保洁统计。</div></div><button class="smallbtn primary" onclick="addCommonArea('${esc(prop.id)}')">添加公区</button></div><div class="channel-list">${areas.length ? areas.map(a => `<div class="channel-card"><div class="channel-grid"><div><label>名称</label><input id="areaName_${safe(a.id)}" value="${esc(a.name || '')}"></div><div><label>每日费用</label><input id="areaFee_${safe(a.id)}" type="number" value="${esc(a.cleaning_fee || 0)}"></div><div><label>是否每日保洁</label><select id="areaDaily_${safe(a.id)}"><option value="true" ${a.daily_default!==false?'selected':''}>每天打扫</option><option value="false" ${a.daily_default===false?'selected':''}>不默认</option></select></div><div></div><div class="property-actions"><button class="smallbtn primary" onclick="saveCommonAreaBasics('${esc(a.id)}',this)">保存</button><button class="smallbtn" onclick="deleteCommonAreaUi('${esc(a.id)}',this)">删除</button></div></div></div>`).join('') : '<div class="empty-panel">还没有公区。</div>'}</div></div>`;
+    return `<div class="settings-section"><div class="property-detail-head"><div><h3 style="margin:0">公区设置</h3><div class="small">公区默认每天保洁，费用计入保洁统计。</div></div><button class="smallbtn primary" onclick="addCommonArea('${esc(prop.id)}')">添加公区</button></div><div class="channel-list">${areas.length ? areas.map(a => `<div class="channel-card"><div class="channel-grid"><div><label>名称</label><input id="areaName_${safe(a.id)}" value="${esc(a.name || '')}"></div><div><label>每日费用</label><input id="areaFee_${safe(a.id)}" type="number" value="${esc(a.cleaning_fee || 0)}"></div><div><label>是否每日保洁</label><select id="areaDaily_${safe(a.id)}"><option value="true" ${a.daily_default!==false?'selected':''}>每天打扫</option><option value="false" ${a.daily_default===false?'selected':''}>不默认</option></select></div><div></div><div class="property-actions"><button class="smallbtn primary" onclick="saveCommonAreaBasics('${esc(a.id)}',this)">保存</button><button class="smallbtn" onclick="deleteCommonAreaUi('${esc(a.id)}',this)">删除</button></div></div></div>`).join('') : '<div class="empty-panel">还没有公区。</div>'}</div></div>`;
   }
   function renderRoomSettingsImpl(){
     ensureOwnerPropertyModuleVisible();
-    const root = qs('roomSettings');
+    const root = ensureRoomSettingsShell();
     if(!root) return;
     const prop = selectedProp();
     if(!prop){
@@ -1172,7 +1188,7 @@
     }
     const rooms = propRooms(prop.id);
     const sync = ui.syncResults[prop.id];
-    root.innerHTML = `<div class="property-detail-head"><div><h2 style="margin:0">${esc(prop.name || prop.id)} 房间管理</h2><div class="small">${rooms.length} 个房间 · ${propAreas(prop.id).length} 个公区 · ${propCleaners(prop.id).length} 个保洁绑定</div></div><div class="property-actions"><button class="smallbtn" onclick="backToPropertyList()">返回房源列表</button><button class="smallbtn primary" onclick="syncPropertyIcal('${esc(prop.id)}',this)">同步当前房源 iCal</button>${sync?`<span class="sync-status ${sync.kind || ''}">${esc(sync.text || '')}</span>`:''}</div></div>${renderCleanerPanel(prop)}${renderCommonAreaPanel(prop)}<div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">房间设置</h3><div class="small">每个真实房间只建一次；重复上架用“渠道”关联在房间下方。</div></div><button class="smallbtn primary" onclick="addRoom('${esc(prop.id)}')">添加房间</button></div><div class="room-setting-list">${rooms.length ? rooms.map(renderRoomCard).join('') : '<div class="empty-panel">这个房源还没有房间。</div>'}</div></div>`;
+    root.innerHTML = `<div class="property-detail-head"><div><h2 style="margin:0">${esc(prop.name || prop.id)} 房间管理</h2><div class="small">${rooms.length} 个房间 · ${propAreas(prop.id).length} 个公区 · ${propCleaners(prop.id).length} 个保洁绑定</div></div><div class="property-actions"><button class="smallbtn" onclick="backToPropertyList()">返回房源列表</button><button class="smallbtn primary" onclick="syncPropertyIcal('${esc(prop.id)}',this)">同步当前房源 iCal</button>${sync?`<span class="sync-status ${sync.kind || ''}">${esc(sync.text || '')}</span>`:''}</div></div>${renderCleanerPanel(prop)}${renderCommonAreaPanel(prop)}<div class="settings-section"><div class="property-detail-head"><div><h3 style="margin:0">房间设置</h3><div class="small">每个真实房间只建一次；重复上架用“渠道”关联在房间下方。</div></div><button class="smallbtn primary" onclick="addRoom('${esc(prop.id)}')">添加房间</button></div><div class="room-setting-list">${rooms.length ? rooms.map(renderRoomCard).join('') : '<div class="empty-panel">这个房源还没有房间。</div>'}</div></div>`;
   }
 
   function renderOwnerImpl(){
