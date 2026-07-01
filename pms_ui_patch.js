@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-01-ical-save-v13';
+  const VERSION = '2026-07-01-fast-save-v14';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {

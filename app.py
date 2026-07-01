@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-01-ical-save-v13"
+PMS_PATCH_VERSION = "2026-07-01-fast-save-v14"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -3721,8 +3721,8 @@ state_post_route_new = '''            if path == "/api/state":
                 if not user:
                     return
                 payload = json.loads(raw.decode("utf-8") or "{}")
-                saved = save_state_from_payload(payload, actor=user)
-                json_response(self, {"ok": True, "state": pms_state_response_for_user(saved, user)})
+                save_state_from_payload(payload, actor=user)
+                json_response(self, {"ok": True, "saved_at": now_utc_iso()})
                 return
 '''
 if state_post_route_new not in source_text:
