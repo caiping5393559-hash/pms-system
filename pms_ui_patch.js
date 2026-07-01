@@ -388,7 +388,18 @@
     btn.textContent = '退出登录';
     btn.style.display = '';
     btn.onclick = logoutImpl;
+    syncNavForRole();
     return btn;
+  }
+  function syncNavForRole(){
+    const nav = document.querySelector('.nav');
+    if(!nav) return;
+    const cleanerOnly = isActualCleaner() || (cleanerPath() && !isOwnerLike());
+    nav.querySelectorAll('button,a').forEach(el => {
+      if(el.id === 'logoutBtn'){ el.style.display = ''; return; }
+      const text = (el.textContent || '').trim();
+      el.style.display = cleanerOnly && (text.includes('房东管理') || text.includes('房源管理')) ? 'none' : '';
+    });
   }
   function ensureVersionBadge(){
     let style = qs('pmsVersionBadgeStyles');
@@ -425,6 +436,7 @@
       if(sub) sub.textContent = '管理房源、房间、公区、iCal 同步和保洁绑定。';
       document.title = h ? h.textContent : '房东管理后台';
     }
+    syncNavForRole();
   }
 
   function removeLegacyIntroCards(){
