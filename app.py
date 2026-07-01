@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-01-property-version-badge-v2"
+PMS_PATCH_VERSION = "2026-07-01-owner-property-visible-v3"
 legacy_owner_intro = """    <div class="card">
       <h2>房东管理页面</h2>
       <div class="small">房东可查看指定日期工作表、设置备注、设置房间和公区、查看未来预订、调整实际保洁。</div>
@@ -189,11 +189,41 @@ old_text_response = '''def text_response(handler, text, status=200, content_type
 '''
 new_text_response = '''def _pms_inject_html_version_badge(text, content_type):
     raw = str(text)
-    if "text/html" not in str(content_type or "").lower() or "pmsVersionBadge" in raw or "__PMS_PATCH_VERSION" in raw:
+    if "text/html" not in str(content_type or "").lower() or 'id="pmsVersionBadge"' in raw:
         return raw
+    visible_script = r"""
+(function(){
+  if(window.__pmsServerVisiblePatchInstalled)return;
+  window.__pmsServerVisiblePatchInstalled=true;
+  var VERSION='__PMS_VERSION__';
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
+  function getList(name,state){try{var v=eval(name);if(Array.isArray(v))return v;}catch(e){}var w=window[name];if(Array.isArray(w))return w;return state&&Array.isArray(state[name])?state[name]:[];}
+  function setList(name,value){try{eval(name+'=value');}catch(e){}window[name]=value;}
+  function userFrom(state){try{if(currentUser)return currentUser;}catch(e){}return (state&&(state.current_user||state.currentUser))||{};}
+  function withKey(path){try{return typeof window.withKey==='function'?window.withKey(path):path;}catch(e){return path;}}
+  async function readState(){try{var r=await fetch(withKey('/api/state'),{credentials:'same-origin',cache:'no-store'});var d=await r.json();return d&&d.state?d.state:d;}catch(e){return {};}}
+  function css(){if(document.getElementById('pmsServerPropertyStyles'))return;var s=document.createElement('style');s.id='pmsServerPropertyStyles';s.textContent='.pms-server-property-module{display:grid;gap:12px;margin:14px 0 18px!important;border:2px solid #2dd4bf!important;border-left:7px solid #0f766e!important;background:#f8fffd!important}.pms-server-prop-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.pms-server-prop-title{font-size:22px;font-weight:900;color:#0f172a}.pms-server-prop-sub{font-size:13px;color:#64748b;margin-top:4px}.pms-server-prop-actions{display:flex;gap:8px;flex-wrap:wrap}.pms-server-prop-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}.pms-server-prop-card{border:1px solid #bfdbfe;border-radius:8px;background:#fff;padding:12px;display:grid;gap:9px}.pms-server-prop-card strong{font-size:18px}.pms-server-prop-meta{display:flex;gap:6px;flex-wrap:wrap}.pms-server-chip{display:inline-flex;border:1px solid #dbeafe;background:#f8fafc;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:900;color:#475569}.pms-server-edit{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.pms-server-buttons{display:flex;gap:8px;flex-wrap:wrap}.pms-server-note{border:1px dashed #93c5fd;background:#eff6ff;border-radius:8px;padding:10px;color:#334155;font-size:13px;font-weight:700}.pms-version-badge{display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:900;line-height:1;white-space:nowrap}@media(max-width:760px){.pms-server-edit{grid-template-columns:1fr}.pms-server-buttons .smallbtn{flex:1 1 auto}}';document.head.appendChild(s);}
+  function versionBadge(){var b=document.getElementById('pmsVersionBadge');if(!b){b=document.createElement('span');b.id='pmsVersionBadge';b.className='pms-version-badge';}b.textContent='PMS v'+VERSION;var nav=document.querySelector('header .nav')||document.querySelector('.nav');if(nav){var logout=document.getElementById('logoutBtn');if(b.parentElement!==nav){if(logout&&logout.parentElement===nav)nav.insertBefore(b,logout);else nav.appendChild(b);}}else if(b.parentElement!==document.body){b.style.position='fixed';b.style.right='12px';b.style.top='12px';b.style.zIndex='10000';document.body.appendChild(b);}}
+  function host(){var owner=document.getElementById('owner');if(!owner)return null;var h=document.getElementById('pmsServerPropertyModule');if(h)return h;h=document.createElement('div');h.id='pmsServerPropertyModule';h.className='card pms-server-property-module';owner.insertBefore(h,owner.firstElementChild||null);return h;}
+  function firstPropId(props){return props[0]&&props[0].id||'property_default';}
+  function propRooms(pid,rooms,props){var first=firstPropId(props);return rooms.filter(function(r){return String(r.property_id||first)===String(pid);});}
+  function propAreas(pid,areas,props){var first=firstPropId(props);return areas.filter(function(a){return String(a.property_id||first)===String(pid);});}
+  function propCleaners(pid,links){return links.filter(function(x){return String(x.property_id)===String(pid);});}
+  function groupId(state,props){var u=userFrom(state),p=props[0]||{},gids=Array.isArray(u.group_ids)?u.group_ids:[];return p.group_id||gids[0]||u.group_id||'group_default';}
+  async function postProperty(p){var r=await fetch(withKey('/api/property/'+encodeURIComponent(p.id)),{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});var d=await r.json().catch(function(){return {};});if(!r.ok||d.ok===false)throw new Error(d.error||'保存房源失败');return d&&d.state?d.state:d;}
+  async function render(){css();versionBadge();var owner=document.getElementById('owner');if(!owner)return;var state=await readState();var u=userFrom(state);if(u&&u.role==='cleaner')return;var props=getList('properties',state),rooms=getList('rooms',state),areas=getList('commonAreas',state),links=getList('propertyCleaners',state);var h=host();if(!h)return;var rows=props.map(function(p){var id=String(p.id||''),name=String(p.name||id||'未命名房源'),rc=propRooms(id,rooms,props).length,ac=propAreas(id,areas,props).length,cc=propCleaners(id,links).length,safe=id.replace(/[^a-zA-Z0-9_-]/g,'_');return '<div class="pms-server-prop-card"><strong>'+esc(name)+'</strong><div class="pms-server-prop-meta"><span class="pms-server-chip">'+rc+' 个房间</span><span class="pms-server-chip">'+ac+' 个公区</span><span class="pms-server-chip">'+cc+' 个保洁绑定</span></div><div class="pms-server-edit"><input id="pmsServerPropName_'+esc(safe)+'" value="'+esc(name)+'"><button class="smallbtn" onclick="pmsServerSavePropertyName(\\''+esc(id)+'\\',this)">保存名字</button></div><div class="pms-server-buttons"><button class="smallbtn primary" onclick="pmsServerOpenPropertyRooms(\\''+esc(id)+'\\')">进入房间管理</button></div></div>';}).join('');h.innerHTML='<div class="pms-server-prop-head"><div><div class="pms-server-prop-title">房源管理</div><div class="pms-server-prop-sub">这里直接读取后台房源数据；可以添加房源、改名，并进入对应房源的房间/iCal 设置。</div></div><div class="pms-server-prop-actions"><button class="smallbtn primary" onclick="pmsServerAddProperty(this)">添加房源</button><button class="smallbtn" onclick="pmsServerRenderProperties()">刷新房源</button></div></div>'+(rows?'<div class="pms-server-prop-grid">'+rows+'</div>':'<div class="pms-server-note">当前账号还没有房源，点击“添加房源”后再进入房间管理添加房间和 iCal。</div>');}
+  window.pmsServerRenderProperties=render;
+  window.pmsServerAddProperty=async function(btn){var old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='添加中...';}try{var state=await readState(),props=getList('properties',state),name='新房源',i=2;while(props.some(function(p){return String(p.name||'')===name;})){name='新房源 '+i;i++;}var p={id:'property_'+Date.now(),group_id:groupId(state,props),name:name,created_at:new Date().toISOString().slice(0,19)};var next=await postProperty(p);setList('properties',getList('properties',next));await render();window.pmsServerOpenPropertyRooms(p.id);}catch(e){alert('添加房源失败：'+(e&&e.message?e.message:e));}finally{if(btn){btn.disabled=false;btn.textContent=old||'添加房源';}}};
+  window.pmsServerSavePropertyName=async function(id,btn){var input=document.getElementById('pmsServerPropName_'+String(id).replace(/[^a-zA-Z0-9_-]/g,'_')),name=String(input&&input.value||'').trim();if(!name){alert('房源名字不能为空');return;}var state=await readState(),props=getList('properties',state),p=props.find(function(x){return String(x.id)===String(id);});if(!p){alert('找不到这个房源');return;}p.name=name;var old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='保存中...';}try{var next=await postProperty(p);setList('properties',getList('properties',next));await render();}catch(e){alert('保存房源名字失败：'+(e&&e.message?e.message:e));}finally{if(btn){btn.disabled=false;btn.textContent=old||'保存名字';}}};
+  window.pmsServerOpenPropertyRooms=function(id){try{window.selectedPropertyId=id;if(window.__pmsInlineState)window.__pmsInlineState.selectedPropertyId=id;}catch(e){}try{if(typeof window.openPropertyRooms==='function'){window.openPropertyRooms(id);return;}}catch(e){}try{if(typeof window.showOwnerTab==='function')window.showOwnerTab('ownerRooms');}catch(e){}setTimeout(function(){var root=document.getElementById('roomSettings')||document.getElementById('ownerRooms');if(root)root.scrollIntoView({block:'start',behavior:'smooth'});},100);};
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',render);else render();
+  [300,1000,2500,5000].forEach(function(t){setTimeout(render,t);});
+})();
+"""
+    visible_script = visible_script.replace("__PMS_VERSION__", PMS_PATCH_VERSION)
     badge = f"""<style id="pmsVersionBadgeServerStyle">
 #pmsVersionBadge{{position:fixed;right:12px;top:12px;z-index:10000;display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:7px 10px;font:900 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;white-space:nowrap;box-shadow:0 8px 20px rgba(15,23,42,.12)}}
-</style><span id="pmsVersionBadge">PMS v{PMS_PATCH_VERSION}</span>"""
+</style><span id="pmsVersionBadge">PMS v{PMS_PATCH_VERSION}</span>""" + "<script>" + visible_script + "</script>"
     marker = "</body>"
     if marker in raw:
         return raw.replace(marker, badge + marker, 1)
@@ -515,7 +545,7 @@ admin_ui_patch = r'''
 ui_patch += admin_ui_patch
 final_ui_override = r'''
 (function(){
-  const VERSION='2026-07-01-property-version-badge-v2';
+  const VERSION='2026-07-01-owner-property-visible-v3';
   window.__PMS_PATCH_VERSION=VERSION;
   const S=window.__pmsInlineState||(window.__pmsInlineState={});
   S.mailEdits=S.mailEdits||{};
