@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-01-ui-flatten-v16"
+PMS_PATCH_VERSION = "2026-07-01-skip-empty-ical-v17"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -1849,6 +1849,7 @@ def sync_icals(actor=None, property_id=None, incoming_channels=None):
         }
 
     for listing in listings:
+        previous_last_sync = listing.get("last_sync") or ""
         listing["last_sync"] = now
         listing["sync_error"] = ""
         listing["sync_warning"] = ""
@@ -1857,13 +1858,9 @@ def sync_icals(actor=None, property_id=None, incoming_channels=None):
         listing["synced_booking_count"] = 0
         url = _pms_channel_text(listing.get("ical_url"))
         if not url:
-            if listing.get("is_new_listing"):
-                _pms_channel_append_ical_history(state, listing, now, "new_listing_no_url", raw_events=[], warning="平台新发布房源，没有导入 iCal")
-                continue
-            error = "请先填写这个渠道导出的 iCal，或确认这是平台新发布且没有订单"
-            listing["sync_error"] = error
-            sync_errors.append({"room_id": listing.get("room_id"), "channel_listing_id": listing.get("id"), "platform": listing.get("platform"), "error": error})
-            _pms_channel_append_ical_history(state, listing, now, "error", raw_events=[], error=error)
+            listing["last_sync"] = previous_last_sync
+            listing["synced_booking_count"] = previous_count if previous_last_sync else 0
+            listing["sync_warning"] = "未填写平台导出的 iCal，已跳过同步"
             continue
         try:
             raw_ical_text = fetch_text(url)
