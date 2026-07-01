@@ -1,6 +1,6 @@
 (function(){
   const S=window.__pmsInlineState||(window.__pmsInlineState={rooms:{},areas:{},ical:{},feed:{},propertyNames:{}});
-  window.__PMS_PATCH_VERSION='2026-07-01-owner-index-property-v4';
+  window.__PMS_PATCH_VERSION='2026-07-01-version-body-bottom-v6';
   const PMS_INLINE_VERSION=window.__PMS_PATCH_VERSION;
   S.channelEdits=S.channelEdits||{};
   S.syncResults=S.syncResults||{};
@@ -12,7 +12,7 @@
     if(!style){
       style=document.createElement('style');
       style.id='pmsVersionBadgeStyles';
-      style.textContent='.pms-version-badge{display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:900;line-height:1;white-space:nowrap}.pms-version-badge.fixed{position:fixed;right:12px;top:12px;z-index:10000;box-shadow:0 8px 20px rgba(15,23,42,.12)}';
+      style.textContent='.pms-version-badge{display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:6px 9px;font-size:11px;font-weight:900;line-height:1;white-space:nowrap;pointer-events:none;opacity:.88}.pms-version-badge.fixed{position:fixed;right:12px;bottom:12px;top:auto;z-index:999;box-shadow:0 8px 20px rgba(15,23,42,.10)}';
       document.head.appendChild(style);
     }
     let badge=document.getElementById('pmsVersionBadge');
@@ -22,18 +22,14 @@
       badge.className='pms-version-badge';
     }
     badge.textContent='PMS v'+PMS_INLINE_VERSION;
-    const nav=document.querySelector('header .nav')||document.querySelector('.nav')||null;
-    if(nav){
-      badge.classList.remove('fixed');
-      const logout=document.getElementById('logoutBtn');
-      if(badge.parentElement!==nav){
-        if(logout&&logout.parentElement===nav)nav.insertBefore(badge,logout);
-        else nav.appendChild(badge);
-      }
-    }else{
-      badge.classList.add('fixed');
-      if(badge.parentElement!==document.body)document.body.appendChild(badge);
-    }
+    badge.classList.add('fixed');
+    badge.style.position='fixed';
+    badge.style.right='12px';
+    badge.style.bottom='12px';
+    badge.style.top='auto';
+    badge.style.zIndex='999';
+    badge.style.pointerEvents='none';
+    if(badge.parentElement!==document.body)document.body.appendChild(badge);
   }
   function key(id,field){return String(id)+':'+String(field||'');}
   function props(){try{return properties||[]}catch(e){return window.properties||[];}}

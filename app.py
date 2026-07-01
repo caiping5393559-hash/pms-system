@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-01-owner-index-property-v4"
+PMS_PATCH_VERSION = "2026-07-01-version-body-bottom-v6"
 legacy_owner_intro = """    <div class="card">
       <h2>房东管理页面</h2>
       <div class="small">房东可查看指定日期工作表、设置备注、设置房间和公区、查看未来预订、调整实际保洁。</div>
@@ -202,8 +202,8 @@ new_text_response = '''def _pms_inject_html_version_badge(text, content_type):
   function userFrom(state){try{if(currentUser)return currentUser;}catch(e){}return (state&&(state.current_user||state.currentUser))||{};}
   function withKey(path){try{return typeof window.withKey==='function'?window.withKey(path):path;}catch(e){return path;}}
   async function readState(){try{var r=await fetch(withKey('/api/state'),{credentials:'same-origin',cache:'no-store'});var d=await r.json();return d&&d.state?d.state:d;}catch(e){return {};}}
-  function css(){if(document.getElementById('pmsServerPropertyStyles'))return;var s=document.createElement('style');s.id='pmsServerPropertyStyles';s.textContent='.pms-server-property-module{display:grid;gap:12px;margin:14px 0 18px!important;border:2px solid #2dd4bf!important;border-left:7px solid #0f766e!important;background:#f8fffd!important}.pms-server-prop-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.pms-server-prop-title{font-size:22px;font-weight:900;color:#0f172a}.pms-server-prop-sub{font-size:13px;color:#64748b;margin-top:4px}.pms-server-prop-actions{display:flex;gap:8px;flex-wrap:wrap}.pms-server-prop-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}.pms-server-prop-card{border:1px solid #bfdbfe;border-radius:8px;background:#fff;padding:12px;display:grid;gap:9px}.pms-server-prop-card strong{font-size:18px}.pms-server-prop-meta{display:flex;gap:6px;flex-wrap:wrap}.pms-server-chip{display:inline-flex;border:1px solid #dbeafe;background:#f8fafc;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:900;color:#475569}.pms-server-edit{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.pms-server-buttons{display:flex;gap:8px;flex-wrap:wrap}.pms-server-note{border:1px dashed #93c5fd;background:#eff6ff;border-radius:8px;padding:10px;color:#334155;font-size:13px;font-weight:700}.pms-version-badge{display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:900;line-height:1;white-space:nowrap}@media(max-width:760px){.pms-server-edit{grid-template-columns:1fr}.pms-server-buttons .smallbtn{flex:1 1 auto}}';document.head.appendChild(s);}
-  function versionBadge(){var b=document.getElementById('pmsVersionBadge');if(!b){b=document.createElement('span');b.id='pmsVersionBadge';b.className='pms-version-badge';}b.textContent='PMS v'+VERSION;var nav=document.querySelector('header .nav')||document.querySelector('.nav');if(nav){var logout=document.getElementById('logoutBtn');if(b.parentElement!==nav){if(logout&&logout.parentElement===nav)nav.insertBefore(b,logout);else nav.appendChild(b);}}else if(b.parentElement!==document.body){b.style.position='fixed';b.style.right='12px';b.style.top='12px';b.style.zIndex='10000';document.body.appendChild(b);}}
+  function css(){if(document.getElementById('pmsServerPropertyStyles'))return;var s=document.createElement('style');s.id='pmsServerPropertyStyles';s.textContent='.pms-server-property-module{display:grid;gap:12px;margin:14px 0 18px!important;border:2px solid #2dd4bf!important;border-left:7px solid #0f766e!important;background:#f8fffd!important}.pms-server-prop-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.pms-server-prop-title{font-size:22px;font-weight:900;color:#0f172a}.pms-server-prop-sub{font-size:13px;color:#64748b;margin-top:4px}.pms-server-prop-actions{display:flex;gap:8px;flex-wrap:wrap}.pms-server-prop-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}.pms-server-prop-card{border:1px solid #bfdbfe;border-radius:8px;background:#fff;padding:12px;display:grid;gap:9px}.pms-server-prop-card strong{font-size:18px}.pms-server-prop-meta{display:flex;gap:6px;flex-wrap:wrap}.pms-server-chip{display:inline-flex;border:1px solid #dbeafe;background:#f8fafc;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:900;color:#475569}.pms-server-edit{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.pms-server-buttons{display:flex;gap:8px;flex-wrap:wrap}.pms-server-note{border:1px dashed #93c5fd;background:#eff6ff;border-radius:8px;padding:10px;color:#334155;font-size:13px;font-weight:700}.pms-version-badge{display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:6px 9px;font-size:11px;font-weight:900;line-height:1;white-space:nowrap;pointer-events:none;opacity:.88}@media(max-width:760px){.pms-server-edit{grid-template-columns:1fr}.pms-server-buttons .smallbtn{flex:1 1 auto}}';document.head.appendChild(s);}
+  function versionBadge(){var b=document.getElementById('pmsVersionBadge');if(!b){b=document.createElement('span');b.id='pmsVersionBadge';b.className='pms-version-badge fixed';}b.className='pms-version-badge fixed';b.textContent='PMS v'+VERSION;b.style.position='fixed';b.style.right='12px';b.style.bottom='12px';b.style.top='auto';b.style.zIndex='999';b.style.pointerEvents='none';if(b.parentElement!==document.body)document.body.appendChild(b);}
   function host(){var owner=document.getElementById('owner');if(!owner)return null;var h=document.getElementById('pmsServerPropertyModule');if(h)return h;h=document.createElement('div');h.id='pmsServerPropertyModule';h.className='card pms-server-property-module';owner.insertBefore(h,owner.firstElementChild||null);return h;}
   function firstPropId(props){return props[0]&&props[0].id||'property_default';}
   function propRooms(pid,rooms,props){var first=firstPropId(props);return rooms.filter(function(r){return String(r.property_id||first)===String(pid);});}
@@ -222,7 +222,7 @@ new_text_response = '''def _pms_inject_html_version_badge(text, content_type):
 """
     visible_script = visible_script.replace("__PMS_VERSION__", PMS_PATCH_VERSION)
     badge = f"""<style id="pmsVersionBadgeServerStyle">
-#pmsVersionBadge{{position:fixed;right:12px;top:12px;z-index:10000;display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:7px 10px;font:900 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;white-space:nowrap;box-shadow:0 8px 20px rgba(15,23,42,.12)}}
+#pmsVersionBadge{{position:fixed;right:12px;bottom:12px;top:auto;z-index:999;display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:6px 9px;font:900 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;white-space:nowrap;box-shadow:0 8px 20px rgba(15,23,42,.10);pointer-events:none;opacity:.88}}
 </style><span id="pmsVersionBadge">PMS v{PMS_PATCH_VERSION}</span>""" + "<script>" + visible_script + "</script>"
     marker = "</body>"
     if marker in raw:
@@ -560,7 +560,7 @@ admin_ui_patch = r'''
 ui_patch += admin_ui_patch
 final_ui_override = r'''
 (function(){
-  const VERSION='2026-07-01-owner-index-property-v4';
+  const VERSION='2026-07-01-version-body-bottom-v6';
   window.__PMS_PATCH_VERSION=VERSION;
   const S=window.__pmsInlineState||(window.__pmsInlineState={});
   S.mailEdits=S.mailEdits||{};
@@ -595,7 +595,7 @@ final_ui_override = r'''
     if(!style){
       style=document.createElement('style');
       style.id='pmsVersionBadgeStyles';
-      style.textContent='.pms-version-badge{display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:900;line-height:1;white-space:nowrap}.pms-version-badge.fixed{position:fixed;right:12px;top:12px;z-index:10000;box-shadow:0 8px 20px rgba(15,23,42,.12)}';
+      style.textContent='.pms-version-badge{display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:6px 9px;font-size:11px;font-weight:900;line-height:1;white-space:nowrap;pointer-events:none;opacity:.88}.pms-version-badge.fixed{position:fixed;right:12px;bottom:12px;top:auto;z-index:999;box-shadow:0 8px 20px rgba(15,23,42,.10)}';
       document.head.appendChild(style);
     }
     let badge=document.getElementById('pmsVersionBadge');
@@ -605,18 +605,14 @@ final_ui_override = r'''
       badge.className='pms-version-badge';
     }
     badge.textContent='PMS v'+VERSION;
-    const nav=document.querySelector('header .nav')||document.querySelector('.nav')||null;
-    if(nav){
-      badge.classList.remove('fixed');
-      const logout=document.getElementById('logoutBtn');
-      if(badge.parentElement!==nav){
-        if(logout&&logout.parentElement===nav)nav.insertBefore(badge,logout);
-        else nav.appendChild(badge);
-      }
-    }else{
-      badge.classList.add('fixed');
-      if(badge.parentElement!==document.body)document.body.appendChild(badge);
-    }
+    badge.classList.add('fixed');
+    badge.style.position='fixed';
+    badge.style.right='12px';
+    badge.style.bottom='12px';
+    badge.style.top='auto';
+    badge.style.zIndex='999';
+    badge.style.pointerEvents='none';
+    if(badge.parentElement!==document.body)document.body.appendChild(badge);
   }
 
   function pmsGuardListCount(name){try{const value=window[name]||eval(name)||[];return Array.isArray(value)?value.length:0;}catch(e){const value=window[name]||[];return Array.isArray(value)?value.length:0;}}
