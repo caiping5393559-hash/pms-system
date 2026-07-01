@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-01-owner-property-visible-v3"
+PMS_PATCH_VERSION = "2026-07-01-owner-index-property-v4"
 legacy_owner_intro = """    <div class="card">
       <h2>房东管理页面</h2>
       <div class="small">房东可查看指定日期工作表、设置备注、设置房间和公区、查看未来预订、调整实际保洁。</div>
@@ -243,6 +243,21 @@ if new_text_response not in source_text:
     if old_text_response not in source_text:
         raise RuntimeError("text_response hook not found")
     source_text = source_text.replace(old_text_response, new_text_response, 1)
+patch_index_return_old = '''    return text.encode("utf-8")
+
+
+class Handler(BaseHTTPRequestHandler):
+'''
+patch_index_return_new = '''    text = _pms_inject_html_version_badge(text, "text/html; charset=utf-8")
+    return text.encode("utf-8")
+
+
+class Handler(BaseHTTPRequestHandler):
+'''
+if patch_index_return_new not in source_text:
+    if patch_index_return_old not in source_text:
+        raise RuntimeError("patch_index_html return hook not found")
+    source_text = source_text.replace(patch_index_return_old, patch_index_return_new, 1)
 ui_patch = (BASE / "pms_ui_patch.js").read_text(encoding="utf-8")
 ui_patch += r'''
 (function(){
@@ -545,7 +560,7 @@ admin_ui_patch = r'''
 ui_patch += admin_ui_patch
 final_ui_override = r'''
 (function(){
-  const VERSION='2026-07-01-owner-property-visible-v3';
+  const VERSION='2026-07-01-owner-index-property-v4';
   window.__PMS_PATCH_VERSION=VERSION;
   const S=window.__pmsInlineState||(window.__pmsInlineState={});
   S.mailEdits=S.mailEdits||{};

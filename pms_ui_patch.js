@@ -1,6 +1,6 @@
 (function(){
   const S=window.__pmsInlineState||(window.__pmsInlineState={rooms:{},areas:{},ical:{},feed:{},propertyNames:{}});
-  window.__PMS_PATCH_VERSION='2026-07-01-owner-property-visible-v3';
+  window.__PMS_PATCH_VERSION='2026-07-01-owner-index-property-v4';
   const PMS_INLINE_VERSION=window.__PMS_PATCH_VERSION;
   S.channelEdits=S.channelEdits||{};
   S.syncResults=S.syncResults||{};
