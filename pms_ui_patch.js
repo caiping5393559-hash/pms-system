@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-01-skip-empty-ical-v17';
+  const VERSION = '2026-07-01-user-settings-v18';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -521,7 +521,27 @@
     pane('ownerCleaning', `<div id="ownerCleaningShell"></div>`);
     pane('ownerNotes', `<div id="ownerNotesShell"></div>`);
     pane('ownerRooms', `<div id="roomSettingsUnifiedShell" class="room-settings-shell"><div id="roomSettings"></div></div>`);
+    ensureOwnerProfileTab();
     ensureRoomSettingsShell();
+  }
+  function ensureOwnerProfileTab(){
+    const owner = qs('owner');
+    if(!owner) return;
+    const tabbar = owner.querySelector('#ownerTabsCard .tabbar') || owner.querySelector('.tabbar');
+    if(tabbar && !tabbar.querySelector('[data-pms-profile-tab]')){
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.pmsProfileTab = '1';
+      btn.textContent = '用户设置';
+      btn.onclick = function(){showOwnerTabImpl('ownerProfile', this);};
+      tabbar.appendChild(btn);
+    }
+    if(!qs('ownerProfile')){
+      const div = document.createElement('div');
+      div.id = 'ownerProfile';
+      div.className = 'tab-content';
+      owner.appendChild(div);
+    }
   }
   function ensureRoomSettingsShell(){
     const pane = qs('ownerRooms');
@@ -534,8 +554,31 @@
   function ensureCleanerContainers(){
     const root = qs('cleaner');
     if(!root) return;
-    if(qs('cleanerDashboardShell')) return;
-    root.innerHTML = `<div id="cleanerDashboardShell"><div id="cleanerSummary"></div><div id="cleanerMetrics" class="grid"></div><div id="cleanerTodayNotes"></div><div class="card"><div class="tabbar"><button class="active" onclick="showTab('cleanerToday', this)">今日保洁</button><button onclick="showTab('cleanerFuture', this)">未来保洁</button><button onclick="showTab('cleanerManual', this)">手动调整记录</button><button onclick="showTab('cleanerHistory', this)">历史保洁</button></div></div><div id="cleanerToday" class="tab-content active"></div><div id="cleanerFuture" class="tab-content"></div><div id="cleanerManual" class="tab-content"></div><div id="cleanerHistory" class="tab-content"></div></div>`;
+    if(qs('cleanerDashboardShell')){
+      ensureCleanerProfileTab();
+      return;
+    }
+    root.innerHTML = `<div id="cleanerDashboardShell"><div id="cleanerSummary"></div><div id="cleanerMetrics" class="grid"></div><div id="cleanerTodayNotes"></div><div class="card"><div class="tabbar"><button class="active" onclick="showTab('cleanerToday', this)">今日保洁</button><button onclick="showTab('cleanerFuture', this)">未来保洁</button><button onclick="showTab('cleanerManual', this)">手动调整记录</button><button onclick="showTab('cleanerHistory', this)">历史保洁</button><button data-pms-profile-tab="1" onclick="showTab('cleanerProfile', this)">用户设置</button></div></div><div id="cleanerToday" class="tab-content active"></div><div id="cleanerFuture" class="tab-content"></div><div id="cleanerManual" class="tab-content"></div><div id="cleanerHistory" class="tab-content"></div><div id="cleanerProfile" class="tab-content"></div></div>`;
+    ensureCleanerProfileTab();
+  }
+  function ensureCleanerProfileTab(){
+    const shell = qs('cleanerDashboardShell');
+    if(!shell) return;
+    const tabbar = shell.querySelector('.tabbar');
+    if(tabbar && !tabbar.querySelector('[data-pms-profile-tab]')){
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.pmsProfileTab = '1';
+      btn.textContent = '用户设置';
+      btn.onclick = function(){showTabImpl('cleanerProfile', this);};
+      tabbar.appendChild(btn);
+    }
+    if(!qs('cleanerProfile')){
+      const pane = document.createElement('div');
+      pane.id = 'cleanerProfile';
+      pane.className = 'tab-content';
+      shell.appendChild(pane);
+    }
   }
   function ensureStyles(){
     let style = qs('pmsUnifiedStyles');
@@ -588,6 +631,14 @@
       .work-card h3{white-space:normal!important}
       .finance-section{margin-top:12px}.finance-section h3{margin:0;padding:10px 12px;background:#f8fafc;border:1px solid var(--line);border-radius:8px 8px 0 0}
       .mail-panel{border:1px solid #bae6fd;background:#f8fcff;border-radius:8px;padding:12px;display:grid;gap:10px}
+      .user-profile-card{display:grid;gap:14px}
+      .profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+      .profile-field{display:grid;gap:6px}
+      .profile-field label{font-weight:900;color:#0f172a}
+      .profile-field input{width:100%;min-width:0}
+      .profile-field input[readonly]{background:#f8fafc;color:#475569}
+      .profile-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+      .profile-status{font-size:13px;font-weight:900;color:#0f766e}
       @media(max-width:900px){.room-basics,.channel-grid{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}}
     `;
     document.head.appendChild(style);
@@ -1200,6 +1251,7 @@
     initSelectsImpl();
     renderOwnerMetricsImpl();
     ensureOwnerMailTab();
+    ensureOwnerProfileTab();
     renderOwnerTabImpl(activeOwnerTabId());
     setHeader('owner');
     ensureLogoutButton();
@@ -1213,6 +1265,7 @@
     else if(tab === 'ownerRooms'){renderRoomSettingsImpl();}
     else if(tab === 'ownerNotes'){renderOwnerNotesShell(); renderOwnerNotesImpl();}
     else if(tab === 'ownerMail'){renderOwnerMail();}
+    else if(tab === 'ownerProfile'){renderUserProfileImpl();}
     else renderDailyWorkImpl();
   }
   function showOwnerTabImpl(id,btn){
@@ -1252,6 +1305,58 @@
     }
     return `<div class="card"><div class="property-detail-head"><div><h2>${esc(title)}</h2><div class="small">房东账号 · 可查看房源：${esc(bound.map(p => p.name || p.id).join('、') || '还没有房源')}</div></div><span class="badge green">${bound.length} 个房源</span></div></div>`;
   }
+  function profileEmail(user){
+    const direct = String((user && user.email) || '').trim();
+    if(direct) return direct;
+    const username = String((user && user.username) || '').trim();
+    return username.includes('@') ? username : '';
+  }
+  function roleLabel(value){
+    const text = String(value || role() || '').toLowerCase();
+    if(text === 'admin') return '管理员';
+    if(text === 'owner') return '房东';
+    if(text === 'cleaner') return '保洁';
+    return text || '未识别';
+  }
+  function renderUserProfilePanel(rootId){
+    const root = qs(rootId);
+    if(!root) return;
+    const u = getCurrentUser() || {};
+    const email = profileEmail(u);
+    const phone = u.phone || u.mobile || u.tel || '';
+    const cleanerCode = u.cleaner_code || u.cleanerCode || '';
+    root.innerHTML = `<div class="card user-profile-card"><div class="property-detail-head"><div><h2>用户设置</h2><div class="small">查看当前登录账号资料；这里只能修改对外显示名。</div></div><span class="badge green">${esc(roleLabel(u.role))}</span></div><div class="profile-grid"><div class="profile-field"><label>对外显示名</label><input id="${rootId}_displayName" value="${esc(u.name || '')}" placeholder="例如 zhoulimei"></div><div class="profile-field"><label>用户名</label><input readonly value="${esc(u.username || '未填写')}"></div><div class="profile-field"><label>邮箱</label><input readonly value="${esc(email || '未填写')}"></div><div class="profile-field"><label>手机/微信</label><input readonly value="${esc(phone || '未填写')}"></div><div class="profile-field"><label>保洁编号</label><input readonly value="${esc(cleanerCode || '无')}"></div><div class="profile-field"><label>账号类型</label><input readonly value="${esc(roleLabel(u.role))}"></div></div><div class="profile-actions"><button class="smallbtn primary" onclick="saveUserProfile('${rootId}',this)">保存显示名</button><span id="${rootId}_profileStatus" class="profile-status"></span></div></div>`;
+  }
+  function renderUserProfileImpl(){
+    renderUserProfilePanel('ownerProfile');
+    renderUserProfilePanel('cleanerProfile');
+  }
+  async function saveUserProfile(rootId,btn){
+    const input = qs(rootId + '_displayName');
+    const name = String((input && input.value) || '').trim();
+    if(!name) return alert('对外显示名不能为空。');
+    const old = btn && btn.textContent;
+    if(btn){btn.disabled = true; btn.textContent = '保存中...';}
+    try{
+      const res = await fetch(apiUrl('/api/profile'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name})
+      });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || data.ok === false) throw new Error(data.error || ('保存失败 HTTP ' + res.status));
+      if(data.user) setCurrentUser({...getCurrentUser(), ...data.user});
+      if(data.state) applyStateFromServerImpl(data.state);
+      renderUserProfileImpl();
+      setHeader(isActualCleaner() ? 'cleaner' : 'owner');
+      const status = qs(rootId + '_profileStatus');
+      if(status) status.textContent = '已保存';
+    }catch(e){
+      alert('保存用户设置失败：' + (e && e.message ? e.message : e));
+    }finally{
+      if(btn){btn.disabled = false; btn.textContent = old || '保存显示名';}
+    }
+  }
   function renderCleanerNotesToday(){
     const rows = getNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.room_id,'room')).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
     if(!rows.length) return '';
@@ -1277,6 +1382,7 @@
       const total = groups[month].reduce((s,r) => s + rowAmount(r), 0);
       return `<div class="month-block ${index===0?'open':''}"><div class="month-head" onclick="this.parentElement.classList.toggle('open')"><span>${esc(month)} 保洁 ${groups[month].length} 次</span><span>费用：${money(total)}</span></div><div class="month-body">${cleaningTableScoped(groups[month])}</div></div>`;
     }).join('') || '<div class="card"><p class="small">暂无历史记录</p></div>');
+    renderUserProfileImpl();
     setHeader('cleaner');
     ensureLogoutButton();
     ensureVersionBadge();
@@ -1343,6 +1449,7 @@
       btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
     }
+    if(id === 'cleanerProfile' || id === 'ownerProfile') renderUserProfileImpl();
   }
   function applyRoleModeImpl(){
     ensureBaseShell();
@@ -1656,6 +1763,8 @@
     renderCleaningFinance: renderCleaningFinanceImpl,
     renderOwnerNotes: renderOwnerNotesImpl,
     renderOwnerMail,
+    renderUserProfile: renderUserProfileImpl,
+    saveUserProfile,
     ensureOwnerPropertyModuleVisible,
     refreshCalendarRangeViews: refreshCalendarRangeViewsImpl,
     setRangePreset: setRangePresetImpl,

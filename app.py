@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-01-skip-empty-ical-v17"
+PMS_PATCH_VERSION = "2026-07-01-user-settings-v18"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -3555,7 +3555,7 @@ def pms_state_response_for_user(state, actor):
     if actor:
         public_actor = {
             key: actor.get(key, "")
-            for key in ("id", "role", "username", "name", "phone", "cleaner_code", "group_id", "group_ids")
+            for key in ("id", "role", "username", "name", "email", "phone", "cleaner_code", "group_id", "group_ids")
             if actor.get(key) not in (None, "")
         }
         filtered["current_user"] = public_actor
@@ -3713,7 +3713,15 @@ state_post_route_old = '''            if path == "/api/state":
                 json_response(self, {"ok": True, "state": filter_state_for_user(saved, user)})
                 return
 '''
-state_post_route_new = '''            if path == "/api/state":
+state_post_route_new = '''            if path == "/api/profile":
+                user = require_user(self, ("admin", "owner", "cleaner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved, public_profile, updated_user = update_current_user_profile(payload, actor=user)
+                json_response(self, {"ok": True, "user": public_profile, "state": pms_state_response_for_user(saved, updated_user)})
+                return
+            if path == "/api/state":
                 user = require_user(self, ("admin", "owner"))
                 if not user:
                     return
@@ -3840,6 +3848,58 @@ def save_state_from_payload_light(payload, actor=None):
             globals()["load_state"] = original_load_state
         if callable(original_save_state):
             globals()["save_state"] = original_save_state
+
+
+def pms_public_profile(user):
+    public = {}
+    if not isinstance(user, dict):
+        return public
+    for key in ("id", "role", "username", "name", "email", "phone", "cleaner_code", "group_id", "group_ids"):
+        value = user.get(key)
+        if value not in (None, ""):
+            public[key] = value
+    return public
+
+
+def update_current_user_profile(payload, actor=None):
+    if not isinstance(payload, dict):
+        raise RuntimeError("payload must be an object")
+    if not actor:
+        raise RuntimeError("login required")
+    display_name = str(payload.get("name") or payload.get("display_name") or payload.get("displayName") or "").strip()
+    if not display_name:
+        raise RuntimeError("display name is required")
+    if len(display_name) > 80:
+        raise RuntimeError("display name is too long")
+
+    state = normalize_state(load_main_state())
+    users = state.setdefault("users", [])
+    actor_id = str(actor.get("id") or "")
+    actor_username = str(actor.get("username") or "").strip().lower()
+    target = None
+    for row in users:
+        if isinstance(row, dict) and actor_id and str(row.get("id") or "") == actor_id:
+            target = row
+            break
+    if target is None and actor_username:
+        for row in users:
+            if isinstance(row, dict) and str(row.get("username") or "").strip().lower() == actor_username:
+                target = row
+                break
+    if target is None:
+        raise RuntimeError("user not found")
+
+    target["name"] = display_name
+    target["updated_at"] = now_utc_iso()
+    base_save_state = globals().get("_pms_external_base_save_state")
+    if callable(base_save_state):
+        saved = base_save_state(state)
+    else:
+        saved = save_state(state)
+    public_profile = pms_public_profile(target)
+    updated_actor = dict(actor)
+    updated_actor.update(public_profile)
+    return normalize_state(saved), public_profile, updated_actor
 '''
 light_auth_anchor = "\ndef authenticate_user(username, password):\n"
 if "def load_main_state():" not in source_text:
