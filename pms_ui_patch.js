@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-01-fast-save-v14';
+  const VERSION = '2026-07-01-fast-save-v15';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -346,14 +346,25 @@
         last_sync: getLastSync(),
         propertyMailForwarding: ui.mail.propertyMailForwarding
       };
-      const res = await fetch(apiUrl('/api/state'), {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-      });
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 25000) : null;
+      let res;
+      try{
+        res = await fetch(apiUrl('/api/state'), {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          signal: controller ? controller.signal : undefined,
+          body: JSON.stringify(payload)
+        });
+      }finally{
+        if(timeoutId) clearTimeout(timeoutId);
+      }
       const data = await res.json().catch(() => ({}));
-      if(!res.ok || data.ok === false) throw new Error(data.error || '保存失败');
-      applyStateFromServerImpl(data.state || data);
+      if(!res.ok || data.ok === false) throw new Error(data.error || ('保存失败 HTTP ' + res.status));
+      const nextState = data && data.state ? data.state : data;
+      if(nextState && (Array.isArray(nextState.properties) || Array.isArray(nextState.rooms) || Array.isArray(nextState.channelListings))){
+        applyStateFromServerImpl(nextState);
+      }
       return data;
     }catch(err){
       alert('保存失败：' + (err && err.message ? err.message : err));

@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-01-fast-save-v14"
+PMS_PATCH_VERSION = "2026-07-01-fast-save-v15"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -3721,7 +3721,7 @@ state_post_route_new = '''            if path == "/api/state":
                 if not user:
                     return
                 payload = json.loads(raw.decode("utf-8") or "{}")
-                save_state_from_payload(payload, actor=user)
+                save_state_from_payload_light(payload, actor=user)
                 json_response(self, {"ok": True, "saved_at": now_utc_iso()})
                 return
 '''
@@ -3808,6 +3808,41 @@ def load_main_state():
     if callable(base_loader):
         return normalize_state(base_loader())
     return normalize_state(load_state())
+
+
+def save_state_from_payload_light(payload, actor=None):
+    original_load_state = globals().get("load_state")
+    original_save_state = globals().get("save_state")
+    external_keys = tuple(globals().get("_PMS_EXTERNAL_STATE_KEYS", ()))
+    base_load_state = globals().get("_pms_external_base_load_state")
+    base_save_state = globals().get("_pms_external_base_save_state") or original_save_state
+
+    def light_load_state():
+        if callable(base_load_state):
+            return normalize_state(base_load_state())
+        if callable(original_load_state):
+            return normalize_state(original_load_state())
+        return normalize_state(default_state())
+
+    def light_save_state(state):
+        compact_state = dict(normalize_state(state))
+        for key in external_keys:
+            compact_state.pop(key, None)
+        if callable(base_save_state):
+            saved = base_save_state(compact_state)
+        else:
+            saved = compact_state
+        return normalize_state(saved)
+
+    globals()["load_state"] = light_load_state
+    globals()["save_state"] = light_save_state
+    try:
+        return save_state_from_payload(payload, actor=actor)
+    finally:
+        if callable(original_load_state):
+            globals()["load_state"] = original_load_state
+        if callable(original_save_state):
+            globals()["save_state"] = original_save_state
 '''
 light_auth_anchor = "\ndef authenticate_user(username, password):\n"
 if "def load_main_state():" not in source_text:
