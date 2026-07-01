@@ -1,6 +1,6 @@
 (function(){
   const S=window.__pmsInlineState||(window.__pmsInlineState={rooms:{},areas:{},ical:{},feed:{},propertyNames:{}});
-  window.__PMS_PATCH_VERSION='2026-06-30-property-recovery-v1';
+  window.__PMS_PATCH_VERSION='2026-07-01-property-version-badge-v2';
   const PMS_INLINE_VERSION=window.__PMS_PATCH_VERSION;
   S.channelEdits=S.channelEdits||{};
   S.syncResults=S.syncResults||{};

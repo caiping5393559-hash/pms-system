@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-30-property-recovery-v1"
+PMS_PATCH_VERSION = "2026-07-01-property-version-badge-v2"
 legacy_owner_intro = """    <div class="card">
       <h2>房东管理页面</h2>
       <div class="small">房东可查看指定日期工作表、设置备注、设置房间和公区、查看未来预订、调整实际保洁。</div>
@@ -178,6 +178,41 @@ if new_state_io not in source_text:
     if old_state_io not in source_text:
         raise RuntimeError("state IO fallback hook not found")
     source_text = source_text.replace(old_state_io, new_state_io, 1)
+old_text_response = '''def text_response(handler, text, status=200, content_type="text/plain; charset=utf-8"):
+    data = str(text).encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(data)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    handler.wfile.write(data)
+'''
+new_text_response = '''def _pms_inject_html_version_badge(text, content_type):
+    raw = str(text)
+    if "text/html" not in str(content_type or "").lower() or "pmsVersionBadge" in raw or "__PMS_PATCH_VERSION" in raw:
+        return raw
+    badge = f"""<style id="pmsVersionBadgeServerStyle">
+#pmsVersionBadge{{position:fixed;right:12px;top:12px;z-index:10000;display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:7px 10px;font:900 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;white-space:nowrap;box-shadow:0 8px 20px rgba(15,23,42,.12)}}
+</style><span id="pmsVersionBadge">PMS v{PMS_PATCH_VERSION}</span>"""
+    marker = "</body>"
+    if marker in raw:
+        return raw.replace(marker, badge + marker, 1)
+    return raw + badge
+
+
+def text_response(handler, text, status=200, content_type="text/plain; charset=utf-8"):
+    data = _pms_inject_html_version_badge(text, content_type).encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(data)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    handler.wfile.write(data)
+'''
+if new_text_response not in source_text:
+    if old_text_response not in source_text:
+        raise RuntimeError("text_response hook not found")
+    source_text = source_text.replace(old_text_response, new_text_response, 1)
 ui_patch = (BASE / "pms_ui_patch.js").read_text(encoding="utf-8")
 ui_patch += r'''
 (function(){
@@ -480,7 +515,7 @@ admin_ui_patch = r'''
 ui_patch += admin_ui_patch
 final_ui_override = r'''
 (function(){
-  const VERSION='2026-06-30-property-recovery-v1';
+  const VERSION='2026-07-01-property-version-badge-v2';
   window.__PMS_PATCH_VERSION=VERSION;
   const S=window.__pmsInlineState||(window.__pmsInlineState={});
   S.mailEdits=S.mailEdits||{};
