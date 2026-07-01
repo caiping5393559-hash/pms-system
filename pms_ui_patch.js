@@ -1,965 +1,1650 @@
 (function(){
-  const S=window.__pmsInlineState||(window.__pmsInlineState={rooms:{},areas:{},ical:{},feed:{},propertyNames:{}});
-  window.__PMS_PATCH_VERSION='2026-07-01-calendar-cleaning-dedupe-v7';
-  const PMS_INLINE_VERSION=window.__PMS_PATCH_VERSION;
-  S.channelEdits=S.channelEdits||{};
-  S.syncResults=S.syncResults||{};
-  S.icalDiagnostics=S.icalDiagnostics||{};
-  function esc(v){return String(v||'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
-  function safe(v){return String(v||'').replace(/[^a-zA-Z0-9_-]/g,'_');}
-  function ensureVersionBadge(){
-    let style=document.getElementById('pmsVersionBadgeStyles');
+  const VERSION = '2026-07-01-single-frontend-v10';
+  window.__PMS_PATCH_VERSION = VERSION;
+
+  const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
+    selectedPropertyIds: null,
+    selectedPropertyId: '',
+    editingProperty: '',
+    editingRoom: '',
+    editingArea: '',
+    syncResults: {},
+    pendingChannels: {},
+    mail: {mailForwardingConfig: [], propertyMailForwarding: [], mailEvents: []},
+    booted: false,
+    loading: false
+  });
+
+  function esc(value){
+    return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+  }
+  function safe(value){return String(value || '').replace(/[^a-zA-Z0-9_-]/g, '_') || 'x';}
+  function qs(id){return document.getElementById(id);}
+  function nowIso(){return new Date().toISOString().slice(0,19);}
+  function apiUrl(path){
+    if(typeof withKey === 'function') return withKey(path);
+    const key = new URLSearchParams(location.search).get('key') || '';
+    return path + (path.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(key);
+  }
+
+  function getRooms(){try{return Array.isArray(rooms) ? rooms : [];}catch(e){return window.rooms || [];}}
+  function setRooms(value){try{rooms = value;}catch(e){} window.rooms = value;}
+  function getAreas(){try{return Array.isArray(commonAreas) ? commonAreas : [];}catch(e){return window.commonAreas || [];}}
+  function setAreas(value){try{commonAreas = value;}catch(e){} window.commonAreas = value;}
+  function getBookings(){try{return Array.isArray(bookings) ? bookings : [];}catch(e){return window.bookings || [];}}
+  function setBookings(value){try{bookings = value;}catch(e){} window.bookings = value;}
+  function getManual(){try{return Array.isArray(manualChanges) ? manualChanges : [];}catch(e){return window.manualChanges || [];}}
+  function setManual(value){try{manualChanges = value;}catch(e){} window.manualChanges = value;}
+  function getNotes(){try{return Array.isArray(cleaningNotes) ? cleaningNotes : [];}catch(e){return window.cleaningNotes || [];}}
+  function setNotes(value){try{cleaningNotes = value;}catch(e){} window.cleaningNotes = value;}
+  function getRoomNotes(){try{return Array.isArray(roomDateNotes) ? roomDateNotes : [];}catch(e){return window.roomDateNotes || [];}}
+  function setRoomNotes(value){try{roomDateNotes = value;}catch(e){} window.roomDateNotes = value;}
+  function getSyncErrors(){try{return Array.isArray(syncErrors) ? syncErrors : [];}catch(e){return window.syncErrors || [];}}
+  function setSyncErrors(value){try{syncErrors = value;}catch(e){} window.syncErrors = value;}
+  function getGroups(){try{return Array.isArray(groups) ? groups : [];}catch(e){return window.groups || [];}}
+  function setGroups(value){try{groups = value;}catch(e){} window.groups = value;}
+  function getUsers(){try{return Array.isArray(users) ? users : [];}catch(e){return window.users || [];}}
+  function setUsers(value){try{users = value;}catch(e){} window.users = value;}
+  function getProperties(){try{return Array.isArray(properties) ? properties : [];}catch(e){return window.properties || [];}}
+  function setProperties(value){try{properties = value;}catch(e){} window.properties = value;}
+  function getPropertyCleaners(){try{return Array.isArray(propertyCleaners) ? propertyCleaners : [];}catch(e){return window.propertyCleaners || [];}}
+  function setPropertyCleaners(value){try{propertyCleaners = value;}catch(e){} window.propertyCleaners = value;}
+  function getChannels(){try{return Array.isArray(channelListings) ? channelListings : [];}catch(e){return window.channelListings || [];}}
+  function setChannels(value){try{channelListings = value;}catch(e){} window.channelListings = value;}
+  function getConfirmations(){try{return Array.isArray(cleaningTaskConfirmations) ? cleaningTaskConfirmations : [];}catch(e){return window.cleaningTaskConfirmations || [];}}
+  function setConfirmations(value){try{cleaningTaskConfirmations = value;}catch(e){} window.cleaningTaskConfirmations = value;}
+  function getCurrentUser(){try{return currentUser || null;}catch(e){return window.currentUser || null;}}
+  function setCurrentUser(value){try{currentUser = value;}catch(e){} window.currentUser = value;}
+  function getLastSync(){try{return lastSync || '';}catch(e){return window.lastSync || '';}}
+  function setLastSync(value){try{lastSync = value || '';}catch(e){} window.lastSync = value || '';}
+
+  function today(){
+    try{return TODAY || new Date().toISOString().slice(0,10);}catch(e){return new Date().toISOString().slice(0,10);}
+  }
+  function parseDate(value){
+    const parts = String(value || '').slice(0,10).split('-').map(Number);
+    return new Date(parts[0] || 1970, (parts[1] || 1) - 1, parts[2] || 1);
+  }
+  function fmtDate(date){
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2,'0');
+    const d = String(date.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+  function addDay(value, count){
+    const d = parseDate(value);
+    d.setDate(d.getDate() + Number(count || 0));
+    return fmtDate(d);
+  }
+  function daysBetweenSafe(a,b){return Math.round((parseDate(b) - parseDate(a)) / 86400000);}
+  function dateRange(start,end){
+    const out = [];
+    const count = Math.max(0, daysBetweenSafe(start, addDay(end,1)));
+    for(let i=0;i<count;i++) out.push(addDay(start,i));
+    return out;
+  }
+  function monthKey(value){return String(value || '').slice(0,7);}
+
+  function role(){
+    const u = getCurrentUser() || {};
+    const explicit = String(u.role || u.account_type || u.accountType || u.type || '').toLowerCase();
+    if(['owner','admin','cleaner'].includes(explicit)) return explicit;
+    const id = String(u.id || u.user_id || u.uid || '').toLowerCase();
+    if(id.startsWith('owner_') || u.owner_id || u.ownerId || u.is_owner || u.isOwner) return 'owner';
+    if(id.startsWith('cleaner_') || u.cleaner_code || u.cleanerCode || u.is_cleaner || u.isCleaner) return 'cleaner';
+    if(getProperties().length || getRooms().length || getAreas().length) return 'owner';
+    return location.pathname.includes('/cleaner') ? 'cleaner' : 'owner';
+  }
+  function isActualCleaner(){return role() === 'cleaner';}
+  function isOwnerLike(){return role() === 'owner' || role() === 'admin';}
+  function cleanerPath(){return location.pathname.includes('/cleaner');}
+  function visibleAsCleaner(){return isActualCleaner() || (cleanerPath() && !isOwnerLike());}
+  function userName(fallback){
+    const u = getCurrentUser() || {};
+    return u.name || u.username || fallback || '';
+  }
+
+  function groupId(){
+    const p = getProperties()[0] || {};
+    const u = getCurrentUser() || {};
+    const ids = Array.isArray(u.group_ids) ? u.group_ids : [];
+    return p.group_id || ids[0] || u.group_id || (getGroups()[0] && getGroups()[0].id) || 'group_default';
+  }
+  function ensureRealDefaultProperty(){
+    const props = getProperties();
+    if(props.length || (!getRooms().length && !getAreas().length)) return;
+    const id = 'property_default';
+    props.push({id, group_id: groupId(), name: '默认房源', created_at: nowIso()});
+    getRooms().forEach(r => { if(!r.property_id) r.property_id = id; });
+    getAreas().forEach(a => { if(!a.property_id) a.property_id = id; });
+    setProperties(props);
+  }
+  function propList(){
+    ensureRealDefaultProperty();
+    return getProperties();
+  }
+  function propName(id){
+    const p = propList().find(x => String(x.id) === String(id));
+    return (p && (p.name || p.id)) || id || '未分配房源';
+  }
+  function roomPropId(roomId){
+    const fallback = (propList()[0] && propList()[0].id) || 'property_default';
+    const r = getRooms().find(x => String(x.id) === String(roomId));
+    return (r && (r.property_id || fallback)) || fallback;
+  }
+  function areaPropId(areaId){
+    const fallback = (propList()[0] && propList()[0].id) || 'property_default';
+    const a = getAreas().find(x => String(x.id) === String(areaId));
+    return (a && (a.property_id || fallback)) || fallback;
+  }
+  function targetPropId(id,type){return type === 'common' ? areaPropId(id) : roomPropId(id);}
+  function roomName(id){
+    const r = getRooms().find(x => String(x.id) === String(id));
+    return (r && (r.name || r.id)) || id || '';
+  }
+  function targetName(id,type){
+    if(type === 'common'){
+      const a = getAreas().find(x => String(x.id) === String(id));
+      return (a && (a.name || a.id)) || id || '';
+    }
+    return roomName(id);
+  }
+  function targetFee(id,type){
+    const list = type === 'common' ? getAreas() : getRooms();
+    const row = list.find(x => String(x.id) === String(id)) || {};
+    return Number(row.cleaning_fee || 0);
+  }
+  function money(value){
+    const n = Number(value || 0);
+    return (n < 0 ? '-' : '') + '$' + Math.abs(n).toFixed(2).replace(/\.00$/,'');
+  }
+  function signedMoney(value){
+    const n = Number(value || 0);
+    if(!n) return '$0';
+    return (n > 0 ? '+' : '-') + '$' + Math.abs(n).toFixed(2).replace(/\.00$/,'');
+  }
+
+  function validPropIds(){return propList().map(p => p.id);}
+  function ownerPropIds(){
+    const valid = new Set(validPropIds());
+    if(!ui.selectedPropertyIds || !Array.isArray(ui.selectedPropertyIds)){
+      ui.selectedPropertyIds = validPropIds();
+    }
+    const ids = ui.selectedPropertyIds.filter(id => valid.has(id));
+    if(!ids.length && valid.size) return validPropIds();
+    return ids;
+  }
+  function ownerScopeAll(){return ownerPropIds().length === validPropIds().length;}
+  function setOwnerPropertyIds(ids){
+    const valid = new Set(validPropIds());
+    ui.selectedPropertyIds = Array.from(new Set((ids || []).map(String).filter(id => valid.has(id))));
+    if(!ui.selectedPropertyIds.length) ui.selectedPropertyIds = validPropIds();
+  }
+  function propMatches(propId){return ownerPropIds().includes(propId);}
+  function roomMatches(roomId){return propMatches(roomPropId(roomId));}
+  function targetMatches(targetId,type){return propMatches(targetPropId(targetId,type));}
+  function ownerRooms(){return getRooms().filter(r => roomMatches(r.id));}
+  function ownerAreas(){return getAreas().filter(a => targetMatches(a.id,'common'));}
+  function selectedProp(){
+    const id = ui.selectedPropertyId;
+    return id ? propList().find(p => String(p.id) === String(id)) || null : null;
+  }
+  function propRooms(propId){return getRooms().filter(r => String(roomPropId(r.id)) === String(propId));}
+  function propAreas(propId){return getAreas().filter(a => String(areaPropId(a.id)) === String(propId));}
+  function propCleaners(propId){return getPropertyCleaners().filter(x => String(x.property_id) === String(propId));}
+
+  function dataCount(state){
+    const s = (state && state.state) || state || {};
+    return ['users','properties','propertyCleaners','rooms','commonAreas','bookings','channelListings'].reduce((n,k) => n + (Array.isArray(s[k]) ? s[k].length : 0), 0);
+  }
+  function currentDataCount(){
+    return getUsers().length + getProperties().length + getPropertyCleaners().length + getRooms().length + getAreas().length + getBookings().length + getChannels().length;
+  }
+  function cacheKey(state){
+    const u = (state && (state.current_user || state.currentUser)) || getCurrentUser() || {};
+    const id = [u.role || '', u.id || u.username || '', u.cleaner_code || ''].join('|');
+    return id.replace(/\|/g,'') ? 'pms:last-good-state:' + id : '';
+  }
+  function snapshot(){
+    const u = getCurrentUser();
+    return {
+      groups: getGroups(), users: getUsers(), properties: getProperties(), propertyCleaners: getPropertyCleaners(),
+      rooms: getRooms(), commonAreas: getAreas(), bookings: getBookings(), channelListings: getChannels(),
+      manualChanges: getManual(), cleaningNotes: getNotes(), roomDateNotes: getRoomNotes(),
+      cleaningTaskConfirmations: getConfirmations(), sync_errors: getSyncErrors(), last_sync: getLastSync(),
+      mailForwardingConfig: ui.mail.mailForwardingConfig, propertyMailForwarding: ui.mail.propertyMailForwarding,
+      mailEvents: ui.mail.mailEvents, current_user: u, currentUser: u
+    };
+  }
+  function rememberGoodState(){
+    try{
+      if(!currentDataCount()) return;
+      const snap = snapshot();
+      const key = cacheKey(snap);
+      if(key) localStorage.setItem(key, JSON.stringify({saved_at: Date.now(), state: snap}));
+    }catch(e){}
+  }
+  function cachedGoodStateFor(state){
+    try{
+      const key = cacheKey(state);
+      if(!key) return null;
+      const cached = JSON.parse(localStorage.getItem(key) || 'null');
+      return cached && cached.state && dataCount(cached.state) ? cached.state : null;
+    }catch(e){return null;}
+  }
+
+  function ensureDataGate(text){
+    let style = qs('pmsDataGateStyles');
     if(!style){
-      style=document.createElement('style');
-      style.id='pmsVersionBadgeStyles';
-      style.textContent='.pms-version-badge{display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:6px 9px;font-size:11px;font-weight:900;line-height:1;white-space:nowrap;pointer-events:none;opacity:.88}.pms-version-badge.fixed{position:fixed;right:12px;bottom:12px;top:auto;z-index:999;box-shadow:0 8px 20px rgba(15,23,42,.10)}';
+      style = document.createElement('style');
+      style.id = 'pmsDataGateStyles';
+      style.textContent = 'html.pms-waiting-data #owner,html.pms-waiting-data #cleaner{opacity:.22;pointer-events:none}#pmsDataGate{position:sticky;top:0;z-index:9998;margin:12px auto;max-width:880px;border:1px solid #99f6e4;background:#f0fdfa;color:#0f172a;border-radius:8px;padding:13px 16px;font-weight:900;box-shadow:0 10px 28px rgba(15,23,42,.12)}#pmsDataGate .small{margin-top:4px;color:#475569;font-weight:600}';
       document.head.appendChild(style);
     }
-    let badge=document.getElementById('pmsVersionBadge');
-    if(!badge){
-      badge=document.createElement('span');
-      badge.id='pmsVersionBadge';
-      badge.className='pms-version-badge';
+    let box = qs('pmsDataGate');
+    if(!box){
+      box = document.createElement('div');
+      box.id = 'pmsDataGate';
+      (document.querySelector('main') || document.body).prepend(box);
     }
-    badge.textContent='PMS v'+PMS_INLINE_VERSION;
-    badge.classList.add('fixed');
-    badge.style.position='fixed';
-    badge.style.right='12px';
-    badge.style.bottom='12px';
-    badge.style.top='auto';
-    badge.style.zIndex='999';
-    badge.style.pointerEvents='none';
-    if(badge.parentElement!==document.body)document.body.appendChild(badge);
+    box.innerHTML = `${esc(text || '正在加载 PMS 数据...')}<div class="small">系统会等真实房源和房间数据返回后再显示，不先渲染 0 数据。</div>`;
+    document.documentElement.classList.add('pms-waiting-data');
   }
-  function key(id,field){return String(id)+':'+String(field||'');}
-  function props(){try{return properties||[]}catch(e){return window.properties||[];}}
-  function setProps(v){try{properties=v;}catch(e){window.properties=v;}}
-  function roomList(){try{return rooms||[]}catch(e){return window.rooms||[];}}
-  function setRoomList(v){try{rooms=v;}catch(e){window.rooms=v;}}
-  function areaList(){try{return commonAreas||[]}catch(e){return window.commonAreas||[];}}
-  function setAreaList(v){try{commonAreas=v;}catch(e){window.commonAreas=v;}}
-  function cleanerLinks(){try{return propertyCleaners||[]}catch(e){return window.propertyCleaners||[];}}
-  function setCleanerLinks(v){try{propertyCleaners=v;}catch(e){window.propertyCleaners=v;}}
-  function userList(){try{return users||[]}catch(e){return window.users||[];}}
-  function setUserList(v){try{users=v;}catch(e){window.users=v;}}
-  function groupList(){try{return groups||[]}catch(e){return window.groups||[];}}
-  function setGroupList(v){try{groups=v;}catch(e){window.groups=v;}}
-  function bookingList(){try{return bookings||[]}catch(e){return window.bookings||[];}}
-  function setBookingList(v){try{bookings=v;}catch(e){window.bookings=v;}}
-  function archiveList(){try{return icalEventArchive||[]}catch(e){return window.icalEventArchive||[];}}
-  function setArchiveList(v){try{icalEventArchive=v;}catch(e){window.icalEventArchive=v;}}
-  function channelList(){try{return channelListings||[]}catch(e){return window.channelListings||[];}}
-  function setChannelList(v){try{channelListings=v;}catch(e){window.channelListings=v;}}
-  function current(){try{return currentUser||null}catch(e){return window.currentUser||null;}}
-  function setCurrent(v){try{currentUser=v;}catch(e){}window.currentUser=v;}
-  function stateUser(state){return (state&&(state.current_user||state.currentUser))||current()||{};}
-  function userIdentity(user){const u=user||{};return [u.role||'',u.id||u.username||'',u.cleaner_code||''].join('|');}
-  function stateIdentity(state){return userIdentity(stateUser(state));}
-  function currentIdentity(){return userIdentity(current()||{});}
-  function arrayCount(state,key){return Array.isArray(state&&state[key])?state[key].length:0;}
-  function stateDataCount(state){const s=(state&&state.state)||state||{};return ['users','properties','propertyCleaners','rooms','commonAreas','bookings','channelListings'].reduce((n,k)=>n+arrayCount(s,k),0);}
-  function currentDataCount(){return userList().length+props().length+cleanerLinks().length+roomList().length+areaList().length+bookingList().length+channelList().length;}
-  function stateHasArrayPayload(state){const s=(state&&state.state)||state||{};return ['properties','propertyCleaners','rooms','commonAreas','bookings','channelListings'].some(k=>Array.isArray(s[k]));}
-  function isTransientEmptyState(state){const s=(state&&state.state)||state||{};return stateHasArrayPayload(s)&&stateDataCount(s)===0;}
-  function lastGoodKeyFor(state){const id=stateIdentity((state&&state.state)||state||{});return id&&id!=='||'?'pms:last-good-state:'+id:'';}
-  function currentStateSnapshot(){const u=current()||null;return {groups:groupList(),users:userList(),properties:props(),propertyCleaners:cleanerLinks(),rooms:roomList(),commonAreas:areaList(),bookings:bookingList(),icalEventArchive:archiveList(),channelListings:channelList(),manualChanges:manualList(),cleaningNotes:cleanNoteList(),roomDateNotes:roomDateNoteList(),cleaningTaskConfirmations:cleaningConfirmList(),sync_errors:syncErrorList(),last_sync:lastSyncValue(),current_user:u,currentUser:u};}
-  function rememberGoodState(){try{if(!currentDataCount())return;const snap=currentStateSnapshot(),key=lastGoodKeyFor(snap);if(key)localStorage.setItem(key,JSON.stringify({saved_at:Date.now(),state:snap}));}catch(e){}}
-  function cachedGoodStateFor(state){try{const key=lastGoodKeyFor(state);if(!key)return null;const cached=JSON.parse(localStorage.getItem(key)||'null');return cached&&cached.state&&stateDataCount(cached.state)?cached.state:null;}catch(e){return null;}}
-  function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
-  function ensureDataGate(text){let style=document.getElementById('pmsDataGateStyles');if(!style){style=document.createElement('style');style.id='pmsDataGateStyles';style.textContent='html.pms-waiting-data #owner,html.pms-waiting-data #cleaner{opacity:.25;pointer-events:none}#pmsDataGate{position:sticky;top:0;z-index:9998;margin:16px auto;max-width:860px;border:1px solid #99f6e4;background:#f0fdfa;color:#0f172a;border-radius:8px;padding:14px 16px;font-weight:800;box-shadow:0 10px 28px rgba(15,23,42,.12)}#pmsDataGate .small{margin-top:4px;color:#475569;font-weight:600}';document.head.appendChild(style);}let box=document.getElementById('pmsDataGate');if(!box){box=document.createElement('div');box.id='pmsDataGate';const main=document.querySelector('main')||document.body;main.insertBefore(box,main.firstChild);}box.innerHTML=`${esc(text||'正在加载 PMS 数据...')}<div class="small">系统正在等真实房源和房间数据返回，不会先显示 0 数据。</div>`;document.documentElement.classList.add('pms-waiting-data');}
-  function clearDataGate(){document.documentElement.classList.remove('pms-waiting-data');const box=document.getElementById('pmsDataGate');if(box)box.remove();}
-  function removeLegacyIntroCards(){document.querySelectorAll('#owner > .card,#cleaner > .card').forEach(card=>{const h=card.querySelector('h2');const text=String(h&&h.textContent||'');if(text.includes('房东管理页面')||text.includes('保洁工作台')||text.includes('保洁退房页面'))card.remove();});}
-  function applyHeaderIdentity(){const u=current();if(!u)return;const title=document.querySelector('header h1'),subtitle=document.querySelector('header h1 + .small');const name=u.name||u.username||'';if(u.role==='cleaner'){if(title)title.textContent=(name?name+' · ':'')+'保洁工作台';if(subtitle)subtitle.textContent='查看绑定房源、当天保洁、未来任务和历史/调整。';}else if(u.role==='owner'){if(title)title.textContent=(name||'房东')+' · owner的PMS管理后台';if(subtitle)subtitle.textContent='管理房源、房间、公区、iCal 同步和保洁绑定。';}}
-  function groupId(){const gs=groupList();return (gs[0]&&gs[0].id)||'group_default';}
-  function norm(v){return String(v||'').trim().replace(/\\s+/g,'').toLowerCase();}
-  function displayPropertyName(value,id){const raw=String(value||id||'').trim();return raw?`房源：${raw}`:'未分配房源';}
-  function propertyRawName(id){const p=props().find(p=>p.id===id);return String((p&&(p.name||p.id))||id||'').trim();}
-  function stripPropertyPrefix(value,propertyId){let text=String(value||'').trim();const raw=propertyRawName(propertyId);if(raw&&text.startsWith(raw+' '))text=text.slice(raw.length).trim();return text;}
-  function firstPropId(){const ps=props();return (ps[0]&&ps[0].id)||'property_default';}
-  function propRooms(pid){const f=firstPropId();return roomList().filter(r=>(r.property_id||f)===pid);}
-  function propAreas(pid){const f=firstPropId();return areaList().filter(a=>(a.property_id||f)===pid);}
-  function propCleaners(pid){return cleanerLinks().filter(x=>x.property_id===pid);}
-  function currentCleanerCode(){const u=current()||{};return String(u.cleaner_code||'').trim().toUpperCase();}
-  function cleanerBoundProperties(){const code=currentCleanerCode();if(!code)return[];const ids=new Set(cleanerLinks().filter(x=>String(x.cleaner_code||'').trim().toUpperCase()===code).map(x=>x.property_id));return props().filter(p=>ids.has(p.id));}
-  function cleanerAccountHtml(){const u=current()||{},ps=cleanerBoundProperties(),name=u.name||u.username||'保洁',code=u.cleaner_code||'',propertyText=ps.length?ps.map(p=>displayPropertyName(p.name,p.id)).join('、'):'还没有绑定房源';return `<div class="card cleaner-account-card"><div class="property-detail-head"><div><h2>${esc(name)}</h2><div class="small">保洁编号：${esc(code||'-')} · 已绑定房源：${esc(propertyText)}</div></div><span class="badge green">${ps.length} 个房源</span></div></div>`;}
-  function currentIsCleaner(){const u=current();return !!(u&&u.role==='cleaner')||String(location&&location.pathname||'').includes('/cleaner');}
-  function applyCleanerChrome(){if(!currentIsCleaner())return;const title=document.querySelector('header h1'),subtitle=document.querySelector('header h1 + .small');if(title)title.textContent='保洁工作台';if(subtitle)subtitle.textContent='查看绑定房源、当天保洁、未来任务和历史/调整。';document.title='保洁工作台';document.querySelectorAll('button,a').forEach(el=>{if(el.id==='logoutBtn')return;const t=String(el.textContent||'').trim();if(t.includes('房东管理'))el.style.display='none';});ensureLogoutButton(document.querySelector('header .nav')||document.querySelector('header')||document.body);}
-  function forceLogout(){try{Object.keys(localStorage||{}).forEach(k=>{if(/^pms/i.test(k)||k.includes('last-good-state'))localStorage.removeItem(k);});sessionStorage.clear();document.cookie.split(';').forEach(c=>{const n=c.split('=')[0].trim();if(n)document.cookie=n+'=; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';});}catch(e){}fetch('/api/logout',{method:'POST',keepalive:true}).catch(()=>{});location.replace('/logout?ts='+Date.now());}
-  window.logout=forceLogout;window.pmsForceLogout=forceLogout;
-  function ensureLogoutButton(container){let btn=document.getElementById('logoutBtn');if(!btn){btn=document.createElement('button');btn.id='logoutBtn';btn.type='button';btn.textContent='退出登录';btn.className='smallbtn';(container||document.querySelector('.nav')||document.querySelector('.tabbar')||document.body).appendChild(btn);}btn.style.display='';btn.onclick=forceLogout;btn.textContent='退出登录';return btn;}
-  function polishAccountBar(){ensureVersionBadge();const u=current();if(!u)return;applyHeaderIdentity();const nav=document.querySelector('.nav')||document.querySelector('header')||document.querySelector('.topbar')||document.querySelector('.tabbar');if(nav){const label=Array.from(nav.querySelectorAll('.small')).find(el=>!el.dataset.pmsKeepText);if(label){label.textContent=u.role==='cleaner'?`${u.name||u.username||'保洁'} · ${u.cleaner_code||''}`:(u.role==='owner'?`${u.name||u.username||'房东'}`:(u.name||u.username||u.role||''));}ensureLogoutButton(nav);ensureVersionBadge();if(u.role==='cleaner'){nav.querySelectorAll('button,a').forEach(el=>{if(el.id==='logoutBtn'||el.id==='pmsVersionBadge')return;const t=String(el.textContent||'').trim();if(t.includes('房东管理')||t.includes('房源管理'))el.style.display='none';});}}else{const btn=ensureLogoutButton(document.body);Object.assign(btn.style,{position:'fixed',right:'18px',top:'18px',zIndex:'9999'});ensureVersionBadge();}}
-  function activeProp(){const id=S.selectedPropertyId||window.selectedPropertyId||'';return id?(props().find(p=>p.id===id)||null):null;}
-  function setActive(id){S.selectedPropertyId=String(id||'');window.selectedPropertyId=S.selectedPropertyId;try{selectedPropertyId=S.selectedPropertyId;}catch(e){}}
-  function manualList(){try{return manualChanges||[]}catch(e){return window.manualChanges||[];}}
-  function upsertManualChange(row){const list=manualList();const key=x=>[x.date||'',x.target_id||'',x.target_type||'',x.type||''].join('|');const idx=list.findIndex(x=>key(x)===key(row));if(idx>=0){row.id=list[idx].id||row.id;row.created_at=list[idx].created_at||row.created_at;list.splice(idx,1,row);return 'updated';}list.unshift(row);return 'added';}
-  function cleanNoteList(){try{return cleaningNotes||[]}catch(e){return window.cleaningNotes||[];}}
-  function cleaningConfirmList(){try{return cleaningTaskConfirmations||[]}catch(e){window.cleaningTaskConfirmations=window.cleaningTaskConfirmations||[];return window.cleaningTaskConfirmations;}}
-  function setCleaningConfirmList(rows){try{cleaningTaskConfirmations=rows;}catch(e){window.cleaningTaskConfirmations=rows;}}
-  function roomDateNoteList(){try{return roomDateNotes||[]}catch(e){return window.roomDateNotes||[];}}
-  function syncErrorList(){try{return syncErrors||[]}catch(e){return window.syncErrors||[];}}
-  function channelNeedsReview(ch){const s=String(ch&&ch.availability_status||'');return s==='needs_review'||s==='order_disappeared';}
-  function channelHasInferredLock(ch){return String(ch&&ch.availability_status||'')==='inferred_lock';}
-  function roomNeedsChannelReview(roomId){return channelList().some(ch=>ch&&ch.room_id===roomId&&channelNeedsReview(ch));}
-  function roomChannelReviewText(roomId){return channelList().filter(ch=>ch&&ch.room_id===roomId&&channelNeedsReview(ch)).map(ch=>`${ch.platform||'渠道'}${ch.channel_note?' · '+ch.channel_note:''}：${ch.sync_warning||'iCal 同步需要复核'}`).join('；');}
-  function lastSyncValue(){try{return lastSync||''}catch(e){return window.lastSync||'';}}
-  function validPropIds(){return props().map(p=>p.id);}
-  function rawOwnerPropIds(){if(Array.isArray(S.ownerPropertyIds))return S.ownerPropertyIds;if(S.ownerPropertyId&&S.ownerPropertyId!=='all')return [S.ownerPropertyId];return validPropIds();}
-  function ownerPropIds(){const valid=new Set(validPropIds());return rawOwnerPropIds().map(String).filter(id=>valid.has(id));}
-  function ownerScopeAll(){const ids=ownerPropIds(),all=validPropIds();return all.length>0&&ids.length===all.length;}
-  function showPropColumn(){return ownerPropIds().length!==1;}
-  function ownerPropId(){const ids=ownerPropIds();return ids.length===1?ids[0]:(ownerScopeAll()?'all':'multi');}
-  function saveOwnerPropIds(ids){const valid=new Set(validPropIds());const clean=Array.from(new Set((ids||[]).map(String).filter(id=>valid.has(id))));S.ownerPropertyIds=clean;S.ownerPropertyId=clean.length===1?clean[0]:(clean.length===valid.size?'all':'multi');window.ownerPropertyFilter=clean.join(',');}
-  function setOwnerPropertyFilter(id,checked){let ids=ownerPropIds();if(id==='__all__'){saveOwnerPropIds(checked?validPropIds():[]);}else{ids=checked?ids.concat([id]):ids.filter(x=>x!==id);saveOwnerPropIds(ids);}refreshOwnerScopedViews();}
-  function setOwnerPropertyOnly(id){saveOwnerPropIds([id]);refreshOwnerScopedViews();}
-  function setOwnerPropertyAll(){saveOwnerPropIds(validPropIds());refreshOwnerScopedViews();}
-  function toggleOwnerPropertySelection(){const current=new Set(ownerPropIds());saveOwnerPropIds(validPropIds().filter(id=>!current.has(id)));refreshOwnerScopedViews();}
-  function clearOwnerPropertyFilter(){saveOwnerPropIds([]);refreshOwnerScopedViews();}
-  function propName(id){const p=props().find(p=>p.id===id);return p?displayPropertyName(p.name,p.id):(id?displayPropertyName('',id):'未分配房源');}
-  function roomPropId(id){const r=roomList().find(x=>x.id===id);return (r&&(r.property_id||firstPropId()))||firstPropId();}
-  function areaPropId(id){const a=areaList().find(x=>x.id===id);return (a&&(a.property_id||firstPropId()))||firstPropId();}
-  function targetPropId(id,type){return type==='common'?areaPropId(id):roomPropId(id);}
-  function propMatches(id){return ownerPropIds().includes(id);}
-  function roomMatches(id){return propMatches(roomPropId(id));}
-  function targetMatches(id,type){return propMatches(targetPropId(id,type));}
-  function bookingMatches(b){return roomMatches(b.room_id);}
-  function ownerRooms(){const ids=ownerPropIds();return roomList().filter(r=>ids.includes(roomPropId(r.id)));}
-  function ownerAreas(){const ids=ownerPropIds();return areaList().filter(a=>ids.includes(areaPropId(a.id)));}
-  function objectDisplayName(item,type){const id=type==='common'?areaPropId(item.id):roomPropId(item.id);return stripPropertyPrefix(item.name||item.id,id)||item.id;}
-  function cleanRoomName(id){const r=roomList().find(x=>x.id===id);return r?objectDisplayName(r,'room'):(typeof roomName==='function'?roomName(id):id);}
-  function cleanTargetName(id,type){const list=type==='common'?areaList():roomList();const item=list.find(x=>x.id===id);return item?objectDisplayName(item,type):(typeof targetName==='function'?targetName(id,type):id);}
-  function cleaningTargets(){return ownerRooms().map(r=>({type:'room',id:r.id,name:scopedName(r,'room'),fee:Number(r.cleaning_fee||0)})).concat(ownerAreas().map(a=>({type:'common',id:a.id,name:scopedName(a,'common'),fee:Number(a.cleaning_fee||0)})));}
-  function cleanTargetValue(t){return `${t.type}:${t.id}`;}
-  function parseCleanTarget(value,fallbackType){const raw=String(value||'');if(raw.includes(':')){const parts=raw.split(':');return {type:parts[0]||fallbackType||'room',id:parts.slice(1).join(':')};}return {type:fallbackType||document.getElementById('manualTargetType')?.value||document.getElementById('noteTargetType')?.value||'room',id:raw};}
-  function findCleanTarget(value,fallbackType){const parsed=parseCleanTarget(value,fallbackType);return cleaningTargets().find(t=>t.type===parsed.type&&t.id===parsed.id)||null;}
-  function cleanTargetOptions(selected,blank){const opts=(blank?`<option value="">${esc(blank)}</option>`:'')+cleaningTargets().map(t=>`<option value="${esc(cleanTargetValue(t))}"${cleanTargetValue(t)===selected?' selected':''}>${esc(t.name)}</option>`).join('');return opts||'<option value="">当前房源没有对象</option>';}
-  function updateManualAmount(force){const target=findCleanTarget(document.getElementById('manualTarget')?.value);const amount=document.getElementById('manualAmount'),type=document.getElementById('manualType')?.value||'add';if(!amount||!target)return;const suggested=Math.abs(Number(target.fee||0))*(type==='remove'?-1:1);if(force||amount.value===''||amount.dataset.auto==='1'){amount.value=String(suggested);amount.dataset.auto='1';}}
-  function cleanNoteKindLabel(kind){return kind==='checkin'?'入住备注':'退房保洁备注';}
-  function cleanNoteEvents(){return dedupeBookingsByStay(ownerRealBookings()).flatMap(b=>[{date:b.checkout,room_id:b.room_id,kind:'checkout',booking:b},{date:b.checkin,room_id:b.room_id,kind:'checkin',booking:b}]).filter(x=>x.date&&roomMatches(x.room_id)).sort((a,b)=>String(a.date).localeCompare(String(b.date))||cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id))||a.kind.localeCompare(b.kind));}
-  function cleanNoteOptionRows(key,values,events){const seen=new Set(),rows=[];events.forEach(ev=>{let value='',label='';if(key==='date'){value=ev.date;label=`${ev.date===TODAY?'今天 ':''}${ev.date}`;}else if(key==='room'){value=ev.room_id;label=scopedName(roomList().find(r=>r.id===ev.room_id)||{id:ev.room_id,name:cleanRoomName(ev.room_id)},'room');}else{value=ev.kind;label=cleanNoteKindLabel(ev.kind);}if(!value||seen.has(value))return;seen.add(value);rows.push({value,label});});return rows;}
-  function renderCleanNoteSelect(el,rows,current,blank){if(!el)return '';const valid=rows.some(x=>x.value===current),next=valid?current:'';el.innerHTML=`<option value="">${esc(blank)}</option>`+rows.map(x=>`<option value="${esc(x.value)}"${x.value===next?' selected':''}>${esc(x.label)}</option>`).join('');el.value=next;return next;}
-  function refreshCleaningNoteControls(changed){const dateEl=document.getElementById('cleanNoteDate'),roomEl=document.getElementById('cleanNoteRoom'),kindEl=document.getElementById('cleanNoteKind');if(!dateEl||!roomEl||!kindEl)return;let values={date:dateEl.value||'',room:roomEl.value||'',kind:kindEl.value||''};const all=cleanNoteEvents(),filteredFor=key=>all.filter(ev=>(key==='date'||!values.date||ev.date===values.date)&&(key==='room'||!values.room||ev.room_id===values.room)&&(key==='kind'||!values.kind||ev.kind===values.kind));values.date=renderCleanNoteSelect(dateEl,cleanNoteOptionRows('date',values,filteredFor('date')),values.date,'选择日期');values.room=renderCleanNoteSelect(roomEl,cleanNoteOptionRows('room',values,filteredFor('room')),values.room,'选择房间');values.kind=renderCleanNoteSelect(kindEl,cleanNoteOptionRows('kind',values,filteredFor('kind')),values.kind,'选择备注类型');const chosen=['date','room','kind'].filter(k=>values[k]).length;if(chosen>=2){['date','room','kind'].forEach(key=>{if(values[key])return;const el=key==='date'?dateEl:key==='room'?roomEl:kindEl,rows=cleanNoteOptionRows(key,values,filteredFor(key));if(rows.length===1){el.value=rows[0].value;values[key]=rows[0].value;}});} }
-  function refreshCleaningNoteDates(){refreshCleaningNoteControls('date');}
-  function refreshCleaningNoteRooms(){refreshCleaningNoteControls('room');}
-  function resetCleaningNoteForm(){['cleanNoteDate','cleanNoteRoom','cleanNoteKind','cleanNoteAmount','cleanNoteText'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});refreshCleaningNoteControls('reset');}
-  function isLockedBooking(b){if(!b)return false;const kind=[b.booking_type,b.kind,b.type,b.event_type,b.eventType].map(v=>String(v||'').toLowerCase()).join(' ');const text=[kind,b.status,b.summary,b.lock_reason,b.lockReason,b.reason,b.description,b.platform,b.source,b.guest,b.title,b.name].map(v=>String(v||'').toLowerCase()).join(' ');if(b.is_locked||b.isLocked||b.locked||b.blocked||b.is_blocked||b.isBlocked||kind.includes('lock')||kind.includes('block'))return true;if(/不开放|锁定|锁房|手动锁|手动关闭|关闭|不可订|封锁|暂停开放|blocked|calendar blocked|closed|unavailable|not available|not open|manual lock|manual block|owner block|hold/.test(text))return true;if(/reserved|reservation|confirmed|accepted|booked|预订|订单|入住/.test(text))return false;return false;}
-  function realBookings(){return bookingList().filter(b=>!isLockedBooking(b));}
-  function lockBookings(){return bookingList().filter(isLockedBooking);}
-  function lockReason(b){return String((b&&(b.lock_reason||b.status||b.summary||b.reason))||'平台关闭日历或关联房源占用');}
-  function ownerBookings(){return bookingList().filter(bookingMatches);}
-  function ownerRealBookings(){return realBookings().filter(bookingMatches);}
-  function ownerLockBookings(){return lockBookings().filter(bookingMatches);}
-  function ownerManualRows(){return manualList().filter(m=>targetMatches(m.target_id,m.target_type));}
-  function ownerCleanNotes(){return cleanNoteList().filter(n=>targetMatches(n.target_id,n.target_type));}
-  function ownerRoomDateNotes(){return roomDateNoteList().filter(n=>roomMatches(n.room_id));}
-  function propBadge(id){return showPropColumn()?` <span class="badge purple">${esc(propName(id))}</span>`:'';}
-  function scopedName(item,type){const id=type==='common'?areaPropId(item.id):roomPropId(item.id),name=objectDisplayName(item,type);return showPropColumn()?`${propName(id)}｜${name}`:name;}
-  function setOptions(id,html,selected){const el=document.getElementById(id);if(!el)return;el.innerHTML=html;if(selected&&Array.from(el.options).some(o=>o.value===selected))el.value=selected;}
-  function refreshPropertyHub(){if(typeof refreshOwnerScopedViews==='function')refreshOwnerScopedViews();else if(typeof renderOwnerMetrics==='function')renderOwnerMetrics();ensureOwnerPropertyModuleVisible();if(typeof renderOwnerMail==='function')renderOwnerMail();}
-  function ensurePropertyMailDigestCss(){let s=document.getElementById('pmsPropertyMailDigestStyles');if(!s){s=document.createElement('style');s.id='pmsPropertyMailDigestStyles';document.head.appendChild(s);}s.textContent=`.property-mail-digest{border:1px solid #dbeafe;background:#f8fafc;border-radius:8px;padding:8px 10px;margin-top:8px;display:grid;gap:4px;width:100%;text-align:left;cursor:pointer;font:inherit;color:inherit}.property-mail-digest:hover{border-color:#14b8a6;background:#f0fdfa}.property-mail-digest.warn{border-color:#fde68a;background:#fffbeb}.property-mail-digest.high{border-color:#fecaca;background:#fff7f7}.property-mail-digest .digest-head{display:flex;gap:8px;justify-content:space-between;align-items:center}.property-mail-digest .digest-count{font-size:12px;font-weight:900;color:#475569}.property-mail-digest .digest-preview{font-size:12px;color:#334155;line-height:1.35;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.mail-tab-shell{display:grid;gap:12px}.mail-property-block{display:grid;gap:10px;border:1px solid #d8e1ef;border-radius:8px;background:#fff;padding:12px}.mail-property-block-title{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}`;}
-  function mailPreviewText(e){return String((e&&(e.title||e.summary||e.raw_subject))||'').replace(/\\s+/g,' ').trim().slice(0,54);}
-  function propertyMailDigestHtml(propertyId){ensurePropertyMailDigestCss();const rows=(typeof propertyMailEvents==='function'?propertyMailEvents(propertyId):[]),total=rows.length,latest=rows[0]||null,high=rows.filter(e=>String(e.severity||'')==='high').length,warn=rows.filter(e=>['warn','warning'].includes(String(e.severity||''))).length,cls=high?'high':warn?'warn':'';if(!total)return `<button type='button' class='property-mail-digest' onclick='openPropertyMailTab("${esc(propertyId)}")'><div class='digest-head'><strong>邮件提醒</strong><span class='digest-count'>0 条</span></div><div class='digest-preview'>暂无 Airbnb 邮件提醒，点这里设置转发邮箱。</div></button>`;const type=latest?mailEventTypeText(latest.event_type):'',room=latest?mailEventRoomText(latest):'',preview=latest?mailPreviewText(latest):'',flag=high?` · ${high} 高优先级`:(warn?` · ${warn} 需关注`:'');return `<button type='button' class='property-mail-digest ${cls}' onclick='openPropertyMailTab("${esc(propertyId)}")'><div class='digest-head'><strong>邮件提醒</strong><span class='digest-count'>${total} 条${flag}</span></div><div class='digest-preview'>${esc(type)}${room?` · ${esc(room)}`:''}${preview?` · ${esc(preview)}`:''}</div></button>`;}
-  function propertyHubCard(p){const ids=ownerPropIds(),checked=ids.includes(p.id),cleaners=propCleaners(p.id);const cleanerText=cleaners.length?cleaners.map(x=>`<span class='badge green'>${esc(cleanerLabel(x.cleaner_code))}</span>`).join(''):`<span class='property-meta-line'>保洁：未绑定</span>`;return `<div class='property-card-row property-hub-card'><div><label style='display:flex;gap:10px;align-items:center;flex-wrap:wrap'><input type='checkbox' value='${esc(p.id)}'${checked?' checked':''} onchange='setOwnerPropertyFilter("${esc(p.id)}",this.checked)'><span class='property-title-line'>${esc(displayPropertyName(p.name,p.id))}</span></label><div class='property-meta-line'>${propRooms(p.id).length} 个房间 · ${propAreas(p.id).length} 个公区 · ${cleaners.length} 个保洁绑定</div><div>${cleanerText}</div>${propertyMailDigestHtml(p.id)}</div><div class='property-card-actions'><button class='smallbtn' onclick='editPropertyName("${esc(p.id)}",this)'>修改名字</button><button class='smallbtn primary' onclick='openPropertyRooms("${esc(p.id)}")'>进入房间管理</button><button class='smallbtn' onclick='deletePropertyUi("${esc(p.id)}",this)'>删除房源</button></div></div>`;}
-  function ownerScopeHtml(){const ids=ownerPropIds(),label=!ids.length?'未选择房源':ownerScopeAll()?'全部房源':ids.length===1?propName(ids[0]):`${ids.length} 个房源`;const cards=props().map(propertyHubCard).join('');return `<div class="metric property-scope-panel" style="grid-column:1/-1"><div class="property-scope-head"><div><div class="small">房源筛选 / 房源管理</div><strong>${esc(label)}</strong><div class="small">勾选控制下面所有菜单显示哪些房源；也可以在这里添加、改名、删除房源，或进入单个房源的房间管理。</div></div><div class="property-scope-actions"><button class="smallbtn primary" onclick="addProperty()">添加房源</button><button class="smallbtn" onclick="toggleOwnerPropertySelection()">全选/反选</button><button class="smallbtn" onclick="clearOwnerPropertyFilter()">清空</button></div></div><div id="ownerPropertyFilter" class="property-cards">${cards||'<span class="small">还没有房源，先点右上角添加房源。</span>'}</div></div>`;}
-  function ensureOwnerMetricsHost(){const owner=document.getElementById('owner');if(!owner)return null;let host=document.getElementById('ownerMetrics');if(host)return host;host=document.createElement('div');host.id='ownerMetrics';host.className='grid owner-property-module-host';const tabbar=owner.querySelector(':scope > .card .tabbar')||owner.querySelector('.tabbar');const card=tabbar&&tabbar.closest?tabbar.closest('.card'):null;if(card)card.insertAdjacentElement('beforebegin',host);else owner.prepend(host);return host;}
-  function ensureOwnerPropertyHost(){const owner=document.getElementById('owner');if(!owner)return null;let host=document.getElementById('ownerPropertyHubMount');if(host)return host;host=document.createElement('div');host.id='ownerPropertyHubMount';host.className='grid owner-property-module-host';const tabbar=owner.querySelector(':scope > .card .tabbar')||owner.querySelector('.tabbar');const card=tabbar&&tabbar.closest?tabbar.closest('.card'):owner.querySelector(':scope > .card');if(card)card.insertAdjacentElement('beforebegin',host);else owner.prepend(host);return host;}
-  function ensureOwnerPropertyModuleVisible(){try{if(typeof currentIsCleaner==='function'&&currentIsCleaner())return;const owner=document.getElementById('owner');if(!owner)return;const host=ensureOwnerPropertyHost();if(!host)return;host.classList.add('grid','owner-property-module-host');host.style.display='grid';host.innerHTML=ownerScopeHtml();const metrics=ensureOwnerMetricsHost();if(metrics){metrics.querySelectorAll('.property-scope-panel').forEach(el=>el.remove());metrics.style.display='grid';}}catch(e){console.warn('PMS property module guard skipped',e);}}
-  function allOwnerNotes(){return ownerCleanNotes().map(n=>({...n,kind:'cleaning'})).concat(ownerRoomDateNotes().map(n=>({date:n.date,target_id:n.room_id,target_type:'room',note:n.note,priority:n.priority,created_by:n.created_by,kind:'roomDate'})));}
-  function scopedCleaningRows(start,end){return (typeof actualCleaningRows==='function'?actualCleaningRows(start,end):[]).filter(r=>targetMatches(r.target_id,r.target_type));}
-  function baseFinanceRows(start,end){const rows=[...(typeof systemCleaningRows==='function'?systemCleaningRows():[]).filter(r=>!isLockedBooking(r.booking)),...(typeof commonAreaRows==='function'?commonAreaRows(start,end):[])];return rows.filter(r=>r.date>=start&&r.date<=end&&targetMatches(r.target_id,r.target_type)).map(r=>({...r,finance_base:true,finance_amount:targetFee(r.target_id,r.target_type),source:r.target_type==='common'?(r.source||'公区每日保洁'):`系统退房${r.source?`（${r.source}）`:''}`,reason:r.reason||(r.target_type==='common'?'公区每日保洁':'系统退房自动生成')}));}
-  function isNoteAdjustment(m){return m&&((m.source==='备注')||m.from_note||m.note_adjustment||String(m.reason||'').includes('备注'));}
-  function noteAmountPresent(n){return !!(n&&(n.amount_present||n.amount_filled||n.has_amount||n.note_amount_present));}
-  function noteTaskRows(start=null,end=null){return cleanNoteList().filter(n=>{const type=n.target_type||'room';return n.date&&(!start||n.date>=start)&&(!end||n.date<=end)&&targetMatches(n.target_id,type);}).map(n=>{const type=n.target_type||'room',hasAmount=noteAmountPresent(n);return {date:n.date,target_id:n.target_id,target_type:type,source:'备注',type:'note_task',actual:true,reason:n.note||'',amount:hasAmount?adjustAmount(n.amount):0,note_task:true,note_amount_present:hasAmount};});}
-  if(typeof systemCleaningRows==='function'&&typeof commonAreaRows==='function'){actualCleaningRows=function(start=null,end=null){const rows=[...systemCleaningRows().filter(r=>!isLockedBooking(r.booking)),...commonAreaRows(start,end)];manualList().forEach(m=>{if(isNoteAdjustment(m))return;if(m.type==='add'){rows.push({date:m.date,target_id:m.target_id,target_type:m.target_type,source:'手动增加',type:'manual_add',actual:true,reason:m.reason,amount:adjustAmount(m.amount)});}else if(m.type==='remove'){rows.forEach(r=>{if(r.date===m.date&&r.target_id===m.target_id&&r.target_type===m.target_type){r.actual=false;r.reason='房东取消：'+(m.reason||'');}});}});return rows.filter(r=>r.actual).concat(noteTaskRows(start,end));};}
-  function manualFinanceSource(m){if(isNoteAdjustment(m))return '备注';return m.type==='add'?'手动增加':'手动减少';}
-  function adjustmentFinanceRows(start,end){return ownerManualRows().filter(m=>m.date>=start&&m.date<=end&&!(isNoteAdjustment(m)&&!adjustAmount(m.amount))).map(m=>({date:m.date,target_id:m.target_id,target_type:m.target_type,source:manualFinanceSource(m),type:'finance_adjustment',actual:true,reason:m.reason||'',amount:adjustAmount(m.amount),finance_adjustment:true}));}
-  function financeSortDesc(a,b){return String(b.date||'').localeCompare(String(a.date||''))||cleanTargetName(a.target_id,a.target_type).localeCompare(cleanTargetName(b.target_id,b.target_type))||((a.finance_adjustment?1:0)-(b.finance_adjustment?1:0));}
-  function financeRows(start,end){return baseFinanceRows(start,end).concat(adjustmentFinanceRows(start,end)).sort(financeSortDesc);}
-  function financeAmountText(row){return row.finance_adjustment?signedMoneyText(row.amount):signedMoneyText(targetFee(row.target_id,row.target_type));}
-  function status(v){return v?'<span class="ical-added">已添加</span>':'<span class="ical-missing">未添加</span>';}
-  function inventoryGroupId(r){return String((r&&r.inventory_group_id)||(r&&r.id)||'');}
-  function inventoryGroupRooms(r){const gid=inventoryGroupId(r);return ownerRooms().filter(x=>inventoryGroupId(x)===gid);}
-  function feedUrl(r){return `${location.origin}/feed/${encodeURIComponent(inventoryGroupId(r))}.ics`;}
-  function roomInventoryLabel(r){return `${showPropColumn()?propName(roomPropId(r.id))+' / ':''}${objectDisplayName(r,'room')||cleanRoomName(r.id)}`;}
-  function roomInventoryPanel(r){const all=ownerRooms().filter(x=>x&&x.id!==r.id),groupRooms=inventoryGroupRooms(r),linked=groupRooms.length>1,selected=inventoryGroupId(r),opts=[`<option value="${esc(r.id)}"${selected===r.id?' selected':''}>独立房间，不关联重复上架</option>`].concat(all.map(x=>`<option value="${esc(x.id)}"${selected===inventoryGroupId(x)||selected===x.id?' selected':''}>关联到：${esc(roomInventoryLabel(x))}</option>`)).join('');return `<div class="inventory-link-panel ${linked?'linked':''}"><div class="inventory-link-head"><div><strong>重复上架 / 同一实体房间</strong><div class="small">同一个真实房间如果在两个 Airbnb 账号或多个平台重复上架，先在这里关联，系统才会生成同一个防超卖 iCal。</div></div><span class="status-pill ${linked?'good':'warn'}">${linked?'已关联':'独立'}</span></div><div class="inventory-link-row"><select id="inventoryGroup_${safe(r.id)}">${opts}</select><button class="smallbtn" onclick="saveRoomInventoryGroup('${esc(r.id)}',this)">保存关联</button></div>${linked?`<div class="small">共享防超卖日历：${groupRooms.map(x=>esc(roomInventoryLabel(x))).join('、')}</div>`:`<div class="small">如果这是唯一上架记录，可以保持独立。</div>`}</div>`;}
-  function cleanIcalText(v){return String(v||'').replace(/\\n/gi,' ').replace(/\\,/g,',').replace(/\\;/g,';').trim();}
-  function importLockReason(summary,description,status){const text=[summary,description,status].map(cleanIcalText).join(' ').toLowerCase();if(!text)return '';if((text.includes('reserved')||text.includes('reservation'))&&!/(not available|unavailable|blocked|closed)/.test(text))return '';return /(不开放|锁定|关闭|不可订|not available|unavailable|blocked|calendar blocked|closed|not open)/.test(text)?(cleanIcalText(summary)||cleanIcalText(description)||'平台关闭日历或关联房源占用'):'';}
-  function parseInlineIcalDate(value){let v=String(value||'').trim();if(v.includes('T'))v=v.split('T')[0];return /^\\d{8}$/.test(v)?`${v.slice(0,4)}-${v.slice(4,6)}-${v.slice(6,8)}`:(/^\\d{4}-\\d{2}-\\d{2}$/.test(v)?v:'');}
-  function importIcalFile(event,roomId){const file=event.target.files&&event.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=function(){const nl=String.fromCharCode(10),cr=String.fromCharCode(13),text=String(reader.result||'').split(cr+nl).join(nl).split(cr).join(nl),blocks=text.split('BEGIN:VEVENT').slice(1);let added=0,locked=0;blocks.forEach(block=>{const lines=block.split(nl),field=name=>{const prefix=String(name).toUpperCase();const line=lines.find(x=>String(x||'').toUpperCase().startsWith(prefix));return line&&line.includes(':')?line.split(':').slice(1).join(':').trim():'';},checkin=parseInlineIcalDate(field('DTSTART')),checkout=parseInlineIcalDate(field('DTEND')),summary=cleanIcalText(field('SUMMARY')),reason=importLockReason(summary,field('DESCRIPTION'),field('STATUS'));if(checkin&&checkout&&checkout>checkin){bookings.push({room_id:roomId,platform:'iCal导入',guest:'',checkin,checkout,status:reason?'不开放锁定':(summary||'iCal导入'),source:'ical',booking_type:reason?'lock':'booking',is_locked:!!reason,lock_reason:reason||'',summary});added++;if(reason)locked++;}});alert(`已从 iCal 文件导入 ${added} 条记录，其中 ${locked} 条为不开放锁定。`);event.target.value='';refreshAll();};reader.readAsText(file,'utf-8');}
-  function collectIcalInputs(propertyId){propRooms(propertyId).forEach(r=>['airbnb_ical','booking_ical','vrbo_ical','other_ical'].forEach(field=>{const el=document.getElementById(icalId(r.id,field));if(el)r[field]=el.value.trim();}));}
-  function applyStateObject(data){
-    const state=(data&&data.state)||data;
-    if(!state||typeof state!=='object')return null;
-    if(state.current_user||state.currentUser)setCurrent(state.current_user||state.currentUser);
-    const sameUser=!stateIdentity(state)||!currentIdentity()||stateIdentity(state)===currentIdentity();
-    const emptyIncoming=isTransientEmptyState(state);
-    if(emptyIncoming&&sameUser){
-      const cached=cachedGoodStateFor(state);
-      if(cached){applyStateObject(cached);return state;}
-      if(currentDataCount()){rememberGoodState();return state;}
+  function clearDataGate(){
+    document.documentElement.classList.remove('pms-waiting-data');
+    const box = qs('pmsDataGate');
+    if(box) box.remove();
+  }
+
+  function applyStateFromServerImpl(data){
+    const state = (data && data.state) || data || {};
+    if(state.current_user || state.currentUser) setCurrentUser(state.current_user || state.currentUser);
+    const incomingEmpty = ['properties','propertyCleaners','rooms','commonAreas','bookings','channelListings'].some(k => Array.isArray(state[k])) && dataCount(state) === 0;
+    if(incomingEmpty && currentDataCount()){
+      rememberGoodState();
+      return state;
     }
-    if(Array.isArray(state.groups))setGroupList(state.groups);
-    if(Array.isArray(state.users))setUserList(state.users);
-    if(Array.isArray(state.properties))setProps(state.properties);
-    if(Array.isArray(state.propertyCleaners))setCleanerLinks(state.propertyCleaners);
-    if(Array.isArray(state.rooms))setRoomList(state.rooms);
-    if(Array.isArray(state.commonAreas))setAreaList(state.commonAreas);
-    if(Array.isArray(state.bookings))setBookingList(state.bookings);
-    if(Array.isArray(state.icalEventArchive))setArchiveList(state.icalEventArchive);
-    if(Array.isArray(state.channelListings)){try{channelListings=state.channelListings;}catch(e){window.channelListings=state.channelListings;}}
-    try{manualChanges=Array.isArray(state.manualChanges)?state.manualChanges:manualList();}catch(e){window.manualChanges=Array.isArray(state.manualChanges)?state.manualChanges:manualList();}
-    try{cleaningNotes=Array.isArray(state.cleaningNotes)?state.cleaningNotes:cleanNoteList();}catch(e){window.cleaningNotes=Array.isArray(state.cleaningNotes)?state.cleaningNotes:cleanNoteList();}
-    try{roomDateNotes=Array.isArray(state.roomDateNotes)?state.roomDateNotes:roomDateNoteList();}catch(e){window.roomDateNotes=Array.isArray(state.roomDateNotes)?state.roomDateNotes:roomDateNoteList();}
-    try{lastSync=state.last_sync||lastSyncValue();}catch(e){window.lastSync=state.last_sync||lastSyncValue();}
-    try{syncErrors=Array.isArray(state.sync_errors)?state.sync_errors:syncErrorList();}catch(e){window.syncErrors=Array.isArray(state.sync_errors)?state.sync_errors:syncErrorList();}
-    if(currentDataCount())rememberGoodState();
+    if(incomingEmpty){
+      const cached = cachedGoodStateFor(state);
+      if(cached) return applyStateFromServerImpl(cached);
+    }
+    if(Array.isArray(state.groups)) setGroups(state.groups);
+    if(Array.isArray(state.users)) setUsers(state.users);
+    if(Array.isArray(state.properties)) setProperties(state.properties);
+    if(Array.isArray(state.propertyCleaners)) setPropertyCleaners(state.propertyCleaners);
+    if(Array.isArray(state.rooms)) setRooms(state.rooms);
+    if(Array.isArray(state.commonAreas)) setAreas(state.commonAreas);
+    if(Array.isArray(state.bookings)) setBookings(state.bookings);
+    if(Array.isArray(state.channelListings)) setChannels(state.channelListings);
+    if(Array.isArray(state.manualChanges)) setManual(state.manualChanges);
+    if(Array.isArray(state.cleaningNotes)) setNotes(state.cleaningNotes);
+    if(Array.isArray(state.roomDateNotes)) setRoomNotes(state.roomDateNotes);
+    if(Array.isArray(state.cleaningTaskConfirmations)) setConfirmations(state.cleaningTaskConfirmations);
+    if(Array.isArray(state.sync_errors)) setSyncErrors(state.sync_errors);
+    if(state.last_sync) setLastSync(state.last_sync);
+    if(Array.isArray(state.mailForwardingConfig)) ui.mail.mailForwardingConfig = state.mailForwardingConfig;
+    if(Array.isArray(state.propertyMailForwarding)) ui.mail.propertyMailForwarding = state.propertyMailForwarding;
+    if(Array.isArray(state.mailEvents)) ui.mail.mailEvents = state.mailEvents;
+    ensureRealDefaultProperty();
+    if(currentDataCount()) rememberGoodState();
     clearDataGate();
-    removeLegacyIntroCards();
-    applyHeaderIdentity();
     return state;
   }
-  function applySyncState(data){applyStateObject(data);}
-  const pmsChannelBaseApplyStateObject=applyStateObject;
-  applyStateObject=function(data){const state=pmsChannelBaseApplyStateObject(data);if(state&&Array.isArray(state.channelListings))setChannelList(state.channelListings);return state;};
-  const pmsConfirmBaseApplyStateObject=applyStateObject;
-  applyStateObject=function(data){const state=pmsConfirmBaseApplyStateObject(data);if(state&&Array.isArray(state.cleaningTaskConfirmations))setCleaningConfirmList(state.cleaningTaskConfirmations);return state;};
-  function pmsApplyStateFromServer(data){return applyStateObject((data&&data.state)||data);}
-  try{applyStateFromServer=pmsApplyStateFromServer;}catch(e){}
-  window.applyStateFromServer=pmsApplyStateFromServer;
-  window.applyServerState=applyStateObject;
-  const pmsOriginalLoadState=(typeof window.loadState==='function'&&!window.__pmsOriginalLoadState)?window.loadState:window.__pmsOriginalLoadState;
-  if(pmsOriginalLoadState&&!window.__pmsReadyLoadStateInstalled){
-    window.__pmsOriginalLoadState=pmsOriginalLoadState;
-    window.__pmsReadyLoadStateInstalled=true;
-    window.loadState=async function(){
-      let lastState=null,lastError=null;
-      ensureDataGate('正在加载 PMS 数据...');
-      for(let attempt=0;attempt<8;attempt++){
-        try{
-          lastState=await pmsOriginalLoadState();
-          if(currentDataCount()||stateDataCount(lastState)){clearDataGate();rememberGoodState();return lastState;}
-          const cached=cachedGoodStateFor(lastState);
-          if(cached){applyStateObject(cached);clearDataGate();return cached;}
-        }catch(e){lastError=e;}
-        if(attempt<7)await sleep(attempt<2?700:1200);
+
+  async function loadStateImpl(){
+    ui.loading = true;
+    ensureDataGate('正在加载 PMS 数据...');
+    let last = null;
+    let lastError = null;
+    for(let i=0;i<8;i++){
+      try{
+        const res = await fetch(apiUrl('/api/state'), {cache: 'no-store'});
+        if(!res.ok) throw new Error('读取数据失败：HTTP ' + res.status);
+        last = await res.json();
+        applyStateFromServerImpl(last);
+        if(currentDataCount() || dataCount(last)){
+          ui.loading = false;
+          clearDataGate();
+          return last;
+        }
+        const cached = cachedGoodStateFor(last);
+        if(cached){
+          applyStateFromServerImpl(cached);
+          ui.loading = false;
+          clearDataGate();
+          return cached;
+        }
+      }catch(e){
+        lastError = e;
       }
-      clearDataGate();
-      if(lastError&&!lastState)throw lastError;
-      return lastState;
+      await new Promise(resolve => setTimeout(resolve, i < 2 ? 700 : 1200));
+    }
+    ui.loading = false;
+    clearDataGate();
+    if(lastError && !last) throw lastError;
+    return last;
+  }
+
+  async function persistAll(btn){
+    ensureRealDefaultProperty();
+    const old = btn && btn.textContent;
+    if(btn){btn.disabled = true; btn.textContent = '保存中...';}
+    const payload = {
+      properties: getProperties(),
+      propertyCleaners: getPropertyCleaners(),
+      rooms: getRooms(),
+      commonAreas: getAreas(),
+      channelListings: getChannels(),
+      manualChanges: getManual(),
+      cleaningNotes: getNotes(),
+      roomDateNotes: getRoomNotes(),
+      cleaningTaskConfirmations: getConfirmations(),
+      sync_errors: getSyncErrors(),
+      last_sync: getLastSync(),
+      propertyMailForwarding: ui.mail.propertyMailForwarding
     };
-    try{loadState=window.loadState;}catch(e){}
+    const res = await fetch(apiUrl('/api/state'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || data.ok === false) throw new Error(data.error || '保存失败');
+    applyStateFromServerImpl(data.state || data);
+    if(btn){btn.disabled = false; btn.textContent = old || '保存';}
+    return data;
   }
-  function collectChannelInputs(propertyId){propRooms(propertyId).forEach(r=>roomChannels(r.id).forEach(ch=>{readChannelForm(ch.id);}));}
-  const pmsChannelBaseCollectIcalInputs=collectIcalInputs;
-  collectIcalInputs=function(propertyId){pmsChannelBaseCollectIcalInputs(propertyId);collectChannelInputs(propertyId);};
-  async function syncPropertyIcal(propertyId,btn){const id=propertyId||(activeProp()&&activeProp().id);if(!id)return alert('请先进入一个房源');const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='同步中...';}try{collectIcalInputs(id);await persistAll();const res=await fetch(withKey('/api/sync'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:id})});const data=await res.json().catch(()=>({}));if(!res.ok||data.ok===false)throw new Error(data.error||'iCal sync failed');applySyncState(data);refreshOwnerScopedViews();renderRoomSettings();const errs=syncErrorList().filter(e=>propRooms(id).some(r=>r.id===e.room_id));if(errs.length)alert(`iCal 同步完成，但有 ${errs.length} 个链接失败。错误已显示在对应房间。`);return data;}catch(e){alert('同步失败：'+e.message);return null;}finally{if(btn){btn.disabled=false;btn.textContent=old||'同步当前房源 iCal';}}}
-  async function saveRoomAndSync(roomId,btn){const r=roomList().find(x=>x.id===roomId);if(!r)return alert('找不到这个房间');const propertyId=roomPropId(roomId);['airbnb_ical','booking_ical','vrbo_ical','other_ical'].forEach(field=>{const el=document.getElementById(icalId(roomId,field));if(el)r[field]=el.value.trim();});const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='保存中...';}try{const saved=await persistRoom(roomId);await afterState(saved);if(btn)btn.textContent='同步中...';return await syncPropertyIcal(propertyId,btn);}catch(e){alert('保存并同步失败：'+e.message);return null;}finally{if(btn){btn.disabled=false;btn.textContent=old||'保存并同步';}}}
-  function roomSyncStatus(r){const errs=syncErrorList().filter(e=>e.room_id===r.id);if(errs.length)return `<div class='sync-room-status sync-error'>同步失败：${esc(errs.map(e=>`${e.platform||'iCal'} ${e.error||''}`).join('；'))}</div>`;const inferred=channelList().filter(ch=>ch&&ch.room_id===r.id&&channelHasInferredLock(ch));if(inferred.length)return `<div class='sync-room-status sync-warning'>平台锁定保护：${esc(inferred.map(ch=>ch.sync_warning||`${ch.platform||'iCal'} 有消失记录，已按不开放锁定处理`).join('；'))}</div>`;if(roomNeedsChannelReview(r.id))return `<div class='sync-room-status sync-warning'>渠道需复核：${esc(roomChannelReviewText(r.id))}</div>`;const text=r.last_sync||lastSyncValue();const count=Number(r.synced_booking_count||0);if(text&&r.airbnb_ical)return `<div class='sync-room-status sync-ok'>上次同步：${esc(text)} · 导入订单 ${count} 个</div>`;return '';}
-  function shortUrl(v){const s=String(v||'').trim();return s.length>76?s.slice(0,48)+'...'+s.slice(-20):s;}
-  function cleanerLabel(code){const n=String(code||'').trim();const u=userList().find(x=>String(x.cleaner_code||'').toUpperCase()===n.toUpperCase());return u?`${u.name||'保洁'}（${n}）`:n;}
-  function ensureCss(){let s=document.getElementById('pmsInlineEditStyles');if(!s){s=document.createElement('style');s.id='pmsInlineEditStyles';document.head.appendChild(s);}s.textContent=`.property-list-page,.property-cards,.property-room-shell,.common-area-list,.admin-shell,.room-setting-list{display:grid;gap:12px}.property-cards{grid-template-columns:repeat(auto-fit,minmax(290px,1fr));align-items:stretch}.room-setting-list{gap:20px;margin-top:14px}.property-list-head,.property-detail-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.property-scope-panel{display:grid;gap:10px}.property-scope-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.property-scope-actions,.property-filter-boxes{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.property-filter-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;background:#fff;padding:7px 10px;font-weight:800}.property-filter-chip input{width:auto;margin:0}.tiny-link{border:0;background:transparent;color:var(--primary);font-weight:900;padding:0 2px;cursor:pointer}.property-card-row,.property-subcard,.room-setting-card,.admin-panel{border:1px solid var(--line);border-radius:8px;background:#fff;padding:14px}.room-setting-card{border-color:#cbd5e1;border-left:6px solid var(--primary);background:#fff;box-shadow:0 10px 24px rgba(15,23,42,.07);padding:16px 16px 18px}.room-setting-card:nth-child(even){background:#fbfdff}.room-setting-card+.room-setting-card{margin-top:0}.property-card-row{display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:10px;align-items:center}.property-hub-card{grid-template-columns:1fr;align-content:space-between;min-height:132px}.property-hub-card .property-card-actions{justify-content:flex-start;margin-top:8px}.property-title-line,.readonly-title{font-size:18px;font-weight:900}.property-meta-line,.readonly-meta{color:var(--muted);font-size:13px}.property-room-title{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0}.property-room-name{font-size:30px;line-height:1.1;font-weight:900;color:var(--primary)}.property-room-title-text{font-size:22px;font-weight:900}.property-card-actions,.property-actions,.platform-buttons,.room-compact-actions,.text-actions,.ical-saved-box{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.text-actions{justify-content:flex-end}.inline-view-card{display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:10px;align-items:center;border:1px solid #cbd5e1;border-radius:8px;background:#f1f5f9;padding:12px}.inline-edit-card{display:grid;grid-template-columns:minmax(160px,1fr) 120px auto;gap:8px;align-items:end;border:1px solid var(--line);border-radius:8px;background:#fff;padding:10px}.room-ical-primary,.ical-saved-line{display:grid;grid-template-columns:170px minmax(0,1fr);gap:8px;align-items:center;margin-top:12px}.ical-label-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:900;color:var(--muted)}.ical-added,.ical-missing{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:900}.ical-added{background:#dcfae6;color:#067647}.ical-missing{background:#f8fafc;color:#667085;border:1px solid var(--line)}.ical-input-line{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center}.ical-url-text{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--line);background:#f8fafc;border-radius:8px;padding:8px 10px;color:var(--muted);font-size:13px}.generated-feed{border:1px dashed #99f6e4;background:#f0fdfa;border-radius:8px;padding:10px;margin-top:10px}.optional-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px;margin-top:8px}.optional-box,.empty-panel{border:1px dashed var(--line);border-radius:8px;background:#f8fafc;padding:12px}.empty-panel{text-align:center;color:var(--muted)}.cleaning-manager{display:grid;gap:14px}.cleaning-block{border:1px solid var(--line);border-radius:8px;background:#fff;padding:14px}.cleaning-block h3{margin:0 0 8px}.cleaning-form{align-items:end}.cleaning-note-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;align-items:end}.cleaning-note-grid textarea{grid-column:1/-1;min-height:84px}.admin-metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.admin-metric{border:1px solid var(--line);border-radius:8px;background:#fff;padding:12px}.admin-metric .num{font-size:28px;font-weight:900;color:var(--primary)}.admin-table{width:100%;border-collapse:collapse}.admin-table th,.admin-table td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left}@media(max-width:900px){.property-card-row,.inline-view-card,.inline-edit-card,.room-ical-primary,.ical-saved-line,.ical-input-line{grid-template-columns:1fr}.text-actions{justify-content:flex-start}}`;document.head.appendChild(s);}
-  function rerender(){renderRoomSettings();if(typeof window.renderAccountBar==='function')window.renderAccountBar();polishAccountBar();}
-  function ensureColorBordersCss(){
-    let s=document.getElementById('pmsColorBorderStyles');
-    if(!s){s=document.createElement('style');s.id='pmsColorBorderStyles';document.head.appendChild(s);}
-    s.textContent=`.card,.metric,.property-card-row,.property-subcard,.room-setting-card,.inline-view-card,.inline-edit-card,.cleaning-block,.admin-panel,.admin-metric,.work-card,.note-card,.month-block,.cell,.room-card,.ical-box,.public-link-box,.copyline,.optional-box,.empty-panel,.generated-feed{border-width:2px!important}.card{border-color:#c7d2fe!important}.metric{border-color:#bfdbfe!important;box-shadow:inset 4px 0 0 #38bdf8,0 8px 18px rgba(15,23,42,.04)}.property-scope-panel{border-color:#99f6e4!important;box-shadow:inset 5px 0 0 #0f766e,0 10px 22px rgba(15,118,110,.08)}.property-hub-card{border-color:#93c5fd!important;box-shadow:inset 5px 0 0 #2563eb;background:#fff}.property-hub-card:nth-child(2n){border-color:#a7f3d0!important;box-shadow:inset 5px 0 0 #10b981}.property-hub-card:nth-child(3n){border-color:#fde68a!important;box-shadow:inset 5px 0 0 #f59e0b}.property-subcard{border-color:#c4b5fd!important;box-shadow:inset 5px 0 0 #7c3aed}.room-setting-card{border-color:#93c5fd!important;border-left-color:#0f766e!important}.inline-view-card{border-color:#bae6fd!important}.inline-edit-card{border-color:#fbbf24!important}.cleaning-block{border-color:#99f6e4!important;box-shadow:inset 5px 0 0 #14b8a6}.admin-panel,.admin-metric{border-color:#ddd6fe!important}.work-card{border-width:2px!important}.work-card.locked,.lock-note,.lock-row td,.cell.locked{border-color:#fda4af!important;background:#fff1f2!important;color:#9f1239!important}.cell.locked{font-weight:900}.note-card{border-color:#facc15!important}.note-card.important{border-color:#fb7185!important}.empty-panel,.optional-box{border-color:#93c5fd!important}.generated-feed,.public-link-box{border-color:#5eead4!important}.admin-table,table{border-color:#c7d2fe!important}`;
+  function scheduleSaveImpl(){
+    try{clearTimeout(saveTimer);}catch(e){}
+    try{saveTimer = setTimeout(() => persistAll().catch(err => console.warn(err)), 500);}catch(e){
+      setTimeout(() => persistAll().catch(err => console.warn(err)), 500);
+    }
   }
-  ensureColorBordersCss();
-  function ensureCalendarBoundaryCss(){
-    let s=document.getElementById('pmsCalendarBoundaryStyles');
-    if(!s){s=document.createElement('style');s.id='pmsCalendarBoundaryStyles';document.head.appendChild(s);}
-    s.textContent=`#calendarGrid .cell{position:relative;overflow:hidden}#calendarGrid .cell.calendar-booked,#calendarGrid .cell.locked{min-height:50px;padding:6px 7px!important;line-height:1.08}#calendarGrid .cell.calendar-booked>*{position:relative;z-index:2}#calendarGrid .cell .cell-platform{display:block;max-width:100%;font-size:12px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#calendarGrid .cell .cell-corner{position:absolute;z-index:2;font-size:11.5px;font-weight:900;line-height:1;color:#0f766e;text-shadow:0 1px 0 rgba(255,255,255,.65)}#calendarGrid .cell .cell-out{left:6px;top:6px}#calendarGrid .cell .cell-in{right:6px;bottom:6px}#calendarGrid .cell .cell-note{position:absolute;right:4px;bottom:3px;font-size:10px;font-weight:900;color:#92400e}#calendarGrid .cell.stay-only{display:flex;align-items:center;justify-content:center;background:#ccfbf1!important;border-color:#5eead4!important;color:#0f766e!important;text-align:center}#calendarGrid .cell.checkout-only,#calendarGrid .cell.checkin-only,#calendarGrid .cell.turnover{background:#fff!important;border-color:#5eead4!important;color:#0f766e!important}#calendarGrid .cell.checkout-only:before,#calendarGrid .cell.checkin-only:before{content:"";position:absolute;inset:0;z-index:0}#calendarGrid .cell.checkout-only:before{background:linear-gradient(to bottom right,#ccfbf1 0 calc(50% - 1px),transparent calc(50% + 1px) 100%)}#calendarGrid .cell.checkin-only:before{background:linear-gradient(to bottom right,transparent 0 calc(50% - 1px),#ccfbf1 calc(50% + 1px) 100%)}#calendarGrid .cell.turnover{background:#ccfbf1!important;border-color:#14b8a6!important}#calendarGrid .cell.checkout-only:after,#calendarGrid .cell.checkin-only:after,#calendarGrid .cell.turnover:after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom right,transparent 0 calc(50% - 1.2px),#0f766e calc(50% - 1.2px) calc(50% + 1.2px),transparent calc(50% + 1.2px) 100%);opacity:.82;z-index:1}#calendarGrid .cell.locked{display:flex;align-items:center;justify-content:center;text-align:center}#calendarGrid .cell.locked .cell-platform{font-size:11.5px}#calendarGrid .cell.hasnote{box-shadow:inset 0 0 0 2px #facc15}`;
-  }
-  ensureCalendarBoundaryCss();
-  function ensureWeekendCalendarCss(){let s=document.getElementById('pmsWeekendCalendarStyles');if(!s){s=document.createElement('style');s.id='pmsWeekendCalendarStyles';document.head.appendChild(s);}s.textContent=`#calendarGrid .cell.weekend{outline:2px solid #f59e0b!important;outline-offset:-2px}#calendarGrid .cell.head.weekend{background:#fffbeb!important;color:#92400e!important;border-color:#f59e0b!important}#calendarGrid .cell.weekend-sun{outline-color:#f97316!important}#calendarGrid .cell.head.weekend-sun{background:#fff7ed!important;color:#9a3412!important;border-color:#fb923c!important}.weekend-label{display:block;font-size:11px;font-weight:900;line-height:1.1;margin-top:2px;color:#b45309}.weekend-cell-label{position:absolute;left:5px;bottom:3px;z-index:4;font-size:10px;font-weight:900;line-height:1;color:#b45309;background:rgba(255,255,255,.78);border-radius:999px;padding:2px 5px;pointer-events:none}.cell.weekend-sun .weekend-label,.cell.weekend-sun .weekend-cell-label{color:#c2410c}#calendarGrid .cell.locked .weekend-cell-label{background:rgba(255,241,242,.86)}#calendarGrid .cell.stay-only .weekend-cell-label{background:rgba(204,251,241,.86)}`;}
-  function weekendDayIndex(value){const d=new Date(String(value||'')+'T00:00:00');const day=d.getDay();return day===0||day===6?day:-1;}
-  function isWeekendDate(value){return weekendDayIndex(value)>=0;}
-  function weekendClass(value){const day=weekendDayIndex(value);return day===0?'weekend weekend-sun':day===6?'weekend weekend-sat':'';}
-  function weekendLabel(value){const day=weekendDayIndex(value);return day===0?'周日':day===6?'周六':'';}
-  function weekendMarker(value){return '';}
-  function weekendHeaderLabel(value){const label=weekendLabel(value);return label?`<span class="weekend-label">${label}</span>`:'';}
-  ensureWeekendCalendarCss();
-  function ensureSyncStatusCss(){let s=document.getElementById('pmsSyncStatusStyles');if(!s){s=document.createElement('style');s.id='pmsSyncStatusStyles';document.head.appendChild(s);}s.textContent=`.sync-room-status{margin-top:10px;border-radius:8px;padding:9px 11px;font-size:13px;font-weight:800;line-height:1.4}.sync-room-status.sync-error{border:1px solid #fb7185;background:#fff1f2;color:#be123c}.sync-room-status.sync-ok{border:1px solid #86efac;background:#f0fdf4;color:#166534}`;}
-  ensureSyncStatusCss();
-  function ensureIcalGuideCss(){let s=document.getElementById('pmsIcalGuideStyles');if(!s){s=document.createElement('style');s.id='pmsIcalGuideStyles';document.head.appendChild(s);}s.textContent=`.ical-help{margin-top:8px;border:1px solid #bae6fd;background:#f8fdff;border-radius:8px;color:#334155;font-size:13px;line-height:1.55;overflow:hidden}.ical-help-toggle{grid-column:1/-1;width:100%;box-sizing:border-box}.ical-help summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;font-weight:900;color:#075985;background:#f0f9ff}.ical-help summary::-webkit-details-marker{display:none}.ical-help summary:after{content:'展开';font-size:12px;color:#0f766e;border:1px solid #99f6e4;border-radius:999px;padding:2px 8px;background:#fff}.ical-help[open] summary:after{content:'收起'}.ical-help-body{padding:12px 14px;display:grid;grid-template-columns:minmax(260px,1.35fr) minmax(220px,.85fr);gap:12px;align-items:start}.ical-help strong{display:block;color:#0f172a;margin-bottom:4px}.ical-help ol,.ical-help ul{margin:4px 0 0 18px;padding:0}.ical-help li{margin:3px 0}.ical-help-note{border:1px solid #d8e1ef;background:#fff;border-radius:8px;padding:10px 12px}.ical-help.warning{border-color:#fbbf24;background:#fffbeb}.ical-help.sync{border-color:#99f6e4;background:#f0fdfa}.ical-help .em{font-weight:900;color:#0f766e}@media(max-width:900px){.ical-help-body{grid-template-columns:1fr}}`;}
-  ensureIcalGuideCss();
-  function ensureUiPolishCss(){
-    let s=document.getElementById('pmsUiPolishStyles');
-    if(!s){s=document.createElement('style');s.id='pmsUiPolishStyles';document.head.appendChild(s);}
-    s.textContent=`body{background:#f5f7fb}.card,.metric,.property-card-row,.property-subcard,.room-setting-card,.inline-view-card,.inline-edit-card,.cleaning-block,.admin-panel,.admin-metric,.work-card,.note-card,.month-block,.room-card,.ical-box,.public-link-box,.copyline,.optional-box,.empty-panel,.generated-feed,.cleaner-filter-card{border-radius:8px!important;box-shadow:0 8px 18px rgba(15,23,42,.05)!important}.card,.property-subcard,.cleaning-block,.admin-panel,.cleaner-filter-card{border-color:#d8e1ef!important}.metric{border-color:#cfe3ff!important;background:#fff!important;min-height:82px}.property-scope-panel{padding:16px!important;border-color:#67e8f9!important;background:#fbfdff!important}.property-cards{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))!important;gap:12px!important}.property-hub-card{min-height:118px!important;padding:14px!important;border-color:#b8d7ff!important}.property-hub-card:nth-child(2n){border-color:#a7f3d0!important}.property-hub-card:nth-child(3n){border-color:#fde68a!important}.property-card-actions .smallbtn,.property-actions .smallbtn,.platform-buttons .smallbtn,.text-actions .smallbtn{white-space:nowrap}.property-title-line,.readonly-title{line-height:1.25}.property-meta-line,.readonly-meta,.small{line-height:1.45}.property-subcard{padding:14px!important}.room-setting-list{gap:16px!important}.room-setting-card{padding:14px!important;border-left-width:4px!important;border-color:#9cc9ff!important;background:#fff!important}.room-setting-card:nth-child(even){background:#fbfdff!important}.room-setting-card+.room-setting-card{margin-top:16px!important}.room-ical-primary,.ical-saved-line{grid-template-columns:140px minmax(0,1fr)!important}.ical-input-line{grid-template-columns:minmax(0,1fr) auto auto!important}.smallbtn{min-height:38px;padding:8px 13px;border-radius:8px;border:1px solid #cbd5e1;background:#fff;font-weight:800;line-height:1.1;box-shadow:none!important}.smallbtn.primary{border-color:var(--primary);background:var(--primary);color:#fff}.smallbtn:hover{border-color:#0f766e;background:#f0fdfa}.smallbtn.primary:hover{background:#0f766e;color:#fff}input,select,textarea{border-color:#cbd5e1!important;border-radius:8px!important}input:focus,select:focus,textarea:focus{outline:2px solid #99f6e4;outline-offset:1px;border-color:#14b8a6!important}table{width:100%;border-collapse:separate!important;border-spacing:0;border:1px solid #d8e1ef!important;border-radius:8px;overflow:hidden;background:#fff}th,td{padding:10px 12px!important;border-bottom:1px solid #e2e8f0!important;vertical-align:top}th{background:#f8fafc;color:#334155;font-weight:900}tr:nth-child(even) td{background:#fbfdff}tr:hover td{background:#f0fdfa}.cleaning-note-grid,.formgrid{gap:12px!important}.work-grid{gap:14px!important}.work-card{border-color:#93c5fd!important;background:#fff!important}.work-card.checkout{border-color:#fca5a5!important;background:#fff8f8!important}.work-card.checkin{border-color:#93c5fd!important;background:#f8fbff!important}.work-card.stay{border-color:#86efac!important;background:#f8fff9!important}.cell.head{background:#f8fafc!important;color:#334155!important}.cell.room{background:#f8fafc!important;font-weight:900}.cell.calendar-booked,.cell.stay-only,.cell.checkout-only,.cell.checkin-only,.cell.turnover,.cell.locked{box-shadow:none!important}.future-booking-grid,.booking-list,.manual-list,.finance-list{display:grid;gap:12px}.note-card{padding:12px!important}.admin-table{border-collapse:separate!important;border-spacing:0}.admin-table th,.admin-table td{border-bottom:1px solid #e2e8f0!important}@media(max-width:900px){.property-cards{grid-template-columns:1fr!important}.property-scope-actions .smallbtn,.property-card-actions .smallbtn,.property-actions .smallbtn{flex:1 1 auto}.room-ical-primary,.ical-saved-line,.ical-input-line{grid-template-columns:1fr!important}table{display:block;overflow-x:auto}}`;
-    document.head.appendChild(s);
-  }
-  ensureUiPolishCss();
-  function ensureFinanceHistoryCss(){
-    let s=document.getElementById('pmsFinanceHistoryStyles');
-    if(!s){s=document.createElement('style');s.id='pmsFinanceHistoryStyles';document.head.appendChild(s);}
-    s.textContent=`.finance-range-bar{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;border:1px solid #bae6fd;background:#f8fdff;border-radius:8px;padding:12px 14px;margin-bottom:12px}.finance-month-list{display:grid;gap:14px}.finance-month-block{padding:0!important;overflow:hidden}.finance-month-block>summary{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;cursor:pointer;list-style:none;padding:13px 16px;background:#f8fafc;border-bottom:1px solid #d8e1ef}.finance-month-block>summary::-webkit-details-marker{display:none}.finance-month-title{font-size:18px;font-weight:900;color:#0f172a}.finance-month-summary{font-weight:800;color:#475569}.finance-month-block table{border:0!important;border-radius:0!important}.finance-month-block tr:last-child td{border-bottom:0!important}`;
-  }
-  ensureFinanceHistoryCss();
-  function ensureEditorCss(){if(document.getElementById('pmsTextEditorStyles'))return;const s=document.createElement('style');s.id='pmsTextEditorStyles';s.textContent=`.text-editor-pop{position:absolute;z-index:10000;width:min(360px,calc(100vw - 32px));background:#fff;border:1px solid #94a3b8;border-radius:8px;box-shadow:0 12px 30px rgba(15,23,42,.16);padding:8px;display:grid;gap:8px}.text-editor-pop.single-field{width:min(300px,calc(100vw - 32px))}.text-editor-label{display:grid;gap:4px;margin:0;color:var(--muted);font-size:12px;font-weight:900}.text-editor-pop.single-field .text-editor-label span{display:none}.text-editor-pop input{width:100%;box-sizing:border-box;border:1px solid var(--primary);border-radius:7px;padding:8px 9px;font-size:15px;background:#fff}.text-editor-pop.single-field input{font-size:18px;font-weight:900;padding:7px 9px}.text-editor-actions{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}.text-editor-actions .smallbtn{padding:8px 12px}`;document.head.appendChild(s);}
-  function closeTextEditor(){if(S.editorCleanup){try{S.editorCleanup();}catch(e){}S.editorCleanup=null;}document.querySelectorAll('.text-editor-pop').forEach(x=>x.remove());document.querySelectorAll('[data-text-editor-hidden]').forEach(x=>{x.style.visibility=x.dataset.prevVisibility||'';delete x.dataset.textEditorHidden;delete x.dataset.prevVisibility;});}
-  function textEditAnchor(btn,selector){const root=btn&&btn.closest&&(btn.closest('.property-hub-card,.property-card-row,.inline-view-card')||btn.closest('.room-setting-card,.property-subcard'));return (root&&root.querySelector&&root.querySelector(selector))||btn;}
-  function openTextEditor(anchor,title,fields,onSave){ensureEditorCss();closeTextEditor();const pop=document.createElement('div');pop.className='text-editor-pop '+(fields.length===1?'single-field':'multi-field');pop.setAttribute('aria-label',title);pop.innerHTML=fields.map(f=>`<label class="text-editor-label"><span>${esc(f.label)}</span><input id="textEditor_${esc(f.name)}" type="${esc(f.type||'text')}" value="${esc(f.value==null?'':f.value)}" placeholder="${esc(f.label)}"></label>`).join('')+`<div class="text-editor-actions"><button class="smallbtn" type="button" id="textEditorCancel">取消</button><button class="smallbtn primary" type="button" id="textEditorSave">保存</button></div>`;document.body.appendChild(pop);const target=anchor&&anchor.getBoundingClientRect?anchor:null;if(target){target.dataset.prevVisibility=target.style.visibility||'';target.dataset.textEditorHidden='1';target.style.visibility='hidden';}const rect=(target&&target.getBoundingClientRect&&target.getBoundingClientRect())||{left:window.innerWidth/2-160,top:window.innerHeight/2-40,width:300,height:34};let left=Math.min(Math.max(16,rect.left+window.scrollX-6),window.scrollX+window.innerWidth-pop.offsetWidth-16);let top=Math.min(Math.max(window.scrollY+12,rect.top+window.scrollY-7),window.scrollY+window.innerHeight-pop.offsetHeight-12);pop.style.left=left+'px';pop.style.top=top+'px';pop.querySelector('#textEditorCancel').onclick=closeTextEditor;pop.querySelector('#textEditorSave').onclick=async()=>{const values={};fields.forEach(f=>{values[f.name]=(document.getElementById('textEditor_'+f.name)||{}).value||'';});await onSave(values,pop.querySelector('#textEditorSave'));};const onKey=e=>{if(e.key==='Escape')closeTextEditor();};document.addEventListener('keydown',onKey);S.editorCleanup=()=>document.removeEventListener('keydown',onKey);const first=pop.querySelector('input');if(first){first.focus();first.select();}}
-  function copyIcalUrl(v,btn){const text=String(v||'').trim();if(!text){alert('没有可复制的链接');return;}const done=()=>{if(btn){const old=btn.textContent;btn.textContent='已复制';setTimeout(()=>btn.textContent=old||'复制',1200);}};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text,done));else fallbackCopy(text,done);}
-  function fallbackCopy(text,done){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.focus();ta.select();try{document.execCommand('copy');done();}catch(e){alert('复制失败，请手动选中链接复制');}ta.remove();}
-  async function persistAll(){let saved=null;if(typeof window.saveState==='function'){saved=await window.saveState();applyStateObject(saved);}if(typeof window.loadState==='function'){const loaded=await window.loadState();applyStateObject(loaded);}return saved;}
-  async function persistRoom(id){if(typeof window.saveRoom==='function')return await window.saveRoom(id,null,{rerender:false});await persistAll();return {ok:true,state:{rooms:roomList(),commonAreas:areaList(),properties:props()}};}
-  async function afterState(d){applyStateObject(d);if(d&&typeof window.applyServerState==='function')window.applyServerState(d.state||d);if(typeof window.renderCleaner==='function')window.renderCleaner();if(typeof window.applyRoleMode==='function')window.applyRoleMode();polishAccountBar();}
-  function roomNameId(id){return 'roomName_'+safe(id);}
-  function roomFeeId(id){return 'roomFee_'+safe(id);}
-  function areaNameId(id){return 'areaName_'+safe(id);}
-  function areaFeeId(id){return 'areaFee_'+safe(id);}
-  function icalId(id,field){return 'ical_'+safe(id)+'_'+safe(field);}
-  function openPropertyRooms(id){setActive(id);S.openingPropertyRooms=true;const tab=document.querySelector('button[onclick*="ownerRooms"]');try{if(tab&&typeof showOwnerTab==='function')showOwnerTab('ownerRooms',tab);}finally{S.openingPropertyRooms=false;}ensureOwnerPropertyModuleVisible();renderRoomSettings();const h=document.getElementById('roomSettings');if(h)h.scrollIntoView({block:'start',behavior:'smooth'});}
-  function backToPropertyList(){if(S.openingPropertyRooms)return;setActive('');renderRoomSettings();}
-  function installPropertyRoomClickFallback(){if(document.__pmsPropertyRoomClickFallback)return;document.__pmsPropertyRoomClickFallback=true;document.addEventListener('click',ev=>{const btn=ev.target&&ev.target.closest?ev.target.closest('button'):null;if(!btn)return;const code=String(btn.getAttribute('onclick')||''),text=String(btn.textContent||'').trim();const m=code.match(/openPropertyRooms\(["']([^"']+)["']\)/);if(!m&&!text.includes('进入房间管理'))return;if(m){ev.preventDefault();ev.stopImmediatePropagation();openPropertyRooms(m[1]);}},true);}
-  function editPropertyName(id,btn){const p=props().find(x=>x.id===id);if(!p)return alert('找不到这个房源');S.propertyNames[id]=false;openTextEditor(textEditAnchor(btn,'.property-title-line'),'修改房源名字',[{name:'name',label:'房源名字',value:p.name||''}],async(values,saveBtn)=>{const name=(values.name||'').trim()||p.name||'未命名房源';if(props().some(x=>x.id!==id&&(x.group_id||groupId())===(p.group_id||groupId())&&norm(x.name)===norm(name)))return alert('房源名字不能重复，请换一个名字。');p.name=name;const old=saveBtn&&saveBtn.textContent;if(saveBtn){saveBtn.disabled=true;saveBtn.textContent='保存中...';}try{if(typeof window.withKey==='function'){const r=await fetch(withKey('/api/property/'+encodeURIComponent(id)),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});const d=await r.json().catch(()=>({}));if(!r.ok||d.ok===false)throw new Error(d.error||'save property failed');await afterState(d);}else await persistAll();closeTextEditor();refreshPropertyHub();renderRoomSettings();}catch(e){alert('保存房源名字失败：'+e.message);}finally{if(saveBtn){saveBtn.disabled=false;saveBtn.textContent=old||'保存';}}});}
-  function cancelPropertyNameEdit(id){S.propertyNames[id]=false;renderRoomSettings();}
-  async function savePropertyName(id,btn){const p=props().find(x=>x.id===id);if(!p)return alert('找不到这个房源');const el=document.getElementById('propertyName_'+safe(id));const name=(el&&el.value.trim())||p.name||'未命名房源';if(props().some(x=>x.id!==id&&(x.group_id||groupId())===(p.group_id||groupId())&&norm(x.name)===norm(name)))return alert('房源名字不能重复，请换一个名字。');p.name=name;const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='保存中...';}try{if(typeof window.withKey==='function'){const r=await fetch(withKey('/api/property/'+encodeURIComponent(id)),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});const d=await r.json().catch(()=>({}));if(!r.ok||d.ok===false)throw new Error(d.error||'save property failed');await afterState(d);}else await persistAll();S.propertyNames[id]=false;renderRoomSettings();}catch(e){alert('保存房源名字失败：'+e.message);}finally{if(btn){btn.disabled=false;btn.textContent=old||'保存名字';}}}
-  async function addProperty(){const p={id:'property'+Date.now(),group_id:groupId(),name:'新房源'};let i=2;while(props().some(x=>norm(x.name)===norm(p.name)))p.name='新房源 '+i++;props().push(p);S.propertyNames[p.id]=false;setActive('');refreshPropertyHub();renderRoomSettings();try{if(typeof window.withKey==='function'){const r=await fetch(withKey('/api/property/'+encodeURIComponent(p.id)),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});const d=await r.json().catch(()=>({}));if(!r.ok||d.ok===false)throw new Error(d.error||'save property failed');await afterState(d);}else await persistAll();refreshPropertyHub();renderRoomSettings();}catch(e){setProps(props().filter(x=>x.id!==p.id));refreshPropertyHub();renderRoomSettings();alert('添加房源失败：'+e.message);}}
-  async function deletePropertyUi(id,btn){const p=props().find(x=>x.id===id);if(!p)return alert('找不到这个房源');if(props().length<=1)return alert('不能删除最后一个房源。');if(!confirm(`确定删除${displayPropertyName(p.name,id)}？`))return;setProps(props().filter(x=>x.id!==id));setCleanerLinks(cleanerLinks().filter(x=>x.property_id!==id));setAreaList(areaList().filter(x=>(x.property_id||id)!==id));setRoomList(roomList().filter(r=>(r.property_id||id)!==id));await persistAll();setActive('');refreshPropertyHub();renderRoomSettings();}
-  function renderPropertyList(){const cards=props().map(p=>{const edit=!!S.propertyNames[p.id];const name=edit?`<label>房源名字</label><div class='property-name-edit'><input id='propertyName_${safe(p.id)}' value='${esc(p.name||'')}'><button class='smallbtn primary' onclick='savePropertyName("${esc(p.id)}",this)'>保存名字</button><button class='smallbtn' onclick='cancelPropertyNameEdit("${esc(p.id)}")'>取消</button></div>`:`<div class='property-title-line'>${esc(displayPropertyName(p.name,p.id))}</div><button class='smallbtn' onclick='editPropertyName("${esc(p.id)}",this)'>修改名字</button>`;return `<div class='property-card-row'><div>${name}<div class='property-meta-line'>${propRooms(p.id).length} 个房间 · ${propAreas(p.id).length} 个公区 · ${propCleaners(p.id).length} 个保洁绑定</div>${propCleaners(p.id).length?propCleaners(p.id).map(x=>`<span class='badge green'>${esc(cleanerLabel(x.cleaner_code))}</span>`).join(''):`<div class='property-meta-line'>保洁：未绑定</div>`}</div><div class='property-card-actions'><button class='smallbtn primary' onclick='openPropertyRooms("${esc(p.id)}")'>进入房间设置</button><button class='smallbtn' onclick='deletePropertyUi("${esc(p.id)}",this)'>删除房源</button></div></div>`;}).join('');return `<div class='property-list-page'><div class='property-list-head'><div><h3 style='margin:0'>房源列表</h3><div class='small'>点进入后管理该房源的房间、公区、iCal 和保洁绑定。</div></div><button class='smallbtn primary' onclick='addProperty()'>添加房源</button></div><div class='property-cards'>${cards}</div></div>`;}
-  function normalizeCleanerCode(value){let code=String(value||'').replace(/[^a-zA-Z0-9]/g,'').toUpperCase();if(code.startsWith('CLN'))code=code.slice(3);return code?'CLN-'+code:'';}
-  async function bindPropertyCleanerUi(propertyId,btn){const input=document.getElementById('cleanerCode_'+safe(propertyId));const cleanerCode=normalizeCleanerCode(input&&input.value);if(!cleanerCode)return alert('请先填写保洁编号，例如 CLN-1234');const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='绑定中...';}try{const res=await fetch(withKey('/api/property-cleaner'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:propertyId,cleaner_code:cleanerCode,action:'bind'})});const data=await res.json().catch(()=>({}));if(!res.ok||data.ok===false)throw new Error(data.error||'bind cleaner failed');await afterState(data);if(input)input.value='';renderRoomSettings();}catch(e){alert('绑定保洁失败：'+e.message);}finally{if(btn){btn.disabled=false;btn.textContent=old||'绑定保洁';}}}
-  async function unbindPropertyCleanerUi(propertyId,cleanerCode,btn){if(!confirm('确定删除这个房源绑定的保洁？'))return;const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='删除中...';}try{const res=await fetch(withKey('/api/property-cleaner'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:propertyId,cleaner_code:cleanerCode,action:'unbind'})});const data=await res.json().catch(()=>({}));if(!res.ok||data.ok===false)throw new Error(data.error||'unbind cleaner failed');await afterState(data);renderRoomSettings();}catch(e){alert('删除绑定失败：'+e.message);}finally{if(btn){btn.disabled=false;btn.textContent=old||'删除绑定';}}}
-  function renderCleanerPanel(p){const list=propCleaners(p.id);const tags=list.length?list.map(x=>`<div class='toolbar' style='margin-top:6px'><span class='badge green'>${esc(cleanerLabel(x.cleaner_code))}</span><button class='smallbtn' onclick='unbindPropertyCleanerUi("${esc(p.id)}","${esc(x.cleaner_code)}",this)'>删除绑定</button></div>`).join(''):`<div class='small'>这个房源还没有绑定保洁。</div>`;return `<div class='property-subcard'><h3 style='margin-top:0'>保洁绑定</h3><div class='small'>保洁去 <a href="/cleaner-register" target="_blank">保洁注册页</a> 注册后，把编号发给房东。这里填编号即可绑定到当前房源。</div><div class='platform-buttons' style='margin-top:8px'><input id='cleanerCode_${safe(p.id)}' placeholder='例如：CLN-1234'><button class='smallbtn primary' onclick='bindPropertyCleanerUi("${esc(p.id)}",this)'>绑定保洁</button></div>${tags}</div>`;}
-  function editRoomBasics(id,btn){const r=roomList().find(x=>x.id===id);if(!r)return alert('找不到这个房间');S.rooms[id]=false;openTextEditor(textEditAnchor(btn,'.readonly-title'),'修改房间',[{name:'name',label:'房间名字',value:r.name||''},{name:'fee',label:'清洁费',type:'number',value:Number(r.cleaning_fee||0)}],async(values,saveBtn)=>{r.name=(values.name||'').trim()||r.name||'房间';r.cleaning_fee=Number(values.fee||0);const old=saveBtn&&saveBtn.textContent;if(saveBtn){saveBtn.disabled=true;saveBtn.textContent='保存中...';}try{const d=await persistRoom(id);await afterState(d);closeTextEditor();rerender();}catch(e){alert('保存房间失败：'+e.message);}finally{if(saveBtn){saveBtn.disabled=false;saveBtn.textContent=old||'保存';}}});}
-  function cancelRoomBasics(id){S.rooms[id]=false;rerender();}
-  async function saveRoomBasics(id,btn){const r=roomList().find(x=>x.id===id);if(!r)return alert('找不到这个房间');const n=document.getElementById(roomNameId(id));const f=document.getElementById(roomFeeId(id));r.name=(n&&n.value.trim())||r.name||'房间';r.cleaning_fee=Number((f&&f.value)||0);const d=await persistRoom(id);await afterState(d);S.rooms[id]=false;rerender();}
-  async function addRoom(btn){const p=activeProp();if(!p)return alert('请先进入一个房源');const r={id:'room'+Date.now(),name:'房间'+(propRooms(p.id).length+1),cleaning_fee:80,type:'room',property_id:p.id};roomList().push(r);S.rooms[r.id]=false;rerender();try{const d=await persistRoom(r.id);await afterState(d);S.rooms[r.id]=false;rerender();}catch(e){setRoomList(roomList().filter(x=>x.id!==r.id));delete S.rooms[r.id];rerender();alert('添加房间失败：'+e.message);}}
-  async function deleteRoomUi(id,btn){if(!confirm('确定删除这个房间？'))return;setRoomList(roomList().filter(x=>x.id!==id));setBookingList(bookingList().filter(x=>x.room_id!==id));delete S.rooms[id];await persistAll();rerender();}
-  function roomHasIcalSync(id){const r=roomList().find(x=>x&&x.id===id);const legacy=!!(r&&(r.airbnb_ical||r.booking_ical||r.vrbo_ical||r.other_ical));const channels=roomChannels(id).some(x=>x&&(x.ical_url||x.listing_url||x.is_new_listing));return legacy||channels;}
-  async function deletePropertyUi(id,btn){const p=props().find(x=>x&&x.id===id);if(!p)return alert('找不到这个房源');const rooms=propRooms(id);if(rooms.length)return alert(`这个房源下面还有 ${rooms.length} 个房间，不能删除房源。请先进入房间管理，处理或删除房间后再删除房源。`);if(props().length<=1)return alert('不能删除最后一个房源。');if(!confirm(`确定删除${displayPropertyName(p.name,id)}？`))return;setProps(props().filter(x=>x.id!==id));setCleanerLinks(cleanerLinks().filter(x=>x.property_id!==id));setAreaList(areaList().filter(x=>(x.property_id||id)!==id));await persistAll();setActive('');refreshPropertyHub();renderRoomSettings();}
-  async function deleteRoomUi(id,btn){const r=roomList().find(x=>x&&x.id===id);if(!r)return alert('找不到这个房间');if(roomHasIcalSync(id))return alert(`${objectDisplayName(r,'room')} 还有 iCal/渠道同步，不能删除房间。请先点“清空渠道/iCal”，确认不需要继续同步后再删除。`);if(!confirm(`确定删除${objectDisplayName(r,'room')}？`))return;setRoomList(roomList().filter(x=>x.id!==id));setBookingList(bookingList().filter(x=>x.room_id!==id));delete S.rooms[id];await persistAll();rerender();}
-  function editCommonAreaBasics(id,btn){const a=areaList().find(x=>x.id===id);if(!a)return alert('找不到这个公区');S.areas[id]=false;openTextEditor(textEditAnchor(btn,'.readonly-title'),'修改公区',[{name:'name',label:'公区名称',value:a.name||''},{name:'fee',label:'每日保洁费',type:'number',value:Number(a.cleaning_fee||0)}],async(values,saveBtn)=>{a.name=(values.name||'').trim()||a.name||'公区';a.cleaning_fee=Number(values.fee||0);const old=saveBtn&&saveBtn.textContent;if(saveBtn){saveBtn.disabled=true;saveBtn.textContent='保存中...';}try{await persistAll();closeTextEditor();rerender();}catch(e){alert('保存公区失败：'+e.message);}finally{if(saveBtn){saveBtn.disabled=false;saveBtn.textContent=old||'保存';}}});}
-  function cancelCommonAreaBasics(id){S.areas[id]=false;rerender();}
-  async function saveCommonAreaBasics(id,btn){const a=areaList().find(x=>x.id===id);if(!a)return alert('找不到这个公区');const n=document.getElementById(areaNameId(id));const f=document.getElementById(areaFeeId(id));a.name=(n&&n.value.trim())||a.name||'公区';a.cleaning_fee=Number((f&&f.value)||0);await persistAll();S.areas[id]=false;rerender();}
-  async function addCommonArea(btn){const p=activeProp();if(!p)return alert('请先进入一个房源');const a={id:'common'+Date.now(),name:'公区'+(propAreas(p.id).length+1),cleaning_fee:35,type:'common',daily_default:true,property_id:p.id};areaList().push(a);S.areas[a.id]=false;rerender();try{await persistAll();S.areas[a.id]=false;rerender();}catch(e){setAreaList(areaList().filter(x=>x.id!==a.id));delete S.areas[a.id];rerender();alert('添加公区失败：'+e.message);}}
-  async function deleteCommonArea(id,btn){if(!confirm('确定删除这个公区？'))return;setAreaList(areaList().filter(x=>x.id!==id));delete S.areas[id];await persistAll();rerender();}
-  function editIcalField(id,field){S.ical[key(id,field)]=true;rerender();}
-  function cancelIcalField(id,field){S.ical[key(id,field)]=false;rerender();}
-  async function saveIcalField(id,field,btn){const r=roomList().find(x=>x.id===id);if(!r)return alert('找不到这个房间');const el=document.getElementById(icalId(id,field));r[field]=(el&&el.value.trim())||'';const d=await persistRoom(id);await afterState(d);S.ical[key(id,field)]=false;rerender();}
-  async function clearIcalField(id,field,btn){if(!confirm('确定清空这个 iCal 链接？'))return;const r=roomList().find(x=>x.id===id);if(!r)return alert('找不到这个房间');r[field]='';const d=await persistRoom(id);await afterState(d);S.ical[key(id,field)]=false;rerender();}
-  function airbnbExportHelp(){return `<details class='ical-help ical-help-toggle'><summary>Airbnb iCal 怎么找</summary><div class='ical-help-body'><div><strong>在 Airbnb 后台复制导出链接</strong><ol><li>打开 Airbnb 房东后台，进入日历 Calendar。</li><li>选择这个房间对应的房源日历，不要选错房间。</li><li>进入 Availability / 可订状态，找到 Connect calendars / 连接日历。</li><li>选择 Export calendar / 导出日历，复制 Airbnb calendar link。</li><li>把复制出来的 .ics/iCal 链接粘贴到这里保存。</li></ol></div><div class='ical-help-note'><strong>这里粘贴的是平台导出链接</strong><div>这个链接是给 PMS 读取 Airbnb 订单、手动锁定日期和不可订状态用的。不要把这个 Airbnb 导出链接再粘回 Airbnb。</div></div></div></details>`;}
-  function platformExportHelp(label){return `<details class='ical-help ical-help-toggle'><summary>${esc(label)} iCal 怎么找</summary><div class='ical-help-body'><div><strong>复制 ${esc(label)} 导出的 iCal 链接</strong><div>在 ${esc(label)} 的该房间日历里找到 Export calendar / 导出日历 / iCal 链接，把平台生成的 .ics 链接粘贴到这里。不同平台入口名称可能不同，但关键词通常是 Calendar sync、Export calendar、iCal。</div></div><div class='ical-help-note'><strong>防超卖不要填错方向</strong><div>上方输入的是平台导出给 PMS 读取的链接；系统生成的防超卖链接要点“显示防超卖 iCal 链接”后复制，再回填到各个平台的导入日历入口。</div></div></div></details>`;}
-  function icalInputLine(r,field,label,placeholder){const v=String(r[field]||'').trim();const editing=!!S.ical[key(r.id,field)]||!v;const help=field==='airbnb_ical'?airbnbExportHelp():'';if(!editing)return `<div class='ical-saved-line'><div class='ical-label-line'><span>${esc(label)}</span><span class='ical-added'>已添加</span></div><div class='ical-saved-box'><span class='ical-url-text' title='${esc(v)}'>${esc(shortUrl(v))}</span><button class='smallbtn' data-copy='${esc(v)}' onclick='copyIcalUrl(this.dataset.copy,this)'>复制</button><button class='smallbtn' onclick='editIcalField("${esc(r.id)}","${field}")'>修改</button><button class='smallbtn' onclick='clearIcalField("${esc(r.id)}","${field}",this)'>清空</button></div>${help}</div>`;return `<div class='room-ical-primary'><div class='ical-label-line'><span>${esc(label)}</span>${status(v)}</div><div><div class='ical-input-line'><input id='${icalId(r.id,field)}' class='ical-input' value='${esc(v)}' placeholder='${esc(placeholder||'粘贴 .ics 链接')}'><button class='smallbtn primary' onclick='saveIcalField("${esc(r.id)}","${field}",this)'>保存</button>${v?`<button class='smallbtn' onclick='cancelIcalField("${esc(r.id)}","${field}")'>取消</button>`:''}</div>${help}</div></div>`;}
-  function optionalPlatformRows(r){const fs=[['booking_ical','Booking'],['vrbo_ical','Vrbo'],['other_ical','其他平台']];const buttons=fs.filter(([f])=>!r[f]&&!S.ical[key(r.id,f)]).map(([f,l])=>`<button class='smallbtn' onclick='editIcalField("${esc(r.id)}","${f}")'>增加 ${l} iCal</button>`).join('');const rows=fs.filter(([f])=>r[f]||S.ical[key(r.id,f)]).map(([f,l])=>`<div class='optional-box'>${icalInputLine(r,f,l+' iCal','粘贴 '+l+' 导出的 .ics 链接')}${platformExportHelp(l)}</div>`).join('');return `${buttons?`<div class='platform-buttons'>${buttons}</div>`:''}${rows?`<div class='optional-grid'>${rows}</div>`:''}`;}
-  function generatedFeedPanel(r){const open=!!S.feed[r.id], url=feedUrl(r), other=!!(r.booking_ical||r.vrbo_ical||r.other_ical);return `<div class='platform-buttons'><button class='smallbtn' onclick='toggleGeneratedFeed("${esc(r.id)}")'>${open?'收起防超卖 iCal 链接':'显示防超卖 iCal 链接'}</button>${other?`<span class='small'>已接入第二个平台，建议把系统链接回填到各平台防止超卖。</span>`:`<span class='small'>只有 Airbnb 一个平台时可以先不回填；接入 Booking/Vrbo/其他平台后再开启防超卖。</span>`}</div>${open?`<div class='generated-feed'><div class='ical-label-line'><span>系统生成防超卖 iCal 链接</span><span class='ical-added'>可复制</span></div><div class='ical-input-line'><input class='ical-input' readonly value='${esc(url)}'><button class='smallbtn' data-copy='${esc(url)}' onclick='copyIcalUrl(this.dataset.copy,this)'>复制链接</button></div><div class='ical-help sync'><strong>防超卖应该怎么填</strong><ol><li>先把 Airbnb、Booking、Vrbo 或其他平台“导出的 iCal 链接”分别填到上面的输入框，让系统读取所有平台的占用日期。</li><li>再复制这里的“系统生成防超卖 iCal 链接”。</li><li>回到 Airbnb：Calendar 选择该房源日历 → Availability → Connect calendars → Import calendar / Connect to another website，把系统链接粘到 calendar address。</li><li>其他平台也在 Calendar sync / Import calendar / iCal URL 入口粘贴这个系统链接。</li></ol><div>这样一个平台被预订后，系统同步到该日期，再通过这个系统 iCal 把日期锁到其他平台。</div></div><div class='ical-help warning'><strong>手动锁定怎么处理</strong><div>如果你在 Airbnb 日历里手动关闭日期，Airbnb 导出的 iCal 通常会把该日期标记成 Not available / unavailable / blocked。系统同步后会识别为<span class='em'>不开放锁定</span>，不会生成退房保洁任务，但会出现在系统防超卖 iCal 里，其他已导入系统链接的平台会把这段日期同步锁住。其他平台主动拉取 iCal 有延迟，所以手动锁定后建议点一次“保存并同步”或“同步当前房源 iCal”。</div><div class='small'>注意：上面平台导出的原链接是给系统读取；这里系统生成的链接才是回填到 Airbnb/Booking/Vrbo 的防超卖链接，不要把 Airbnb 导出的原链接再粘回 Airbnb。</div></div></div>`:''}`;}
-  function toggleGeneratedFeed(id){S.feed[id]=!S.feed[id];rerender();}
-  function renderCommonAreaPanel(p){const list=propAreas(p.id);const rows=list.length?list.map(a=>S.areas[a.id]?`<div class='inline-edit-card'><div><label>公区名称</label><input id='${areaNameId(a.id)}' value='${esc(a.name||'')}'></div><div><label>每日保洁费</label><input id='${areaFeeId(a.id)}' type='number' value='${esc(a.cleaning_fee||0)}'></div><div class='text-actions'><button class='smallbtn primary' onclick='saveCommonAreaBasics("${esc(a.id)}",this)'>保存</button><button class='smallbtn' onclick='cancelCommonAreaBasics("${esc(a.id)}")'>取消</button><button class='smallbtn' onclick='deleteCommonArea("${esc(a.id)}",this)'>删除</button></div></div>`:`<div class='inline-view-card'><div><div class='readonly-title'>${esc(a.name||'公区')}</div><div class='readonly-meta'>每日保洁费：$${Number(a.cleaning_fee||0)}</div></div><div class='text-actions'><button class='smallbtn' onclick='editCommonAreaBasics("${esc(a.id)}",this)'>修改</button><button class='smallbtn' onclick='deleteCommonArea("${esc(a.id)}",this)'>删除</button></div></div>`).join(''):`<div class='empty-panel'><strong>这个房源还没有公区</strong><div style='margin-top:10px'><button class='smallbtn primary' onclick='addCommonArea(this)'>添加公区</button></div></div>`;return `<div class='property-subcard'><div class='property-detail-head'><div><h3>公区设置</h3><div class='small'>公区属于当前房源，保存后会直接写入数据库。</div></div><button class='smallbtn primary' onclick='addCommonArea(this)'>添加公区</button></div><div class='common-area-list'>${rows}</div></div>`;}
-  function renderRoomCard(r){const basic=S.rooms[r.id]?`<div class='inline-edit-card'><div><label>房间名字</label><input id='${roomNameId(r.id)}' value='${esc(r.name||'')}'></div><div><label>清洁费</label><input id='${roomFeeId(r.id)}' type='number' value='${esc(r.cleaning_fee||0)}'></div><div class='text-actions'><button class='smallbtn primary' onclick='saveRoomBasics("${esc(r.id)}",this)'>保存</button><button class='smallbtn' onclick='cancelRoomBasics("${esc(r.id)}")'>取消</button><button class='smallbtn' onclick='deleteRoomUi("${esc(r.id)}",this)'>删除</button></div></div>`:`<div class='inline-view-card'><div><div class='readonly-title'>${esc(objectDisplayName(r,'room')||'房间')}</div><div class='readonly-meta'>清洁费：$${Number(r.cleaning_fee||0)}</div></div><div class='text-actions'><button class='smallbtn' onclick='editRoomBasics("${esc(r.id)}",this)'>修改</button><button class='smallbtn' onclick='deleteRoomUi("${esc(r.id)}",this)'>删除</button></div></div>`;return `<div class='room-setting-card'>${basic}${icalInputLine(r,'airbnb_ical','Airbnb iCal','粘贴该房间 Airbnb 导出的 .ics/iCal 链接')}${optionalPlatformRows(r)}${generatedFeedPanel(r)}${roomSyncStatus(r)}<div class='room-compact-actions'><button class='smallbtn' onclick='saveRoomAndSync("${esc(r.id)}",this)'>保存并同步</button><span class='small'>${r.airbnb_ical?'Airbnb iCal 已添加':'已加载数据库'}</span></div></div>`;}
-  function renderPropertyDetail(p){const rs=propRooms(p.id);const cards=rs.length?`<div class='room-setting-list'>${rs.map(renderRoomCard).join('')}</div>`:`<div class='empty-panel'><strong>这个房源还没有房间</strong><div style='margin-top:10px'><button class='smallbtn primary' onclick='addRoom(this)'>添加第一个房间</button></div></div>`;return `<div class='property-room-shell'><div class='property-detail-head'><div><h2 class='property-room-title'><span class='property-room-name'>${esc(displayPropertyName(p.name,p.id))}</span><span class='property-room-title-text'>房间管理</span></h2><div class='small'>${rs.length} 个房间 · ${propAreas(p.id).length} 个公区 · ${propCleaners(p.id).length} 个保洁绑定 · 房源 ID：${esc(p.id)}</div></div><div class='property-actions'><button class='smallbtn' onclick='backToPropertyList()'>返回房源列表</button><button class='smallbtn primary' onclick='syncPropertyIcal("${esc(p.id)}",this)'>同步当前房源 iCal</button></div></div>${renderCleanerPanel(p)}${renderCommonAreaPanel(p)}<div class='property-subcard'><div class='property-detail-head'><div><h3 style='margin:0'>房间设置</h3><div class='small'>先填 Airbnb 导出的 iCal；如果同一房间还上架 Booking/Vrbo/其他平台，再增加对应平台导出 iCal，并把系统生成的防超卖 iCal 回填到各平台。</div></div><button class='smallbtn primary' onclick='addRoom(this)'>添加房间</button></div>${cards}</div></div>`;}
-  function apiUrl(path){return typeof window.withKey==='function'?window.withKey(path):path;}
-  function channelInputId(id,field){return 'channel_'+safe(id)+'_'+safe(field);}
-  function roomChannels(roomId){return channelList().filter(x=>x&&x.room_id===roomId);}
-  function channelFeedUrl(ch){return `${location.origin}/feed/${encodeURIComponent(ch.id)}.ics`;}
-  function channelPlatformOptions(value){return ['Airbnb','Booking','Vrbo','Other'].map(x=>`<option value="${x}"${x===(value||'Airbnb')?' selected':''}>${x}</option>`).join('');}
-  function channelNewOptions(value){const v=!!value;return `<option value="false"${!v?' selected':''}>否，已有或可能已有订单</option><option value="true"${v?' selected':''}>是，新发布没有订单</option>`;}
-  function makeChannelId(roomId){return 'channel_'+safe(roomId)+'_'+Date.now();}
-  function readChannelForm(id){const list=channelList(),idx=list.findIndex(x=>x&&x.id===id);if(idx<0)return null;const old=list[idx],row={...old};const platform=document.getElementById(channelInputId(id,'platform'));const isNew=document.getElementById(channelInputId(id,'is_new_listing'));const listingUrl=document.getElementById(channelInputId(id,'listing_url'));const icalUrl=document.getElementById(channelInputId(id,'ical_url'));if(platform)row.platform=platform.value||'Airbnb';if(isNew)row.is_new_listing=isNew.value==='true';if(listingUrl)row.listing_url=listingUrl.value.trim();if(icalUrl)row.ical_url=icalUrl.value.trim();list[idx]=row;setChannelList(list);return row;}
-  async function postChannelListings(rows,btn){const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='保存中...';}try{const res=await fetch(apiUrl('/api/state'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channelListings:rows})});const data=await res.json().catch(()=>({}));if(!res.ok||data.ok===false)throw new Error(data.error||'保存渠道失败');await afterState(data);renderRoomSettings();return data;}catch(e){alert('保存渠道失败：'+e.message);throw e;}finally{if(btn){btn.disabled=false;btn.textContent=old||'保存';}}}
-  function ensureChannelCss(){let s=document.getElementById('pmsChannelListingStyles');if(!s){s=document.createElement('style');s.id='pmsChannelListingStyles';document.head.appendChild(s);}s.textContent=`.channel-panel{display:grid;gap:12px;margin-top:14px}.channel-panel-head,.channel-card-head,.channel-actions{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}.channel-card{border:2px solid #99f6e4;border-left:6px solid #0f766e;border-radius:10px;background:#fff;padding:12px;display:grid;gap:10px}.channel-card:nth-child(2n){border-color:#bfdbfe;border-left-color:#2563eb}.channel-title{font-size:17px;font-weight:900;color:#0f172a}.channel-grid{display:grid;grid-template-columns:140px 210px minmax(180px,1fr);gap:10px;align-items:end}.channel-url-grid{display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr);gap:10px}.channel-copyline{display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:8px;align-items:center;border:1px dashed #5eead4;background:#f0fdfa;border-radius:8px;padding:10px}.channel-help{border:1px solid #fde68a;background:#fffbeb;border-radius:8px;padding:10px;color:#713f12;font-size:13px}.channel-status{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.channel-empty{border:1px dashed #93c5fd;background:#f8fafc;border-radius:8px;padding:14px;color:#475569}.ical-rule-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px}.ical-rule-modal{max-width:680px;width:min(680px,100%);background:#fff;border-radius:12px;border:2px solid #0f766e;box-shadow:0 24px 80px rgba(15,23,42,.35);padding:22px;display:grid;gap:14px}.ical-rule-modal h3{margin:0;font-size:22px}.ical-rule-box{border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;padding:12px}.ical-rule-box li{margin:6px 0}.ical-rule-check{display:flex;gap:10px;align-items:flex-start;font-weight:900}.ical-rule-check input{margin-top:4px}.ical-rule-actions{display:flex;justify-content:flex-end}.ical-rule-actions button:disabled{opacity:.45;cursor:not-allowed}@media(max-width:900px){.channel-grid,.channel-url-grid,.channel-copyline{grid-template-columns:1fr}}`;}
-  function ensureIcalRuleModal(kind,onAccept){const key='pms_ical_rule_'+kind+'_v1';if(localStorage.getItem(key)==='1'){if(onAccept)onAccept();return;}ensureChannelCss();document.querySelectorAll('.ical-rule-backdrop').forEach(x=>x.remove());const isExport=kind==='export';const title=isExport?'复制系统防超卖 iCal 前先确认':'添加平台导出 iCal 前先确认';const body=isExport?`<ol><li>这里复制的是 PMS 为“当前这一条渠道上架”生成的防超卖 iCal。</li><li>系统导出时会排除这个渠道自己的订单 UID，只包含同一个真实房间里其他渠道的订单和不开放锁定。</li><li>复制后去 Airbnb / Booking / Vrbo 的 Import calendar、Connect to another website、iCal URL 入口粘贴。</li><li>如果这是“平台新发布房源”，导入这个系统链接后，新平台的日历会按 PMS 当前日历自动更新并锁住已占用日期。</li><li>不要把 Airbnb/Booking 导出的原始 iCal 再粘回平台；原始 iCal 是给 PMS 读取用的。</li></ol>`:`<ol><li>这里粘贴的是平台“导出 Export calendar”生成的 iCal，作用是让 PMS 读取该渠道已有订单和平台锁定日期。</li><li>Airbnb 路径通常是：日历 Calendar → 选中这个房间的日历 → Availability / 可订状态 → Connect calendars → Export calendar。</li><li>Booking/Vrbo 入口名称可能是 Calendar sync、Export calendar、iCal link，复制平台生成的 .ics 链接。</li><li>如果这个渠道是刚发布、确认没有订单，才可以选择“是，新发布没有订单”，先用 PMS 生成的防超卖 iCal 去锁住新平台。</li></ol>`;const div=document.createElement('div');div.className='ical-rule-backdrop';div.innerHTML=`<div class="ical-rule-modal"><h3>${title}</h3><div class="ical-rule-box">${body}</div><label class="ical-rule-check"><input type="checkbox"><span>我已阅读并理解：平台导出 iCal 是给 PMS 读取，PMS 防超卖 iCal 是回填到平台导入。</span></label><div class="ical-rule-actions"><button class="smallbtn primary" disabled>我已理解，继续</button></div></div>`;document.body.appendChild(div);const chk=div.querySelector('input'),btn=div.querySelector('button');chk.onchange=()=>{btn.disabled=!chk.checked;};btn.onclick=()=>{localStorage.setItem(key,'1');div.remove();if(onAccept)onAccept();};}
-  function channelStatusPills(ch){const err=syncErrorList().find(e=>e.channel_listing_id===ch.id);const ready=String(ch.ical_url||'').trim();const status=String(ch.availability_status||'');const pills=[`<span class="badge ${ch.platform==='Airbnb'?'blue':'green'}">${esc(ch.platform||'Airbnb')}</span>`];pills.push(ch.is_new_listing?'<span class="badge orange">新发布无订单</span>':(ready?'<span class="ical-added">已填写导入 iCal</span>':'<span class="ical-missing">缺少平台导出 iCal</span>'));if(ch.last_sync)pills.push(`<span class="small">同步：${esc(ch.last_sync)} · ${Number(ch.synced_booking_count||0)} 条</span>`);if(channelHasInferredLock(ch))pills.push(`<span class="badge orange" title="${esc(ch.sync_warning||'iCal 原文显示 Airbnb 锁定/不开放')}">Airbnb 锁定/不开放</span>`);if(status==='order_disappeared')pills.push(`<span class="badge orange" title="${esc(ch.sync_warning||'旧订单从 iCal 消失，需确认是否取消及是否保洁')}">订单消失需确认</span>`);else if(channelNeedsReview(ch))pills.push(`<span class="badge orange" title="${esc(ch.sync_warning||'iCal 同步需要复核')}">需复核</span>`);if(err||ch.sync_error)pills.push(`<span class="badge red">同步失败：${esc((err&&err.error)||ch.sync_error)}</span>`);return `<div class="channel-status">${pills.join('')}</div>`;}
-  function renderChannelCard(ch){const feed=channelFeedUrl(ch);return `<div class="channel-card"><div class="channel-card-head"><div><div class="channel-title">${esc(ch.platform||'Airbnb')} 渠道上架</div>${channelStatusPills(ch)}</div><div class="channel-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存渠道</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-grid"><label>平台<select id="${channelInputId(ch.id,'platform')}">${channelPlatformOptions(ch.platform)}</select></label><label>是否平台新发布房源<select id="${channelInputId(ch.id,'is_new_listing')}">${channelNewOptions(ch.is_new_listing)}</select></label><label>该平台房源链接（可选）<input id="${channelInputId(ch.id,'listing_url')}" value="${esc(ch.listing_url||'')}" placeholder="粘贴这个渠道的房源页面链接"></label></div><div class="channel-url-grid"><label>该平台导出的 iCal<input id="${channelInputId(ch.id,'ical_url')}" value="${esc(ch.ical_url||'')}" placeholder="粘贴平台 Export calendar 导出的 .ics 链接"></label><div class="channel-copyline"><input readonly value="${esc(feed)}"><button class="smallbtn primary" onclick="copyChannelFeed('${esc(ch.id)}',this)">复制防超卖 iCal</button></div></div><div class="channel-help">同一个真实房间如果上架多个 Airbnb 或多个 Booking，每一个上架都在这里单独添加。PMS 会读取每个 iCal 的 UID，生成给某个渠道的防超卖链接时，只排除这个渠道自己的订单，其他渠道占用都会导出。</div></div>`;}
-  function renderChannelListingsPanel(r){ensureChannelCss();const list=roomChannels(r.id);const cards=list.map(renderChannelCard).join('');return `<div class="channel-panel"><div class="channel-panel-head"><div><h3 style="margin:0">渠道上架 / iCal 同步</h3><div class="small">真实房间只建一次；Airbnb、Booking、Vrbo 或第二个 Airbnb 都作为这个房间下面的渠道上架记录。</div></div><button class="smallbtn primary" onclick="addChannelListing('${esc(r.id)}',this)">添加渠道上架</button></div>${cards||`<div class="channel-empty"><strong>还没有渠道上架记录</strong><div class="small">先添加 Airbnb 渠道，把该房间在 Airbnb 导出的 iCal 粘贴进来。上架第二个平台时，再复制对应渠道的防超卖 iCal 回填到平台。</div></div>`}</div>`;}
-  function addChannelListing(roomId,btn){ensureIcalRuleModal('import',async()=>{const row={id:makeChannelId(roomId),room_id:roomId,platform:'Airbnb',is_new_listing:false,listing_url:'',ical_url:''};setChannelList(channelList().concat([row]));renderRoomSettings();try{await postChannelListings([row],btn);}catch(e){}});}
-  async function saveChannelListing(id,btn){const row=readChannelForm(id);if(!row)return alert('找不到这个渠道');if(!row.is_new_listing&&!row.ical_url)return alert('如果不是平台新发布房源，必须先填写该平台导出的 iCal，避免漏掉已有订单。');return postChannelListings([row],btn);}
-  async function deleteChannelListing(id,btn){const row=channelList().find(x=>x&&x.id===id);if(!row)return alert('找不到这个渠道');if(!confirm('确定删除这个渠道上架记录？'))return;setChannelList(channelList().filter(x=>x.id!==id));renderRoomSettings();try{await postChannelListings([{id:row.id,room_id:row.room_id,_delete:true}],btn);}catch(e){}}
-  function copyChannelFeed(id,btn){const row=readChannelForm(id)||channelList().find(x=>x&&x.id===id);if(!row)return alert('找不到这个渠道');if(!row.is_new_listing&&!row.ical_url)return alert('先填写并保存该平台导出的 iCal，再复制系统防超卖 iCal。');const proceed=()=>{if(row.is_new_listing&&!confirm('你已选择“平台新发布房源、没有订单”。把这个系统防超卖 iCal 导入新平台后，新平台日历会按 PMS 当前占用自动更新并锁住日期。确认继续复制？'))return;ensureIcalRuleModal('export',async()=>{try{await postChannelListings([row],btn);copyIcalUrl(channelFeedUrl(row),btn);}catch(e){}});};proceed();}
-  function ensureChannelStateCss(){let s=document.getElementById('pmsChannelStateStyles');if(!s){s=document.createElement('style');s.id='pmsChannelStateStyles';document.head.appendChild(s);}s.textContent=`.channel-card-readonly{background:#fbfdff}.channel-grid{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))!important}.channel-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.channel-summary-box{border:1px solid #dbeafe;background:#f8fafc;border-radius:8px;padding:10px;min-width:0}.channel-summary-box strong{display:block;margin-bottom:5px;color:#334155}.channel-summary-url{display:flex;gap:8px;align-items:center;min-width:0}.channel-summary-url span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.channel-summary-empty{color:#64748b}.channel-edit-hint{border:1px solid #fde68a;background:#fffbeb;border-radius:8px;padding:9px 10px;color:#713f12;font-size:13px}.sync-inline-status{display:inline-flex;align-items:center;min-height:38px;border:1px solid #cbd5e1;border-radius:999px;padding:8px 12px;color:#475569;background:#f8fafc;font-weight:800}.sync-inline-status.syncing{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.sync-inline-status.ok{border-color:#86efac;background:#f0fdf4;color:#166534}.sync-inline-status.error{border-color:#fca5a5;background:#fef2f2;color:#991b1b}.property-actions.sync-actions{align-items:center}`;}
-  function channelShortUrl(value){const text=String(value||'').trim();if(!text)return '<span class="channel-summary-empty">未填写</span>';const shown=text.length>72?text.slice(0,34)+'...'+text.slice(-26):text;return `<span title="${esc(text)}">${esc(shown)}</span>`;}
-  function setChannelEdit(id,on){S.channelEdits=S.channelEdits||{};if(on)S.channelEdits[id]=true;else delete S.channelEdits[id];}
-  function editChannelListing(id){setChannelEdit(id,true);renderRoomSettings();}
-  function cancelChannelEdit(id){setChannelEdit(id,false);renderRoomSettings();}
-  function renderChannelEditCard(ch){const feed=channelFeedUrl(ch);return `<div class="channel-card"><div class="channel-card-head"><div><div class="channel-title">${esc(ch.platform||'Airbnb')} 渠道上架</div>${channelStatusPills(ch)}</div><div class="channel-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存渠道</button><button class="smallbtn" onclick="cancelChannelEdit('${esc(ch.id)}')">取消</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-grid"><label>平台<select id="${channelInputId(ch.id,'platform')}">${channelPlatformOptions(ch.platform)}</select></label><label>是否平台新发布房源<select id="${channelInputId(ch.id,'is_new_listing')}">${channelNewOptions(ch.is_new_listing)}</select></label><label>该平台房源链接（可选）<input id="${channelInputId(ch.id,'listing_url')}" value="${esc(ch.listing_url||'')}" placeholder="粘贴这个渠道的房源页面链接"></label></div><div class="channel-url-grid"><label>该平台导出的 iCal<input id="${channelInputId(ch.id,'ical_url')}" value="${esc(ch.ical_url||'')}" placeholder="粘贴平台 Export calendar 导出的 .ics 链接"></label><div class="channel-copyline"><input readonly value="${esc(feed)}"><button class="smallbtn primary" onclick="copyChannelFeed('${esc(ch.id)}',this)">复制防超卖 iCal</button></div></div><div class="channel-edit-hint">编辑完成点“保存渠道”。保存后这里会收起，只保留摘要和“修改”入口。</div></div>`;}
-  function renderChannelSummaryCard(ch){const feed=channelFeedUrl(ch),hasIcal=String(ch.ical_url||'').trim(),hasListing=String(ch.listing_url||'').trim();return `<div class="channel-card channel-card-readonly"><div class="channel-card-head"><div><div class="channel-title">${esc(ch.platform||'Airbnb')} 渠道上架</div>${channelStatusPills(ch)}</div><div class="channel-actions"><button class="smallbtn primary" onclick="editChannelListing('${esc(ch.id)}')">修改</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-summary-grid"><div class="channel-summary-box"><strong>该平台导入 PMS 的 iCal</strong><div class="channel-summary-url">${channelShortUrl(ch.ical_url)}${hasIcal?`<button class="smallbtn" onclick="copyIcalUrl('${esc(ch.ical_url)}',this)">复制</button>`:''}</div></div><div class="channel-summary-box"><strong>该平台房源链接</strong><div class="channel-summary-url">${channelShortUrl(ch.listing_url)}${hasListing?`<button class="smallbtn" onclick="copyIcalUrl('${esc(ch.listing_url)}',this)">复制</button>`:''}</div></div><div class="channel-summary-box"><strong>系统防超卖 iCal</strong><div class="channel-summary-url">${channelShortUrl(feed)}<button class="smallbtn primary" onclick="copyChannelFeed('${esc(ch.id)}',this)">复制防超卖 iCal</button></div></div></div></div>`;}
-  function renderChannelCard(ch){ensureChannelStateCss();return S.channelEdits&&S.channelEdits[ch.id]?renderChannelEditCard(ch):renderChannelSummaryCard(ch);}
-  function addChannelListing(roomId,btn){ensureIcalRuleModal('import',async()=>{const row={id:makeChannelId(roomId),room_id:roomId,platform:'Airbnb',is_new_listing:false,listing_url:'',ical_url:''};setChannelEdit(row.id,true);setChannelList(channelList().concat([row]));renderRoomSettings();try{await postChannelListings([row],btn);}catch(e){}});}
-  async function saveChannelListing(id,btn){const row=readChannelForm(id);if(!row)return alert('找不到这个渠道');if(!row.is_new_listing&&!row.ical_url)return alert('如果不是平台新发布房源，必须先填写该平台导出的 iCal，避免漏掉已有订单。');const data=await postChannelListings([row],btn);setChannelEdit(id,false);renderRoomSettings();return data;}
-  function channelLabel(ch){const platform=String((ch&&ch.platform)||'Airbnb').trim()||'Airbnb';const note=String((ch&&(ch.channel_note||ch.channelNote||ch.note||ch.label))||'').trim();return note?`${platform} · ${note}`:`${platform} 渠道上架`;}
-  function readChannelForm(id){const list=channelList(),idx=list.findIndex(x=>x&&x.id===id);if(idx<0)return null;const old=list[idx],row={...old};const platform=document.getElementById(channelInputId(id,'platform'));const note=document.getElementById(channelInputId(id,'channel_note'));const isNew=document.getElementById(channelInputId(id,'is_new_listing'));const listingUrl=document.getElementById(channelInputId(id,'listing_url'));const icalUrl=document.getElementById(channelInputId(id,'ical_url'));if(platform)row.platform=platform.value||'Airbnb';if(note)row.channel_note=note.value.trim();if(isNew)row.is_new_listing=isNew.value==='true';if(listingUrl)row.listing_url=listingUrl.value.trim();if(icalUrl)row.ical_url=icalUrl.value.trim();list[idx]=row;setChannelList(list);return row;}
-  function renderChannelEditCard(ch){const feed=channelFeedUrl(ch);return `<div class="channel-card"><div class="channel-card-head"><div><div class="channel-title">${esc(channelLabel(ch))}</div>${channelStatusPills(ch)}</div><div class="channel-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存渠道</button><button class="smallbtn" onclick="cancelChannelEdit('${esc(ch.id)}')">取消</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-grid"><label>平台<select id="${channelInputId(ch.id,'platform')}">${channelPlatformOptions(ch.platform)}</select></label><label>渠道备注（同平台区分）<input id="${channelInputId(ch.id,'channel_note')}" value="${esc(ch.channel_note||'')}" placeholder="例如：主账号、二号账号、Booking A"></label><label>是否平台新发布房源<select id="${channelInputId(ch.id,'is_new_listing')}">${channelNewOptions(ch.is_new_listing)}</select></label><label>该平台房源链接（可选）<input id="${channelInputId(ch.id,'listing_url')}" value="${esc(ch.listing_url||'')}" placeholder="粘贴这个渠道的房源页面链接"></label></div><div class="channel-url-grid"><label>该平台导出的 iCal<input id="${channelInputId(ch.id,'ical_url')}" value="${esc(ch.ical_url||'')}" placeholder="粘贴平台 Export calendar 导出的 .ics 链接"></label><div class="channel-copyline"><input readonly value="${esc(feed)}"><button class="smallbtn primary" onclick="copyChannelFeed('${esc(ch.id)}',this)">复制防超卖 iCal</button></div></div><div class="channel-edit-hint">如果同一个房间上了多个 Airbnb / Booking，一定要写渠道备注，用户才能知道这条 iCal 对应哪个平台账号或哪个同平台房源。</div></div>`;}
-  function renderChannelSummaryCard(ch){const feed=channelFeedUrl(ch),hasIcal=String(ch.ical_url||'').trim(),hasListing=String(ch.listing_url||'').trim(),note=String(ch.channel_note||'').trim();return `<div class="channel-card channel-card-readonly"><div class="channel-card-head"><div><div class="channel-title">${esc(channelLabel(ch))}</div>${channelStatusPills(ch)}${note?`<div class="small">同平台备注：${esc(note)}</div>`:'<div class="small">未填写同平台备注，多个同平台渠道时建议补上。</div>'}</div><div class="channel-actions"><button class="smallbtn primary" onclick="editChannelListing('${esc(ch.id)}')">修改</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-summary-grid"><div class="channel-summary-box"><strong>该平台导入 PMS 的 iCal</strong><div class="channel-summary-url">${channelShortUrl(ch.ical_url)}${hasIcal?`<button class="smallbtn" onclick="copyIcalUrl('${esc(ch.ical_url)}',this)">复制</button>`:''}</div></div><div class="channel-summary-box"><strong>该平台房源链接</strong><div class="channel-summary-url">${channelShortUrl(ch.listing_url)}${hasListing?`<button class="smallbtn" onclick="copyIcalUrl('${esc(ch.listing_url)}',this)">复制</button>`:''}</div></div><div class="channel-summary-box"><strong>系统防超卖 iCal</strong><div class="channel-summary-url">${channelShortUrl(feed)}<button class="smallbtn primary" onclick="copyChannelFeed('${esc(ch.id)}',this)">复制防超卖 iCal</button></div></div></div></div>`;}
-  function addChannelListing(roomId,btn){ensureIcalRuleModal('import',async()=>{const row={id:makeChannelId(roomId),room_id:roomId,platform:'Airbnb',channel_note:'',is_new_listing:false,listing_url:'',ical_url:''};setChannelEdit(row.id,true);setChannelList(channelList().concat([row]));renderRoomSettings();try{await postChannelListings([row],btn);}catch(e){}});}
-  function renderChannelListingsPanel(r){ensureChannelCss();ensureChannelStateCss();const list=roomChannels(r.id);const cards=list.map(renderChannelCard).join('');return `<div class="channel-panel"><div class="channel-panel-head"><div><h3 style="margin:0">渠道上架 / iCal 同步</h3><div class="small">真实房间只建一次；Airbnb、Booking、Vrbo 或第二个 Airbnb 都作为这个房间下面的渠道上架记录。</div></div><div class="channel-actions"><button class="smallbtn primary" onclick="addChannelListing('${esc(r.id)}',this)">添加渠道上架</button><button class="smallbtn" onclick="clearRoomChannels('${esc(r.id)}',this)">清空渠道/iCal</button></div></div>${cards||`<div class="channel-empty"><strong>还没有渠道上架记录</strong><div class="small">先添加 Airbnb 渠道，把该房间在 Airbnb 导出的 iCal 粘贴进来。上架第二个平台时，再复制对应渠道的防超卖 iCal 回填到平台。</div></div>`}</div>`;}
-  function ensureChannelCompactCss(){let s=document.getElementById('pmsChannelCompactStyles');if(!s){s=document.createElement('style');s.id='pmsChannelCompactStyles';document.head.appendChild(s);}s.textContent=`.channel-panel{gap:8px!important;margin-top:10px!important}.channel-panel-head{align-items:center!important}.channel-panel-head h3{font-size:18px!important}.channel-card-compact{padding:8px 10px!important;gap:0!important;border-left-width:5px!important;background:#fff!important}.channel-compact-main{display:grid;grid-template-columns:minmax(180px,.9fr) minmax(0,2.3fr) auto;gap:8px;align-items:center}.channel-compact-title{display:grid;gap:3px;min-width:0}.channel-compact-title .channel-title{font-size:15px!important;line-height:1.2}.channel-compact-meta{display:flex;gap:5px;flex-wrap:wrap;align-items:center}.channel-compact-links{display:grid;grid-template-columns:minmax(54px,auto) minmax(0,1fr) minmax(72px,auto) minmax(0,1fr) minmax(70px,auto) minmax(0,1fr);gap:5px;align-items:center;min-width:0}.channel-compact-label{font-size:11px;font-weight:900;color:#64748b;white-space:nowrap;min-width:max-content}.channel-compact-url{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid #dbeafe;background:#f8fafc;border-radius:999px;padding:4px 8px;color:#334155;font-size:12px;line-height:1.15}.channel-mini-pill{display:inline-flex;align-items:center;border-radius:999px;padding:2px 7px;font-size:12px;font-weight:900;border:1px solid #cbd5e1;background:#fff;color:#475569}.channel-mini-pill.good{border-color:#86efac;background:#f0fdf4;color:#166534}.channel-mini-pill.warn{border-color:#fcd34d;background:#fffbeb;color:#92400e}.channel-mini-pill.note{border-color:#ddd6fe;background:#f5f3ff;color:#6d28d9}.channel-card-compact .channel-actions{align-items:center;justify-content:flex-end;gap:6px;flex-wrap:nowrap}.channel-card-compact .smallbtn{min-height:30px!important;padding:5px 9px!important}.channel-card-compact .badge,.channel-card-compact .ical-added,.channel-card-compact .ical-missing{font-size:12px!important;padding:2px 7px!important}.channel-card-compact .small{font-size:12px!important}@media(max-width:980px){.channel-compact-main{grid-template-columns:1fr}.channel-compact-links{grid-template-columns:minmax(72px,auto) minmax(0,1fr)}.channel-card-compact .channel-actions{justify-content:flex-start}}`;}
-  function channelCompactUrl(value){const text=String(value||'').trim();if(!text)return '<span class="channel-mini-pill warn">未填</span>';const shown=text.length>54?text.slice(0,24)+'...'+text.slice(-18):text;return `<span class="channel-compact-url" title="${esc(text)}">${esc(shown)}</span>`;}
-  function renderChannelSummaryCard(ch){ensureChannelCompactCss();const feed=channelFeedUrl(ch),note=String(ch.channel_note||'').trim();return `<div class="channel-card channel-card-readonly channel-card-compact"><div class="channel-compact-main"><div class="channel-compact-title"><div class="channel-title">${esc(channelLabel(ch))}</div><div class="channel-compact-meta">${channelStatusPills(ch)}${note?`<span class="channel-mini-pill note">${esc(note)}</span>`:'<span class="channel-mini-pill warn">备注未填</span>'}</div></div><div class="channel-compact-links"><span class="channel-compact-label">导入</span>${channelCompactUrl(ch.ical_url)}<span class="channel-compact-label">房源链接</span>${channelCompactUrl(ch.listing_url)}<span class="channel-compact-label">防超卖</span>${channelCompactUrl(feed)}</div><div class="channel-actions"><button class="smallbtn primary" onclick="copyChannelFeed('${esc(ch.id)}',this)">复制防超卖</button><button class="smallbtn primary" onclick="editChannelListing('${esc(ch.id)}')">修改</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div></div>`;}
-  function renderChannelCard(ch){ensureChannelStateCss();ensureChannelCompactCss();return S.channelEdits&&S.channelEdits[ch.id]?renderChannelEditCard(ch):renderChannelSummaryCard(ch);}
-  function ensureIcalDiagnosticCss(){let s=document.getElementById('pmsIcalDiagnosticStyles');if(!s){s=document.createElement('style');s.id='pmsIcalDiagnosticStyles';document.head.appendChild(s);}s.textContent=`.ical-diagnostic-panel{margin-top:8px;border:1px solid #bae6fd;background:#f0f9ff;border-radius:8px;padding:8px 10px;display:grid;gap:6px}.ical-diagnostic-head{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}.ical-diagnostic-title{font-weight:900;color:#075985}.diag-pill{display:inline-flex;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:900;border:1px solid #cbd5e1;background:#fff;color:#334155}.diag-pill.empty{border-color:#a7f3d0;background:#ecfdf5;color:#047857}.diag-pill.booked{border-color:#fde68a;background:#fffbeb;color:#92400e}.diag-pill.locked{border-color:#fecdd3;background:#fff1f2;color:#be123c}.diag-pill.error{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.ical-diagnostic-event{border:1px solid #dbeafe;background:#fff;border-radius:7px;padding:6px 8px;font-size:13px}.ical-diagnostic-muted{font-size:12px;color:#64748b;font-weight:700}.channel-card-compact .ical-diagnostic-panel{grid-column:1/-1}`;}
-  function diagnosticDate(){const wd=document.getElementById('workDate');if(wd&&wd.value)return wd.value;try{return TODAY}catch(e){return new Date().toISOString().slice(0,10);}}
-  function diagStatusText(status){return status==='locked'?'不开放锁定':status==='booked'?'订单占用':status==='empty'?'空房':status==='no_url'?'未填写 iCal':status==='error'?'读取失败':'未检查';}
-  function renderIcalDiagnostic(ch){const d=(S.icalDiagnostics||{})[ch.id];if(!d)return '';const first=((d.results||[])[0])||{};const lines=(first.date_events&&first.date_events.length?first.date_events:first.events||[]).slice(0,6);return `<div class="ical-diagnostic-panel"><div class="ical-diagnostic-head"><div><div class="ical-diagnostic-title">实时 iCal 检查：${esc(d.date||diagnosticDate())}</div><div class="ical-diagnostic-muted">${esc(first.message||'已读取诊断结果')} · 原文事件 ${Number(first.event_count||0)} 条 · 锁定 ${Number(first.lock_count||0)} 条</div></div><span class="diag-pill ${esc(first.status||'')}">${esc(diagStatusText(first.status))}</span></div>${lines.length?lines.map(ev=>`<div class="ical-diagnostic-event"><strong>${esc(ev.checkin||'')} → ${esc(ev.checkout||'')}</strong> <span class="diag-pill ${ev.kind==='lock'?'locked':'booked'}">${ev.kind==='lock'?'锁定':'订单'}</span><div class="ical-diagnostic-muted">UID：${esc(ev.uid_hash||'')} · ${esc(ev.summary||ev.status||ev.lock_reason||'无摘要')}</div></div>`).join(''):'<div class="ical-diagnostic-muted">这个日期没有命中的 iCal 事件。若客服刚解除屏蔽，现在显示空房是正常的；之前状态需要看同步历史。</div>'}</div>`;}
-  async function diagnoseChannelIcal(id,btn){const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='检查中...';}try{const res=await fetch(apiUrl('/api/ical-diagnostics'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel_listing_id:id,date:diagnosticDate()})});const data=await res.json().catch(()=>({}));if(!res.ok||data.ok===false)throw new Error(data.error||'iCal diagnostic failed');S.icalDiagnostics[id]=data.diagnostics||{};renderRoomSettings();return data;}catch(e){alert('实时检查 iCal 失败：'+(e&&e.message?e.message:e));return null;}finally{if(btn){btn.disabled=false;btn.textContent=old||'实时检查 iCal';}}}
-  function renderChannelSummaryCard(ch){ensureChannelCompactCss();ensureIcalDiagnosticCss();const feed=channelFeedUrl(ch),note=String(ch.channel_note||'').trim();return `<div class="channel-card channel-card-readonly channel-card-compact"><div class="channel-compact-main"><div class="channel-compact-title"><div class="channel-title">${esc(channelLabel(ch))}</div><div class="channel-compact-meta">${channelStatusPills(ch)}${note?`<span class="channel-mini-pill note">${esc(note)}</span>`:'<span class="channel-mini-pill warn">备注未填</span>'}</div></div><div class="channel-compact-links"><span class="channel-compact-label">导入 iCal</span>${channelCompactUrl(ch.ical_url)}<span class="channel-compact-label">房源链接</span>${channelCompactUrl(ch.listing_url)}<span class="channel-compact-label">防超卖 iCal</span>${channelCompactUrl(feed)}</div><div class="channel-actions"><button class="smallbtn" onclick="diagnoseChannelIcal('${esc(ch.id)}',this)">实时检查 iCal</button><button class="smallbtn primary" onclick="copyChannelFeed('${esc(ch.id)}',this)">复制防超卖</button><button class="smallbtn primary" onclick="editChannelListing('${esc(ch.id)}')">修改</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div>${renderIcalDiagnostic(ch)}</div></div>`;}
-  function renderChannelCard(ch){ensureChannelStateCss();ensureChannelCompactCss();return S.channelEdits&&S.channelEdits[ch.id]?renderChannelEditCard(ch):renderChannelSummaryCard(ch);}
-  Object.assign(window,{diagnoseChannelIcal});
-  async function clearRoomChannels(roomId,btn){const room=roomList().find(r=>r&&r.id===roomId);const name=room?objectDisplayName(room,'room'):roomId;if(!confirm(`确定清空 ${name} 的所有渠道上架和旧 iCal 设置？\\n\\n这个操作会删除该房间下面的 Airbnb/Booking/Vrbo/Other 渠道记录，并清掉旧版 iCal 字段。`))return;setChannelList(channelList().filter(x=>x&&x.room_id!==roomId));renderRoomSettings();try{await postChannelListings([{room_id:roomId,_clear_room_channels:true}],btn);}catch(e){}}
-  async function saveVisibleChannelInputs(propertyId){collectChannelInputs(propertyId);const rows=propRooms(propertyId).flatMap(r=>roomChannels(r.id));if(rows.length)await postChannelListings(rows,null);}
-  const pmsChannelBaseSyncPropertyIcal=syncPropertyIcal;
-  syncPropertyIcal=async function(propertyId,btn){const id=propertyId||(activeProp()&&activeProp().id);if(id)collectChannelInputs(id);return pmsChannelBaseSyncPropertyIcal(propertyId,btn);};
-  function propertySyncStatusId(propertyId){return 'propertySyncStatus_'+safe(propertyId);}
-  function setPropertySyncStatus(propertyId,type,text){S.syncResults=S.syncResults||{};S.syncResults[propertyId]={type:type||'',text:text||''};const el=document.getElementById(propertySyncStatusId(propertyId));if(el){el.className='sync-inline-status '+(type||'');el.textContent=text||'';}}
-  function propertySyncStatusHtml(propertyId){ensureChannelStateCss();const row=(S.syncResults||{})[propertyId];const type=row&&row.type?row.type:'';const text=row&&row.text?row.text:'';return `<span id="${propertySyncStatusId(propertyId)}" class="sync-inline-status ${esc(type)}">${esc(text)}</span>`;}
-  function propertySyncTotals(propertyId){const roomIds=new Set(propRooms(propertyId).map(r=>r.id));const channels=channelList().filter(ch=>ch&&roomIds.has(ch.room_id));const imported=channels.reduce((sum,ch)=>sum+Number(ch.synced_booking_count||0),0);const errors=syncErrorList().filter(e=>roomIds.has(e.room_id));const warnings=channels.filter(channelNeedsReview);return {channels,imported,errors,warnings};}
-  const pmsSyncProgressBase=syncPropertyIcal;
-  syncPropertyIcal=async function(propertyId,btn){const id=propertyId||(activeProp()&&activeProp().id);if(!id)return pmsSyncProgressBase(propertyId,btn);const old=btn&&btn.textContent;setPropertySyncStatus(id,'syncing','同步中：正在直接读取平台 iCal...');if(btn){btn.disabled=true;btn.textContent='同步中...';}try{const data=await pmsSyncProgressBase(propertyId,btn);if(!data){setPropertySyncStatus(id,'error','同步失败：请检查 iCal 链接或弹窗错误');return data;}const total=propertySyncTotals(id);const prefix=`同步完成：${total.channels.length} 个渠道，导入 ${total.imported} 条`;const suffix=total.errors.length?`，失败 ${total.errors.length} 条`:total.warnings.length?`，需复核 ${total.warnings.length} 条`:'，全部成功';setPropertySyncStatus(id,total.errors.length?'error':(total.warnings.length?'error':'ok'),prefix+suffix);return data;}catch(e){setPropertySyncStatus(id,'error','同步失败：'+(e&&e.message?e.message:e));return null;}finally{if(btn){btn.disabled=false;btn.textContent=old||'同步当前房源 iCal';}}};
-  function renderRoomCard(r){ensureChannelReviewCss();const basic=S.rooms[r.id]?`<div class='inline-edit-card'><div><label>房间名字</label><input id='${roomNameId(r.id)}' value='${esc(r.name||'')}'></div><div><label>清洁费</label><input id='${roomFeeId(r.id)}' type='number' value='${esc(r.cleaning_fee||0)}'></div><div class='text-actions'><button class='smallbtn primary' onclick='saveRoomBasics("${esc(r.id)}",this)'>保存</button><button class='smallbtn' onclick='cancelRoomBasics("${esc(r.id)}")'>取消</button><button class='smallbtn' onclick='deleteRoomUi("${esc(r.id)}",this)'>删除</button></div></div>`:`<div class='inline-view-card'><div><div class='readonly-title'>${esc(objectDisplayName(r,'room')||'房间')}</div><div class='readonly-meta'>清洁费：$${Number(r.cleaning_fee||0)}</div></div><div class='text-actions'><button class='smallbtn' onclick='editRoomBasics("${esc(r.id)}",this)'>修改</button><button class='smallbtn' onclick='deleteRoomUi("${esc(r.id)}",this)'>删除</button></div></div>`;return `<div class='room-setting-card'>${basic}${renderChannelListingsPanel(r)}${roomSyncStatus(r)}<div class='room-compact-actions'><button class='smallbtn' onclick='syncPropertyIcal("${esc(roomPropId(r.id))}",this)'>同步当前房源 iCal</button><span class='small'>同步会读取当前房源下每个房间的所有渠道 iCal。</span></div></div>`;}
-  function renderPropertyDetail(p){const rs=propRooms(p.id);const cards=rs.length?`<div class='room-setting-list'>${rs.map(renderRoomCard).join('')}</div>`:`<div class='empty-panel'><strong>这个房源还没有房间</strong><div style='margin-top:10px'><button class='smallbtn primary' onclick='addRoom(this)'>添加第一个房间</button></div></div>`;return `<div class='property-room-shell'><div class='property-detail-head'><div><h2 class='property-room-title'><span class='property-room-name'>${esc(displayPropertyName(p.name,p.id))}</span><span class='property-room-title-text'>房间管理</span></h2><div class='small'>${rs.length} 个房间 · ${propAreas(p.id).length} 个公区 · ${propCleaners(p.id).length} 个保洁绑定 · 房源 ID：${esc(p.id)}</div></div><div class='property-actions'><button class='smallbtn' onclick='backToPropertyList()'>返回房源列表</button><button class='smallbtn primary' onclick='syncPropertyIcal("${esc(p.id)}",this)'>同步当前房源 iCal</button></div></div>${renderCleanerPanel(p)}${renderCommonAreaPanel(p)}<div class='property-subcard'><div class='property-detail-head'><div><h3 style='margin:0'>房间设置</h3><div class='small'>每个真实房间只建一次；不同平台、不同 Airbnb 账号，都在房间下面添加为渠道上架记录。</div></div><button class='smallbtn primary' onclick='addRoom(this)'>添加房间</button></div>${cards}</div></div>`;}
-  function renderPropertyDetail(p){const rs=propRooms(p.id);const cards=rs.length?`<div class='room-setting-list'>${rs.map(renderRoomCard).join('')}</div>`:`<div class='empty-panel'><strong>这个房源还没有房间</strong><div style='margin-top:10px'><button class='smallbtn primary' onclick='addRoom(this)'>添加第一个房间</button></div></div>`;return `<div class='property-room-shell'><div class='property-detail-head'><div><h2 class='property-room-title'><span class='property-room-name'>${esc(displayPropertyName(p.name,p.id))}</span><span class='property-room-title-text'>房间管理</span></h2><div class='small'>${rs.length} 个房间 · ${propAreas(p.id).length} 个公区 · ${propCleaners(p.id).length} 个保洁绑定 · 房源 ID：${esc(p.id)}</div></div><div class='property-actions sync-actions'><button class='smallbtn' onclick='backToPropertyList()'>返回房源列表</button><button class='smallbtn primary' onclick='syncPropertyIcal("${esc(p.id)}",this)'>同步当前房源 iCal</button>${propertySyncStatusHtml(p.id)}</div></div>${renderCleanerPanel(p)}${renderCommonAreaPanel(p)}<div class='property-subcard'><div class='property-detail-head'><div><h3 style='margin:0'>房间设置</h3><div class='small'>每个真实房间只建一次；不同平台、不同 Airbnb 账号，都在房间下面添加为渠道上架记录。</div></div><button class='smallbtn primary' onclick='addRoom(this)'>添加房间</button></div>${cards}</div></div>`;}
-  function initSelects(){const selectedRoom=document.getElementById('ownerRoomFilter')?.value||'';const selectedBookingRoom=document.getElementById('bookingRoomFilter')?.value||'';const roomOpts=`<option value="">全部房间</option>`+ownerRooms().map(r=>`<option value="${esc(r.id)}">${esc(scopedName(r,'room'))}</option>`).join('');setOptions('ownerRoomFilter',roomOpts,selectedRoom);setOptions('bookingRoomFilter',roomOpts,selectedBookingRoom);setOptions('roomNoteRoom',ownerRooms().map(r=>`<option value="${esc(r.id)}">${esc(scopedName(r,'room'))}</option>`).join(''),document.getElementById('roomNoteRoom')?.value||'');const mft=document.getElementById('manualFilterTargetType');if(mft&&!mft.dataset.pmsScoped){mft.onchange=()=>{refreshManualFilterTargetOptions();renderManualRecords();};mft.dataset.pmsScoped='1';}refreshManualTargetOptions();refreshNoteTargetOptions();refreshManualFilterTargetOptions();}
-  function refreshManualFilterTargetOptions(){const selected=document.getElementById('manualFilterTarget')?.value||'';setOptions('manualFilterTarget',cleanTargetOptions(selected,'全部对象'),selected);}
-  function refreshManualTargetOptions(){const selected=document.getElementById('manualTarget')?.value||'';setOptions('manualTarget',cleanTargetOptions(selected,''),selected);updateManualAmount(false);}
-  function refreshNoteTargetOptions(){const type=document.getElementById('noteTargetType')?.value||'room';const list=type==='common'?ownerAreas():ownerRooms();const opts=list.map(x=>`<option value="${esc(x.id)}">${esc(scopedName(x,type))}</option>`).join('')||'<option value="">当前房源没有可选对象</option>';setOptions('noteTarget',opts,document.getElementById('noteTarget')?.value||'');}
-  function renderOwnerMetrics(){const range=calendarRange(),future=dedupeBookingsByStay(ownerRealBookings()).filter(b=>b.checkin<range.endExclusive&&b.checkout>range.start);const nights=future.reduce((s,b)=>s+overlapDays(range.start,range.endExclusive,b.checkin,b.checkout).length,0);const lockedNights=dedupeBookingsByStay(ownerLockBookings()).filter(b=>b.checkin<range.endExclusive&&b.checkout>range.start).reduce((s,b)=>s+overlapDays(range.start,range.endExclusive,b.checkin,b.checkout).length,0);const cleanToday=scopedCleaningRows(TODAY,TODAY).filter(r=>r.date===TODAY).length;const notesToday=allOwnerNotes().filter(n=>n.date===TODAY).length;ensureOwnerPropertyModuleVisible();const el=ensureOwnerMetricsHost();if(el)el.innerHTML=`<div class="metric"><div class="small">区间订单</div><div class="num">${future.length}</div></div><div class="metric"><div class="small">区间占用晚数</div><div class="num">${nights}</div></div><div class="metric"><div class="small">区间不开放锁定晚数</div><div class="num">${lockedNights}</div></div><div class="metric"><div class="small">今日实际保洁</div><div class="num">${cleanToday}</div></div><div class="metric"><div class="small">今日备注</div><div class="num">${notesToday}</div></div>`;}
-  function renderInlineNotesScoped(date,target_id,target_type){const ns=ownerCleanNotes().filter(n=>n.date===date&&n.target_id===target_id&&n.target_type===target_type);const roomNs=target_type==='room'?ownerRoomDateNotes().filter(n=>n.date===date&&n.room_id===target_id).map(n=>({date:n.date,target_id:n.room_id,target_type:'room',note:n.note,priority:n.priority,created_by:n.created_by,roomDate:true})):[];return ns.concat(roomNs).map(n=>`<div class="note-card ${n.priority==='重要'?'important':''}"><div class="note-title">${priorityBadge(n.priority)} ${esc(cleanTargetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':'备注'}</div><div>${esc(n.note)}</div></div>`).join('');}
-  function taskFeeText(row){return row&&row.note_task?signedMoneyText(row.amount):rowFeeText(row);}
-  function cleaningTableScoped(items,showSource=true){if(!items.length)return `<div class="card"><p class="small">暂无记录</p></div>`;const showProp=showPropColumn();return `<div class="card"><table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>类型</th><th>对象</th>${showSource?'<th>来源</th>':''}<th>费用</th><th>备注/任务</th></tr>`+items.map(r=>`<tr class="${r.date===TODAY?'today-row':''}"><td>${esc(r.date)}</td>${showProp?`<td>${propBadge(targetPropId(r.target_id,r.target_type))}</td>`:''}<td>${objectBadge(r.target_type)}</td><td><span class="badge ${r.target_type==='common'?'orange':''}">${esc(cleanTargetName(r.target_id,r.target_type))}</span></td>${showSource?`<td>${esc(r.source||'')}</td>`:''}<td>${taskFeeText(r)}</td><td>${esc(r.reason||'')}${r.note_task?'':renderInlineNotesScoped(r.date,r.target_id,r.target_type)}</td></tr>`).join('')+`</table></div>`;}
-  function financeRowAmount(r){return r.finance_adjustment?adjustAmount(r.amount):targetFee(r.target_id,r.target_type);}
-  function financeMonthKey(r){return String(r.date||'').slice(0,7)||'未知月份';}
-  function financeMonthLabel(key){return key==='未知月份'?key:`${key.slice(0,4)}年${key.slice(5,7)}月`;}
-  function financeRowHtml(r,showProp){return `<tr class="${r.date===TODAY?'today-row':''}"><td>${esc(r.date)}</td>${showProp?`<td>${esc(propName(targetPropId(r.target_id,r.target_type)))}</td>`:''}<td>${objectBadge(r.target_type)} <span class="badge ${r.target_type==='common'?'orange':''}">${esc(cleanTargetName(r.target_id,r.target_type))}</span></td><td>${esc(r.source||'')}</td><td><strong>${financeAmountText(r)}</strong></td><td>${esc(r.reason||'')}${r.finance_adjustment?'':renderInlineNotesScoped(r.date,r.target_id,r.target_type)}</td></tr>`;}
-  function cleaningFinanceTableScoped(items){if(!items.length)return `<div class="card"><p class="small">暂无费用记录</p></div>`;const showProp=showPropColumn(),rows=[...items].sort(financeSortDesc),groups=[];rows.forEach(r=>{const key=financeMonthKey(r);let g=groups.find(x=>x.key===key);if(!g){g={key,rows:[]};groups.push(g);}g.rows.push(r);});return `<div class="finance-month-list">`+groups.map(g=>{const total=g.rows.reduce((s,r)=>s+financeRowAmount(r),0),base=g.rows.filter(r=>!r.finance_adjustment).length,adjust=g.rows.filter(r=>r.finance_adjustment).length;return `<details class="card finance-month-block" open><summary><span class="finance-month-title">${esc(financeMonthLabel(g.key))}</span><span class="finance-month-summary">${g.rows.length}条 ｜ 系统${base} ｜ 调整${adjust} ｜ 合计 ${signedMoneyText(total)}</span></summary><table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>对象</th><th>来源</th><th>金额</th><th>说明</th></tr>${g.rows.map(r=>financeRowHtml(r,showProp)).join('')}</table></details>`;}).join('')+`</div>`;}
-  function renderRoomDateNotesForWork(date,room_id){return ownerRoomDateNotes().filter(n=>n.date===date&&n.room_id===room_id).map(n=>`<div class="note-card ${n.priority==='重要'?'important':''}"><div class="note-title">${priorityBadge(n.priority)} 房间日期备注</div><div>${esc(n.note)}</div></div>`).join('');}
-  function renderDailyWork(){const wd=document.getElementById('workDate');if(wd&&!wd.value)wd.value=TODAY;const d=(wd&&wd.value)||TODAY;const base=ownerRealBookings();const locked=ownerLockBookings().filter(b=>b.checkin<=d&&b.checkout>d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id)));const checkouts=base.filter(b=>b.checkout===d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id)));const checkins=base.filter(b=>b.checkin===d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id)));const stays=base.filter(b=>b.checkin<d&&b.checkout>d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id)));const cleanRows=scopedCleaningRows(d,d).filter(r=>r.date===d);const notes=allOwnerNotes().filter(n=>n.date===d);const metrics=document.getElementById('dailyWorkMetrics');if(metrics)metrics.innerHTML=`<div class="metric"><div class="small">退房</div><div class="num">${checkouts.length}</div></div><div class="metric"><div class="small">入住</div><div class="num">${checkins.length}</div></div><div class="metric"><div class="small">剩余在住</div><div class="num">${stays.length}</div></div><div class="metric"><div class="small">不开放锁定</div><div class="num">${locked.length}</div></div><div class="metric"><div class="small">保洁任务</div><div class="num">${cleanRows.length}</div></div>`;function cards(title,rows,cls){return `<div class="work-card ${cls}"><h3>${title}（${rows.length}）</h3>`+(rows.length?rows.map(b=>{const remainingDays=Math.max(0,daysBetween(d,b.checkout));const stayInfo=cls==='stay'?`<div><strong>还剩 ${remainingDays} 天退房</strong> ｜ 退房：${esc(b.checkout)}</div>`:`<div>${esc(b.checkin)} → ${esc(b.checkout)} ｜ 客人：${esc(b.guest||'')}</div>`;return `<div class="note-card"><div class="note-title"><span class="badge">${esc(cleanRoomName(b.room_id))}</span>${propBadge(roomPropId(b.room_id))} ${platformBadge(b.platform)}</div>${stayInfo}<div class="small">入住：${esc(b.checkin)} ｜ 客人：${esc(b.guest||'')}</div>${renderRoomDateNotesForWork(d,b.room_id)}</div>`;}).join(''):'<p class="small">暂无</p>')+`</div>`;}function lockCards(){return `<div class="work-card locked"><h3>不开放锁定（${locked.length}）</h3>`+(locked.length?locked.map(b=>`<div class="note-card lock-note"><div class="note-title"><span class="badge orange">${esc(cleanRoomName(b.room_id))}</span>${propBadge(roomPropId(b.room_id))} <span class="badge red">不开放锁定</span> ${platformBadge(b.platform)}</div><div>${esc(b.checkin)} → ${esc(b.checkout)}</div><div class="small">原因：${esc(lockReason(b))}</div></div>`).join(''):'<p class="small">暂无</p>')+`</div>`;}const content=document.getElementById('dailyWorkContent');if(content)content.innerHTML=`<div class="work-grid">${cards('今日退房',checkouts,'checkout')}${cards('今日入住',checkins,'checkin')}${cards('剩余在住',stays,'stay')}${lockCards()}</div><div class="card"><h2>当天保洁任务</h2>${cleaningTableScoped(cleanRows)}</div><div class="card"><h2>当天备注</h2>${notes.length?notes.map(n=>`<div class="note-card ${n.priority==='重要'?'important':''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(cleanTargetName(n.target_id,n.target_type))}${propBadge(targetPropId(n.target_id,n.target_type))} ${n.kind==='roomDate'?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join(''):'<p class="small">暂无备注</p>'}</div>`;}
-  function calendarRange(){const s=document.getElementById('rangeStart'),e=document.getElementById('rangeEnd');let start=s?.value||TODAY,end=e?.value||addDays(TODAY,13);if(start>end){const t=start;start=end;end=t;}const endExclusive=addDays(end,1);let dayCount=daysBetween(start,endExclusive);if(dayCount<1)dayCount=1;if(dayCount>90)dayCount=90;return {start,end:addDays(start,dayCount-1),endExclusive:addDays(start,dayCount),dayCount};}
-  function selectedCalendarRooms(){const selected=document.getElementById('ownerRoomFilter')?.value||'';return selected?ownerRooms().filter(r=>r.id===selected):ownerRooms();}
-  function rangePresetButtons(n){const want=String(n);return Array.from(document.querySelectorAll('button')).filter(btn=>{const preset=String(btn.dataset.rangePreset||''),code=String(btn.getAttribute('onclick')||''),text=String(btn.textContent||'').replace(/\s+/g,'');return preset===want||code.includes(`setRangePreset(${want})`)||text.includes(`未来${want}天`);});}
-  function updateRangePresetButtons(){const r=calendarRange();[14,28].forEach(n=>{rangePresetButtons(n).forEach(btn=>{btn.dataset.rangePreset=String(n);btn.classList.toggle('primary',r.start===TODAY&&r.dayCount===n&&r.end===addDays(TODAY,n-1));});});}
-  function refreshCalendarRangeViews(){renderOwnerMetrics();renderOwnerCalendar();renderOwnerBookings();}
-  function setRangePreset(n){const days=Math.max(1,Math.min(90,Number(n)||14)),start=document.getElementById('rangeStart'),end=document.getElementById('rangeEnd');S.calendarRangePreset=days;if(start)start.value=TODAY;if(end)end.value=addDays(TODAY,days-1);updateRangePresetButtons();refreshCalendarRangeViews();}
-  function ensureDailyEmptyCss(){let s=document.getElementById('pmsDailyEmptyStyles');if(!s){s=document.createElement('style');s.id='pmsDailyEmptyStyles';document.head.appendChild(s);}s.textContent=`.work-card.empty{border-color:#5eead4!important;background:#f0fdfa!important}.work-card.empty .note-card{border-color:#99f6e4!important;background:#ffffff!important}.badge.available{background:#dcfce7;color:#047857}.empty-room-note{color:#0f766e;font-weight:800}`;}
-  function dailyEmptyRoomsForDate(date,base,locked){const busy=new Set();base.forEach(b=>{if(b.checkin<=date&&b.checkout>date)busy.add(b.room_id);});locked.forEach(b=>{if(b.checkin<=date&&b.checkout>date)busy.add(b.room_id);});return ownerRooms().filter(r=>!busy.has(r.id)&&!roomNeedsChannelReview(r.id)).sort((a,b)=>objectDisplayName(a,'room').localeCompare(objectDisplayName(b,'room')));}
-  function renderDailyWork(){ensureDailyEmptyCss();const wd=document.getElementById('workDate');if(wd&&!wd.value)wd.value=TODAY;const d=(wd&&wd.value)||TODAY;const base=ownerRealBookings();const locked=ownerLockBookings().filter(b=>b.checkin<=d&&b.checkout>d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id)));const checkouts=base.filter(b=>b.checkout===d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id)));const checkins=base.filter(b=>b.checkin===d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id)));const stays=base.filter(b=>b.checkin<d&&b.checkout>d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id)));const emptyRooms=dailyEmptyRoomsForDate(d,base,locked);const cleanRows=scopedCleaningRows(d,d).filter(r=>r.date===d);const notes=allOwnerNotes().filter(n=>n.date===d);const metrics=document.getElementById('dailyWorkMetrics');if(metrics)metrics.innerHTML=`<div class="metric"><div class="small">退房</div><div class="num">${checkouts.length}</div></div><div class="metric"><div class="small">入住</div><div class="num">${checkins.length}</div></div><div class="metric"><div class="small">剩余在住</div><div class="num">${stays.length}</div></div><div class="metric"><div class="small">空房</div><div class="num">${emptyRooms.length}</div></div><div class="metric"><div class="small">不开放锁定房间</div><div class="num">${locked.length}</div></div><div class="metric"><div class="small">保洁任务</div><div class="num">${cleanRows.length}</div></div>`;function bookingCards(title,rows,cls){return `<div class="work-card ${cls}"><h3>${title}（${rows.length}）</h3>`+(rows.length?rows.map(b=>{const remainingDays=Math.max(0,daysBetween(d,b.checkout));const stayInfo=cls==='stay'?`<div><strong>还剩 ${remainingDays} 天退房</strong> ｜ 退房：${esc(b.checkout)}</div>`:`<div>${esc(b.checkin)} → ${esc(b.checkout)} ｜ 客人：${esc(b.guest||'')}</div>`;return `<div class="note-card"><div class="note-title"><span class="badge">${esc(cleanRoomName(b.room_id))}</span>${propBadge(roomPropId(b.room_id))} ${platformBadge(b.platform)}</div>${stayInfo}<div class="small">入住：${esc(b.checkin)} ｜ 客人：${esc(b.guest||'')}</div>${renderRoomDateNotesForWork(d,b.room_id)}</div>`;}).join(''):'<p class="small">暂无</p>')+`</div>`;}function emptyCards(){return `<div class="work-card empty"><h3>空房（${emptyRooms.length}）</h3>`+(emptyRooms.length?emptyRooms.map(r=>{const out=checkouts.find(b=>b.room_id===r.id);const label=out?'今日退房后空房':'当晚未预定';return `<div class="note-card"><div class="note-title"><span class="badge available">${esc(cleanRoomName(r.id))}</span>${propBadge(roomPropId(r.id))} <span class="badge green">${esc(label)}</span></div><div class="empty-room-note">${out?'退房后如已清洁，可安排同日入住或继续售卖。':'这晚没有入住、在住或锁定记录。'}</div>${out?`<div class="small">退房订单：${esc(out.checkin)} → ${esc(out.checkout)} ${platformBadge(out.platform)}</div>`:''}${renderRoomDateNotesForWork(d,r.id)}</div>`;}).join(''):'<p class="small">暂无空房</p>')+`</div>`;}function lockCards(){return `<div class="work-card locked"><h3>不开放锁定（${locked.length}）</h3>`+(locked.length?locked.map(b=>`<div class="note-card lock-note"><div class="note-title"><span class="badge orange">${esc(cleanRoomName(b.room_id))}</span>${propBadge(roomPropId(b.room_id))} <span class="badge red">不开放锁定</span> ${platformBadge(b.platform)}</div><div>${esc(b.checkin)} → ${esc(b.checkout)}</div><div class="small">原因：${esc(lockReason(b))}</div></div>`).join(''):'<p class="small">暂无</p>')+`</div>`;}const content=document.getElementById('dailyWorkContent');if(content)content.innerHTML=`<div class="work-grid">${bookingCards('退房',checkouts,'checkout')}${bookingCards('入住',checkins,'checkin')}${bookingCards('剩余在住',stays,'stay')}${emptyCards()}${lockCards()}</div><div class="card"><h2>当天保洁任务</h2>${cleaningTableScoped(cleanRows)}</div><div class="card"><h2>当天备注</h2>${notes.length?notes.map(n=>`<div class="note-card ${n.priority==='重要'?'important':''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(cleanTargetName(n.target_id,n.target_type))}${propBadge(targetPropId(n.target_id,n.target_type))} ${n.kind==='roomDate'?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join(''):'<p class="small">暂无备注</p>'}</div>`;}
-  function ensureDailyConflictCss(){let s=document.getElementById('pmsDailyConflictStyles');if(!s){s=document.createElement('style');s.id='pmsDailyConflictStyles';document.head.appendChild(s);}s.textContent=`#dailyWorkContent .work-grid{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(185px,1fr))!important;align-items:stretch;gap:12px!important;overflow:visible!important}#dailyWorkContent .work-card{min-width:0!important;padding:12px!important}#dailyWorkContent .work-card h3{font-size:20px;line-height:1.15;margin-bottom:10px}#dailyWorkContent .note-card{padding:10px!important;margin:7px 0!important}#dailyWorkContent .note-card>div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:15px;line-height:1.35}#dailyWorkContent .note-title{display:block}#dailyWorkContent .badge{vertical-align:middle}.work-card.conflict{border-color:#fb7185!important;background:#fff1f2!important}.work-card.conflict .note-card{border-color:#fda4af!important;background:#fff!important}.conflict-line{font-weight:900;color:#be123c}.badge.conflict{background:#ffe4e6;color:#be123c}@media(max-width:1100px){#dailyWorkContent .work-grid{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))!important}#dailyWorkContent .note-card>div{white-space:normal}}`;}
-  function dailyConflictRows(date,base){const rows=[];ownerRooms().forEach(room=>{const touching=base.filter(b=>b.room_id===room.id&&b.checkin<=date&&b.checkout>=date);for(let i=0;i<touching.length;i++){for(let j=i+1;j<touching.length;j++){const a=touching[i],b=touching[j],normalTurnover=(a.checkout===date&&b.checkin===date)||(b.checkout===date&&a.checkin===date),overlap=a.checkin<b.checkout&&b.checkin<a.checkout;if(!normalTurnover&&overlap)rows.push({room,a,b});}}});return rows.sort((x,y)=>cleanRoomName(x.room.id).localeCompare(cleanRoomName(y.room.id)));}
-  function dailyConflictCards(date,base){const rows=dailyConflictRows(date,base);return `<div class="work-card conflict"><h3>重叠风险（${rows.length}）</h3>`+(rows.length?rows.map(x=>`<div class="note-card"><div class="note-title"><span class="badge conflict">${esc(cleanRoomName(x.room.id))}</span>${propBadge(roomPropId(x.room.id))} <span class="badge red">疑似同房间重叠</span></div><div class="conflict-line">${esc(x.a.checkin)} → ${esc(x.a.checkout)} ${platformBadge(x.a.platform)}</div><div class="conflict-line">${esc(x.b.checkin)} → ${esc(x.b.checkout)} ${platformBadge(x.b.platform)}</div><div class="small">这个房间同一晚可能被多个订单占用，所以不会算作空房。请复核是否是重复导入、关联房源锁定，或平台日历异常。</div></div>`).join(''):'<p class="small">暂无重叠风险</p>')+`</div>`;}
-  function ensureChannelReviewCss(){let s=document.getElementById('pmsChannelReviewStyles');if(!s){s=document.createElement('style');s.id='pmsChannelReviewStyles';document.head.appendChild(s);}s.textContent=`.work-card.channel-review{border-color:#f59e0b!important;background:#fffbeb!important}.work-card.channel-review .note-card{border-color:#f59e0b!important;background:#fff!important}.sync-room-status.sync-warning{border:2px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:8px;padding:9px 10px;font-weight:900;margin-top:10px}.channel-card:has(.badge.orange[title]){border-color:#f59e0b!important;box-shadow:inset 5px 0 0 #f59e0b}`;}
-  const pmsDailyWorkBase=renderDailyWork;
-  renderDailyWork=function(){pmsDailyWorkBase();ensureDailyConflictCss();const wd=document.getElementById('workDate'),d=(wd&&wd.value)||TODAY,base=ownerRealBookings(),conflicts=dailyConflictRows(d,base),metrics=document.getElementById('dailyWorkMetrics'),grid=document.querySelector('#dailyWorkContent .work-grid');if(conflicts.length){if(metrics)metrics.insertAdjacentHTML('beforeend',`<div class="metric"><div class="small">重叠风险</div><div class="num">${conflicts.length}</div></div>`);if(grid)grid.insertAdjacentHTML('afterbegin',dailyConflictCards(d,base));}};
-  function channelReviewRows(){return ownerRooms().filter(r=>roomNeedsChannelReview(r.id)).sort((a,b)=>objectDisplayName(a,'room').localeCompare(objectDisplayName(b,'room')));}
-  function dailyChannelReviewCards(){const rows=channelReviewRows();return `<div class="work-card channel-review"><h3>渠道需复核（${rows.length}）</h3>`+(rows.length?rows.map(r=>`<div class="note-card"><div class="note-title"><span class="badge orange">${esc(cleanRoomName(r.id))}</span>${propBadge(roomPropId(r.id))} <span class="badge red">暂不算空房</span></div><div>${esc(roomChannelReviewText(r.id))}</div><div class="small">PMS 没有把它当订单，也不会生成保洁；但同步信号不可信，所以先不要当作可售空房。</div></div>`).join(''):'<p class="small">暂无需复核渠道</p>')+`</div>`;}
-  const pmsDailyWorkReviewBase=renderDailyWork;
-  renderDailyWork=function(){pmsDailyWorkReviewBase();ensureDailyConflictCss();ensureChannelReviewCss();const rows=channelReviewRows(),metrics=document.getElementById('dailyWorkMetrics'),grid=document.querySelector('#dailyWorkContent .work-grid');if(rows.length){if(metrics)metrics.insertAdjacentHTML('beforeend',`<div class="metric"><div class="small">渠道需复核</div><div class="num">${rows.length}</div></div>`);if(grid)grid.insertAdjacentHTML('afterbegin',dailyChannelReviewCards());}};
-  function overlapDays(start,endExclusive,itemStart,itemEnd){const a=itemStart>start?itemStart:start,b=itemEnd<endExclusive?itemEnd:endExclusive;return b>a?Array.from({length:daysBetween(a,b)},(_,i)=>addDays(a,i)):[];}
-  function renderOwnerCalendar(){const s=document.getElementById('rangeStart');if(s&&!s.value){setRangePreset(14);return;}const r=calendarRange(),days=Array.from({length:r.dayCount},(_,i)=>addDays(r.start,i)),showRooms=selectedCalendarRooms();const grid=document.getElementById('calendarGrid');if(!grid)return;if(!showRooms.length){grid.style.gridTemplateColumns='1fr';grid.innerHTML='<div class="cell head">当前房源没有房间</div>';updateRangePresetButtons();renderSixMonthStats();return;}const platformText=b=>bookingSourceLabels(b)[0]||String((b&&b.platform)||'订单'),titleLine=(label,b)=>`${label}${platformText(b)} ${b.checkin} 到 ${b.checkout}`,cornerOut=()=>'',cornerIn=()=>'';grid.style.gridTemplateColumns=`140px repeat(${days.length}, 1fr)`;let html=`<div class="cell head">房间 / 日期</div>`+days.map(d=>`<div class="cell head">${esc(d.slice(5))}</div>`).join('');showRooms.forEach(room=>{const real=dedupeBookingsByStay(ownerRealBookings()).filter(x=>x.room_id===room.id),locks=dedupeBookingsByStay(ownerLockBookings()).filter(x=>x.room_id===room.id);html+=`<div class="cell room">${showPropColumn()?`${esc(propName(roomPropId(room.id)))}<br>`:''}${esc(objectDisplayName(room,'room'))}</div>`;days.forEach(day=>{const checkout=real.find(x=>x.checkout===day),checkin=real.find(x=>x.checkin===day),stay=real.find(x=>x.checkin<day&&x.checkout>day),lock=locks.find(x=>x.checkin<=day&&x.checkout>day),hasNote=ownerRoomDateNotes().some(n=>n.date===day&&n.room_id===room.id),classes=['cell'],titles=[];let body='';if(checkout&&checkin){classes.push('calendar-booked','turnover');body=cornerOut()+cornerIn();titles.push(titleLine('退房：',checkout),titleLine('入住：',checkin));}else if(checkout){classes.push('calendar-booked','checkout-only');body=cornerOut();titles.push(titleLine('退房：',checkout));}else if(checkin){classes.push('calendar-booked','checkin-only');body=cornerIn();titles.push(titleLine('入住：',checkin));}else if(stay){classes.push('calendar-booked','stay-only');body=`<span class="cell-platform">${esc(platformText(stay))}</span>`;titles.push(titleLine('在住：',stay));}else if(lock){classes.push('locked');body=`<span class="cell-platform">不开放锁定</span>`;titles.push(`不开放锁定：${lock.checkin} 到 ${lock.checkout}，${lockReason(lock)}`);}if(hasNote){classes.push('hasnote');body+=`<span class="cell-note">备注</span>`;titles.push('有房东日期备注');}html+=`<div class="${classes.join(' ')}" title="${esc(titles.join('；'))}">${body}</div>`;});});grid.innerHTML=html;updateRangePresetButtons();renderSixMonthStats();}
-  function markCalendarWeekends(){ensureWeekendCalendarCss();const grid=document.getElementById('calendarGrid'),rangeStart=document.getElementById('rangeStart');if(!grid||!rangeStart||!rangeStart.value)return;const r=calendarRange(),days=Array.from({length:r.dayCount},(_,i)=>addDays(r.start,i)),cols=days.length+1,cells=Array.from(grid.children||[]);if(!days.length||cells.length<cols)return;days.forEach((day,index)=>{const label=weekendLabel(day);if(!label)return;const cls=weekendClass(day).split(' ').filter(Boolean),head=cells[index+1];if(head){head.classList.add(...cls);if(!head.querySelector('.weekend-label'))head.insertAdjacentHTML('beforeend',weekendHeaderLabel(day));head.title=[head.title,label].filter(Boolean).join('；');}for(let offset=cols;offset<cells.length;offset+=cols){const cell=cells[offset+index+1];if(!cell)continue;cell.classList.add(...cls);cell.title=[cell.title,label].filter(Boolean).join('；');}});}
-  const pmsWeekendBaseRenderOwnerCalendar=renderOwnerCalendar;
-  renderOwnerCalendar=function(){pmsWeekendBaseRenderOwnerCalendar();markCalendarWeekends();};
-  function renderSixMonthStats(){const r=calendarRange(),showProp=showPropColumn(),rooms=selectedCalendarRooms();const el=document.getElementById('sixMonthStats');if(!el)return;const title=el.closest('.card')?.querySelector('h2');if(title)title.textContent=`${r.start} 至 ${r.end} 预定统计`;const rows=rooms.map(room=>{const real=dedupeBookingsByStay(ownerRealBookings()).filter(b=>b.room_id===room.id&&b.checkin<=r.end&&b.checkout>=r.start),locks=dedupeBookingsByStay(ownerLockBookings()).filter(b=>b.room_id===room.id&&b.checkin<r.endExclusive&&b.checkout>r.start),orderDaysSet=new Set(),lockDaysSet=new Set();real.forEach(b=>overlapDays(r.start,r.endExclusive,b.checkin,b.checkout).forEach(d=>orderDaysSet.add(d)));locks.forEach(b=>overlapDays(r.start,r.endExclusive,b.checkin,b.checkout).forEach(d=>lockDaysSet.add(d)));const orderDays=orderDaysSet.size,lockedDays=lockDaysSet.size,availableDays=Math.max(0,r.dayCount-lockedDays),rate=availableDays?`${Math.round(orderDays/availableDays*1000)/10}%`:'-';return `<tr>${showProp?`<td>${esc(propName(roomPropId(room.id)))}</td>`:''}<td>${esc(objectDisplayName(room,'room'))}</td><td>${esc(r.start)} 至 ${esc(r.end)}</td><td>${real.length}</td><td>${orderDays}</td><td>${lockedDays}</td><td>${availableDays}</td><td>${rate}</td><td>$${Number(room.cleaning_fee||0)}</td></tr>`;}).join('');el.innerHTML=`<table><tr>${showProp?'<th>房源</th>':''}<th>房间</th><th>日期区间</th><th>订单数量</th><th>订单天数</th><th>不开放锁定晚数</th><th>可订天数</th><th>预订率</th><th>单次保洁费</th></tr>${rows||`<tr><td colspan="${showProp?9:8}">当前筛选没有房间</td></tr>`}</table><p class="small">预订率 = 订单天数 / (时间区间天数 - 不开放锁定晚数)。不开放锁定晚数不算可订晚数。</p>`;}
-  function renderOwnerBookings(){const r=calendarRange(),pf=document.getElementById('platformFilter')?.value||'',rf=document.getElementById('bookingRoomFilter')?.value||'';let rows=dedupeBookingsByStay(ownerBookings()).filter(b=>b.checkin<=r.end&&b.checkout>=r.start);if(pf)rows=rows.filter(b=>b.platform===pf||bookingSourceLabels(b).some(x=>x.startsWith(pf)));if(rf)rows=rows.filter(b=>b.room_id===rf);rows.sort((a,b)=>a.checkin.localeCompare(b.checkin));const showProp=showPropColumn();const el=document.getElementById('ownerBookings');if(!el)return;const title=el.closest('.card')?.querySelector('h2');if(title)title.textContent=`${r.start} 至 ${r.end} 未来预订列表`;el.innerHTML=`<table><tr><th>入住/开始</th><th>退房/结束</th>${showProp?'<th>房源</th>':''}<th>房间</th><th>渠道来源</th><th>客人</th><th>状态</th><th>日期备注</th></tr>`+(rows.length?rows.map(b=>{const locked=isLockedBooking(b);return `<tr class="${locked?'lock-row':''}"><td>${esc(b.checkin)}</td><td>${esc(b.checkout)}</td>${showProp?`<td>${esc(propName(roomPropId(b.room_id)))}</td>`:''}<td><span class="badge">${esc(cleanRoomName(b.room_id))}</span></td><td>${bookingSourceBadges(b)||platformBadge(b.platform)}</td><td>${locked?'':esc(b.guest||'')}</td><td>${locked?'<span class="badge red">不开放锁定</span> '+esc(lockReason(b)):esc(b.status||'')}</td><td>${roomDateNoteList().filter(n=>n.room_id===b.room_id&&n.date>=b.checkin&&n.date<=b.checkout).length}</td></tr>`;}).join(''):`<tr><td colspan="${showProp?8:7}">当前日期区间没有预订</td></tr>`)+`</table>`;}
-  function addManualChange(){const selected=document.getElementById('manualTarget')?.value||'',target=findCleanTarget(selected);if(!target)return alert('当前房源没有可调整的对象');if(!targetMatches(target.id,target.type))return alert('这个对象不在当前房源范围内');const type=document.getElementById('manualType')?.value||'add',date=document.getElementById('manualDate')?.value||TODAY;upsertManualChange({date,target_id:target.id,target_type:target.type,type,amount:adjustAmount(document.getElementById('manualAmount')?.value),reason:document.getElementById('manualReason')?.value||'未填写原因',created_by:(current()&&current().name)||'房东'});const reason=document.getElementById('manualReason'),amount=document.getElementById('manualAmount');if(reason)reason.value='';if(amount){amount.value='';amount.dataset.auto='1';}updateManualAmount(true);refreshAll();}
-  function addCleaningNote(){const room=document.getElementById('cleanNoteRoom')?.value||document.getElementById('roomNoteRoom')?.value||'',text=(document.getElementById('cleanNoteText')?.value||document.getElementById('noteText')?.value||'').trim();if(!room)return alert('当前房源没有可备注的房间');if(!roomMatches(room))return alert('这个房间不在当前房源范围内');if(!text)return alert('请先填写备注内容');const kind=document.getElementById('cleanNoteKind')?.value||'checkout',date=document.getElementById('cleanNoteDate')?.value||'',money=document.getElementById('cleanNoteAmount'),amountRaw=String(money?.value??'').trim(),hasAmount=amountRaw!=='';let amount=0;if(hasAmount){amount=Number(amountRaw);if(!Number.isFinite(amount))return alert('调整金额格式不正确');}if(!date)return alert(`这个房间没有对应的${kind==='checkin'?'入住':'退房'}日期，不能添加这种备注`);const noteType=kind==='checkin'?'入住备注':'退房保洁备注';cleanNoteList().unshift({date,target_id:room,target_type:'room',note:text,priority:noteType,note_type:kind,amount,amount_present:hasAmount,created_by:(current()&&current().name)||'房东'});if(amount!==0){manualList().unshift({date,target_id:room,target_type:'room',type:amount>0?'add':'remove',amount,reason:`${noteType}：${text}`,source:'备注',from_note:true,note_adjustment:true,created_by:(current()&&current().name)||'房东'});}const box=document.getElementById('cleanNoteText')||document.getElementById('noteText');if(box)box.value='';if(money)money.value='';refreshAll();}
-  function addRoomDateNote(){const room=document.getElementById('roomNoteRoom')?.value||'',text=(document.getElementById('roomNoteText')?.value||'').trim();if(!room)return alert('当前房源没有可备注的房间');if(!roomMatches(room))return alert('这个房间不在当前房源范围内');if(!text)return alert('请先填写房间日期备注内容');roomDateNoteList().unshift({date:document.getElementById('roomNoteDate')?.value||TODAY,room_id:room,note:text,priority:document.getElementById('roomNotePriority')?.value||'普通',created_by:(current()&&current().name)||'房东'});document.getElementById('roomNoteText').value='';refreshAll();}
-  function renderOwnerNotes(){const fd=document.getElementById('noteFilterDate')?.value||'',ft=document.getElementById('noteFilterTargetType')?.value||'';let rows=allOwnerNotes();if(fd)rows=rows.filter(n=>n.date===fd);if(ft==='room'||ft==='common')rows=rows.filter(n=>n.target_type===ft&&n.kind==='cleaning');if(ft==='roomDate')rows=rows.filter(n=>n.kind==='roomDate');rows.sort((a,b)=>b.date.localeCompare(a.date));const el=document.getElementById('ownerNotesList');if(!el)return;if(!rows.length){el.innerHTML='<p class="small">暂无备注</p>';return;}const showProp=showPropColumn();el.innerHTML=`<table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>房间</th><th>备注类型</th><th>备注内容</th><th>调整金额</th><th>操作人</th></tr>`+rows.map(n=>{const typeText=n.note_type==='checkin'?'入住备注':n.note_type==='checkout'?'退房保洁备注':(n.kind==='roomDate'?'房间日期备注':(n.priority||'保洁备注')),amountText=noteAmountPresent(n)&&adjustAmount(n.amount)!==0?signedMoneyText(n.amount):'';return `<tr><td>${esc(n.date)}</td>${showProp?`<td>${esc(propName(targetPropId(n.target_id,n.target_type)))}</td>`:''}<td>${esc(cleanTargetName(n.target_id,n.target_type))}</td><td><span class="badge purple">${esc(typeText)}</span></td><td>${esc(n.note)}</td><td>${amountText}</td><td>${esc(n.created_by||'房东')}</td></tr>`;}).join('')+`</table>`;}
-  function renderManualRecordsHTML(rows,withCard=true){const showProp=showPropColumn();let html=`<table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>对象</th><th>来源/类型</th><th>调整金额</th><th>原因</th><th>操作人</th></tr>`+rows.map(m=>`<tr><td>${esc(m.date)}</td>${showProp?`<td>${esc(propName(targetPropId(m.target_id,m.target_type)))}</td>`:''}<td>${esc(cleanTargetName(m.target_id,m.target_type))}</td><td>${isNoteAdjustment(m)?'<span class="badge purple">备注调整</span>':changeBadge(m.type)}</td><td>${signedMoneyText(m.amount)}</td><td>${esc(m.reason||'')}</td><td>${esc(m.created_by||'房东')}</td></tr>`).join('')+`</table>`;return withCard?`<div class="card">${html}</div>`:html;}
-  function renderManualRecords(){const fs=document.getElementById('manualFilterStart')?.value||'',fe=document.getElementById('manualFilterEnd')?.value||'',ft=document.getElementById('manualFilterType')?.value||'',obj=document.getElementById('manualFilterTarget')?.value||'';let rows=ownerManualRows();if(fs)rows=rows.filter(m=>m.date>=fs);if(fe)rows=rows.filter(m=>m.date<=fe);if(ft)rows=rows.filter(m=>m.type===ft);if(obj){const parsed=parseCleanTarget(obj);rows=rows.filter(m=>m.target_type===parsed.type&&m.target_id===parsed.id);}rows.sort((a,b)=>b.date.localeCompare(a.date));const el=document.getElementById('manualRecords');if(el)el.innerHTML=renderManualRecordsHTML(rows,false);}
-  function ensureCleaningManager(){const root=document.getElementById('ownerCleaning');if(!root||root.dataset.pmsUnifiedCleaning==='1')return;root.dataset.pmsUnifiedCleaning='1';root.innerHTML=`<div class="card cleaning-manager"><h2>保洁管理</h2><div class="small">上面管理实际保洁次数和金额，下面添加入住/退房保洁备注；房间和公区合并在同一个对象列表里。</div><div class="cleaning-block"><h3>手动调整实际保洁</h3><div class="formgrid cleaning-form"><div><label>日期</label><input id="manualDate" type="date"></div><div><label>对象（所有房间）</label><select id="manualTarget" onchange="updateManualAmount(true)"></select></div><div><label>增加或减少保洁次数</label><select id="manualType" onchange="updateManualAmount(true)"><option value="add">额外增加保洁</option><option value="remove">减少/取消保洁</option></select></div><div><label>金额</label><input id="manualAmount" type="number" step="0.01" oninput="this.dataset.auto='0'"></div><div><label>原因</label><input id="manualReason" placeholder="例如：临时加扫 / 实际未打扫"></div></div><div style="margin-top:12px"><button class="smallbtn primary" onclick="addManualChange()">添加调整记录</button></div><div class="toolbar" style="margin-top:14px"><strong>调整记录</strong><input id="manualFilterStart" type="date" onchange="renderManualRecords()"><input id="manualFilterEnd" type="date" onchange="renderManualRecords()"><select id="manualFilterTarget" onchange="renderManualRecords()"></select><select id="manualFilterType" onchange="renderManualRecords()"><option value="">全部调整</option><option value="add">额外增加</option><option value="remove">减少/取消</option></select></div><div id="manualRecords"></div></div><div class="cleaning-block"><h3>添加保洁备注</h3><div class="small">先任选日期、房间、备注类型中的两个，剩下一个会按实际入住/退房记录自动收窄。</div><div class="cleaning-note-grid"><div><label>日期</label><select id="cleanNoteDate" onchange="refreshCleaningNoteControls('date')"></select></div><div><label>房间</label><select id="cleanNoteRoom" onchange="refreshCleaningNoteControls('room')"></select></div><div><label>备注类型</label><select id="cleanNoteKind" onchange="refreshCleaningNoteControls('kind')"></select></div><div><label>调整金额</label><input id="cleanNoteAmount" type="number" step="0.01" placeholder="可正可负"></div><textarea id="cleanNoteText" placeholder="填写给保洁看的备注，例如：客人遗落物、特殊布置、延迟入住、需要多备毛巾等。"></textarea></div><div style="margin-top:12px"><button class="smallbtn primary" onclick="addCleaningNote()">保存保洁备注</button><button class="smallbtn" onclick="resetCleaningNoteForm()">复位</button></div><div class="toolbar" style="margin-top:14px"><strong>保洁备注记录</strong><input id="noteFilterDate" type="date" onchange="renderOwnerNotes()"></div><div id="ownerNotesList"></div></div><div class="cleaning-block"><div class="property-detail-head"><div><h3>保洁费用统计</h3><div class="small">公区按特殊房间计入同一套统计。</div></div><div class="property-actions"><input id="cleanStart" type="date" onchange="renderCleaningFinance()"><input id="cleanEnd" type="date" onchange="renderCleaningFinance()"></div></div><div id="cleaningFinance"></div></div></div>`;}
-  function monthShift(date,delta){const base=String(date||TODAY),y=Number(base.slice(0,4)),m=Number(base.slice(5,7))-1+Number(delta||0),ny=y+Math.floor(m/12),nm=((m%12)+12)%12+1;return `${ny}-${String(nm).padStart(2,'0')}-01`;}
-  function financeRecentStart(months=1){return monthShift(TODAY,-Math.max(1,Number(months)||1)+1);}
-  function earliestFinanceDate(){const dates=[];try{(systemCleaningRows()||[]).forEach(r=>{if(r.date&&targetMatches(r.target_id,r.target_type))dates.push(r.date);});}catch(e){}ownerManualRows().forEach(m=>{if(m.date)dates.push(m.date);});ownerCleanNotes().forEach(n=>{if(n.date&&noteAmountPresent(n)&&adjustAmount(n.amount)!==0)dates.push(n.date);});return dates.sort()[0]||monthShift(TODAY,-5);}
-  function financeFutureEnd(){return addDays(TODAY,30);}
-  function normalizeCleaningFinanceRange(){const cs=document.getElementById('cleanStart'),ce=document.getElementById('cleanEnd');let start=cs?.value||financeRecentStart(1),end=ce?.value||financeFutureEnd();if(start>end){const t=start;start=end;end=t;}if(cs)cs.value=start;if(ce)ce.value=end;return {start,end};}
-  function setCleaningFinanceRange(mode){const cs=document.getElementById('cleanStart'),ce=document.getElementById('cleanEnd'),futureEnd=financeFutureEnd();if(mode==='future30'){if(cs)cs.value=TODAY;if(ce)ce.value=futureEnd;S.cleaningFinancePreset='future30';}else if(mode==='all'){if(cs)cs.value=earliestFinanceDate();if(ce)ce.value=futureEnd;S.cleaningFinancePreset='all';}else{const months=mode==='recent2'?2:1;if(cs)cs.value=financeRecentStart(months);if(ce)ce.value=futureEnd;S.cleaningFinancePreset=mode==='recent2'?'recent2':'recent1';}renderCleaningFinance();}
-  function financeRangeBar(range){const futureEnd=financeFutureEnd(),recent1=range.start===financeRecentStart(1)&&range.end===futureEnd,recent2=range.start===financeRecentStart(2)&&range.end===futureEnd,future30=range.start===TODAY&&range.end===futureEnd,all=range.start===earliestFinanceDate()&&range.end===futureEnd;return `<div class="finance-range-bar"><div><strong>当前日期范围：</strong>${esc(range.start)} 至 ${esc(range.end)}<div class="small">分为将来和历史；每个日期内按房间排序，房间在前、公区在后。</div></div><div class="property-actions"><button class="smallbtn ${recent1?'primary':''}" onclick="setCleaningFinanceRange('recent1')">最近1个月+未来30天</button><button class="smallbtn ${future30?'primary':''}" onclick="setCleaningFinanceRange('future30')">未来30天</button><button class="smallbtn ${recent2?'primary':''}" onclick="setCleaningFinanceRange('recent2')">最近两个月+未来30天</button><button class="smallbtn ${all?'primary':''}" onclick="setCleaningFinanceRange('all')">展开更早历史</button></div></div>`;}
-  function renderCleaningFinance(){ensureCleaningManager();const md=document.getElementById('manualDate');if(md&&!md.value)md.value=TODAY;refreshManualTargetOptions();refreshManualFilterTargetOptions();refreshCleaningNoteRooms();const range=normalizeCleaningFinanceRange(),start=range.start,end=range.end;const baseRows=baseFinanceRows(start,end),adjustmentRows=adjustmentFinanceRows(start,end),rows=financeRows(start,end);const baseTotal=baseRows.reduce((s,r)=>s+targetFee(r.target_id,r.target_type),0);const adjustmentTotal=adjustmentRows.reduce((s,r)=>s+adjustAmount(r.amount),0);const el=document.getElementById('cleaningFinance');if(el)el.innerHTML=`${financeRangeBar(range)}<div class="grid"><div class="metric"><div class="small">系统保洁记录</div><div class="num">${baseRows.length}</div></div><div class="metric"><div class="small">调整记录</div><div class="num">${adjustmentRows.length}</div></div><div class="metric"><div class="small">系统基础费</div><div class="num">${moneyText(baseTotal)}</div></div><div class="metric"><div class="small">调整金额</div><div class="num">${signedMoneyText(adjustmentTotal)}</div></div><div class="metric"><div class="small">合计费用</div><div class="num">${moneyText(baseTotal+adjustmentTotal)}</div></div></div><br>${cleaningFinanceTableScoped(rows)}`;renderManualRecords();renderOwnerNotes();}
-  function cleanerManualRows(){return manualList().filter(m=>{try{return targetMatches(m.target_id,m.target_type);}catch(e){return true;}});}
-  function cleanerAdjustmentRows(start,end){return cleanerManualRows().filter(m=>m.date>=start&&m.date<=end&&!(isNoteAdjustment(m)&&!adjustAmount(m.amount))).map(m=>({date:m.date,target_id:m.target_id,target_type:m.target_type,source:manualFinanceSource(m),type:'finance_adjustment',actual:true,reason:m.reason||'',amount:adjustAmount(m.amount),finance_adjustment:true}));}
-  function cleanerFinanceRows(start,end){return baseFinanceRows(start,end).concat(cleanerAdjustmentRows(start,end)).sort(financeSortDesc);}
-  function cleanerSetDefault(id,value){const el=document.getElementById(id);if(el&&!el.value)el.value=value;return el?.value||value;}
-  function cleanerDateDefault(id){if(String(id).includes('FutureEnd'))return addDays(TODAY,30);if(String(id).includes('HistoryStart'))return financeRecentStart(1);return TODAY;}
-  function cleanerDateToolbar(title,startId,endId,oneline){const sv=document.getElementById(startId)?.value||cleanerDateDefault(startId),ev=endId?(document.getElementById(endId)?.value||cleanerDateDefault(endId)):'';return `<div class="card cleaner-filter-card"><div class="property-detail-head"><div><h2>${esc(title)}</h2>${oneline?`<div class="small">${esc(oneline)}</div>`:''}</div><div class="property-actions"><input id="${esc(startId)}" type="date" value="${esc(sv)}" onchange="renderCleaner()">${endId?`<input id="${esc(endId)}" type="date" value="${esc(ev)}" onchange="renderCleaner()">`:''}</div></div></div>`;}
-  function renderCleanerNotesForDate(date){const notes=cleanNoteList().filter(n=>n.date===date&&targetMatches(n.target_id,n.target_type));const roomNotes=roomDateNoteList().filter(n=>n.date===date&&roomMatches(n.room_id)).map(n=>({date:n.date,target_id:n.room_id,target_type:'room',note:n.note,priority:n.priority,created_by:n.created_by,roomDate:true}));const all=notes.concat(roomNotes);if(!all.length)return '';return `<div class="card"><h2>${date===TODAY?'今日':'当天'}特别备注</h2><div class="small">房东添加的特殊事项；没有填写金额的备注只在这里和对应任务里显示，不进入费用调整。</div><br>`+all.map(n=>`<div class="note-card ${n.priority==='重要'?'important':''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(cleanTargetName(n.target_id,n.target_type))}${propBadge(targetPropId(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('')+`</div>`;}
-  function ensureCleanerDashboard(){if(!currentIsCleaner())return null;applyCleanerChrome();let root=document.getElementById('cleaner');if(!root){root=document.createElement('section');root.id='cleaner';(document.querySelector('main')||document.body).appendChild(root);}root.style.display='';root.classList.add('active');const owner=document.getElementById('owner');if(owner){owner.classList.remove('active');owner.style.display='none';}if(!document.getElementById('cleanerDashboardShell')){root.innerHTML=`<div id="cleanerDashboardShell" class="cleaner-dashboard-shell"><div id="cleanerSummary"></div><div id="cleanerMetrics" class="grid"></div><div id="cleanerTodayNotes"></div><div id="cleanerToday"></div><div id="cleanerFuture"></div><div id="cleanerManual"></div></div>`;}return root;}
-  function renderCleaner(){
-    ensureCleanerDashboard();
-    const taskDate=cleanerSetDefault('cleanerTaskDate',TODAY),futureStart=cleanerSetDefault('cleanerFutureStart',TODAY),futureEnd=cleanerSetDefault('cleanerFutureEnd',addDays(TODAY,30)),historyStart=cleanerSetDefault('cleanerHistoryStart',financeRecentStart(1)),historyEnd=cleanerSetDefault('cleanerHistoryEnd',TODAY);
-    const taskRows=scopedCleaningRows(taskDate,taskDate).filter(r=>r.date===taskDate).sort((a,b)=>cleanTargetName(a.target_id,a.target_type).localeCompare(cleanTargetName(b.target_id,b.target_type)));
-    const taskAdjustments=cleanerAdjustmentRows(taskDate,taskDate);
-    const futureRows=scopedCleaningRows(futureStart,futureEnd).filter(r=>r.date>=futureStart&&r.date<=futureEnd).sort((a,b)=>String(a.date).localeCompare(String(b.date))||cleanTargetName(a.target_id,a.target_type).localeCompare(cleanTargetName(b.target_id,b.target_type)));
-    const historyRows=cleanerFinanceRows(historyStart,historyEnd);
-    const summary=document.getElementById('cleanerSummary');if(summary)summary.innerHTML=cleanerAccountHtml();
-    const metrics=document.getElementById('cleanerMetrics');
-    if(metrics)metrics.innerHTML=`<div class="metric"><div class="small">已绑定房源</div><div class="num">${cleanerBoundProperties().length||ownerPropIds().length}</div></div><div class="metric"><div class="small">可查看房间</div><div class="num">${ownerRooms().length}</div></div><div class="metric"><div class="small">当天保洁任务</div><div class="num">${taskRows.length}</div></div><div class="metric"><div class="small">未来保洁</div><div class="num">${futureRows.length}</div></div><div class="metric"><div class="small">历史/调整记录</div><div class="num">${historyRows.length}</div></div>`;
-    const noteBox=document.getElementById('cleanerTodayNotes');if(noteBox)noteBox.innerHTML=renderCleanerNotesForDate(taskDate);
-    const today=document.getElementById('cleanerToday');if(today)today.innerHTML=cleanerDateToolbar('当天保洁任务','cleanerTaskDate','', '手动减少会从任务里移除；手动增加会作为额外任务出现。')+cleaningTableScoped(taskRows)+(taskAdjustments.length?`<div class="card"><h2>当天调整记录</h2><div class="small">这里只是调整说明，不代表一定有新的保洁任务。</div>${cleaningFinanceTableScoped(taskAdjustments)}</div>`:'');
-    const future=document.getElementById('cleanerFuture');if(future)future.innerHTML=cleanerDateToolbar('未来保洁筛选','cleanerFutureStart','cleanerFutureEnd','可按日期范围查看未来要做的实际保洁任务。')+cleaningTableScoped(futureRows);
-    const manual=document.getElementById('cleanerManual');if(manual)manual.innerHTML=cleanerDateToolbar('历史保洁/调整','cleanerHistoryStart','cleanerHistoryEnd','默认显示最近1个月；可在日期框里选择任意起止日期。')+cleaningFinanceTableScoped(historyRows);
-    const history=document.getElementById('cleanerHistory');if(history)history.innerHTML=cleanerDateToolbar('历史保洁/调整','cleanerHistoryStart','cleanerHistoryEnd','系统保洁、手动增加、手动减少和备注金额统一显示。')+cleaningFinanceTableScoped(historyRows);
-    polishAccountBar();
-  }
-  function pmsStableId(prefix,row){if(row&&row.id)return row.id;const raw=[row&&row.date,row&&row.target_type,row&&row.target_id,row&&row.type,row&&row.source,row&&row.reason,row&&row.note].map(x=>String(x||'')).join('|');const id=prefix+'_'+safe(raw).slice(0,90);if(row)row.id=id;return id;}
-  function noteMatchesCurrentBooking(n){if(!n||n.cancellation_review)return true;const type=n.target_type||'room';if(type!=='room')return true;const kind=String(n.note_type||'');if(kind==='checkin')return ownerRealBookings().some(b=>b.room_id===n.target_id&&b.checkin===n.date);if(kind==='checkout')return ownerRealBookings().some(b=>b.room_id===n.target_id&&b.checkout===n.date);return true;}
-  function isCleaningNoteEffective(n){return !!(n&&n.date&&!n._deleted&&!n.deleted&&!n.inactive&&noteMatchesCurrentBooking(n));}
-  function linkedNoteForAdjustment(m){if(!isNoteAdjustment(m))return null;const notes=cleanNoteList().filter(n=>n&&n.date===m.date&&n.target_id===m.target_id&&(n.target_type||'room')===(m.target_type||'room'));if(m.note_id)return notes.find(n=>pmsStableId('note',n)===m.note_id||n.id===m.note_id)||null;const reason=String(m.reason||'');return notes.find(n=>n.note&&reason.includes(n.note))||null;}
-  function isManualRowEffective(m){if(!m||m._deleted||m.deleted||m.inactive)return false;const note=linkedNoteForAdjustment(m);return note?isCleaningNoteEffective(note):true;}
-  function dedupeCleaningRows(rows){const by=new Map();rows.forEach(row=>{if(!row||row.actual===false||!row.date)return;const type=row.target_type||'room',k=[row.date,type,row.target_id].join('|');if(!by.has(k)){by.set(k,{...row,target_type:type});return;}const cur=by.get(k),sources=new Set(String(cur.source||'').split(' + ').filter(Boolean)),reasons=new Set(String(cur.reason||'').split('；').filter(Boolean));if(row.source)sources.add(row.source);if(row.reason)reasons.add(row.reason);cur.source=Array.from(sources).join(' + ');cur.reason=Array.from(reasons).join('；');if(row.type==='manual_add'||row.note_task){cur.type=row.type;cur.amount=row.amount;cur.note_task=!!row.note_task;}});return Array.from(by.values());}
-  function activeNoteTaskRows(start=null,end=null){return cleanNoteList().filter(n=>{const type=n.target_type||'room';return isCleaningNoteEffective(n)&&(!start||n.date>=start)&&(!end||n.date<=end)&&targetMatches(n.target_id,type);}).map(n=>{const type=n.target_type||'room',hasAmount=noteAmountPresent(n);return {date:n.date,target_id:n.target_id,target_type:type,source:'备注',type:'note_task',actual:true,reason:n.note||'',amount:hasAmount?adjustAmount(n.amount):0,note_task:true,note_amount_present:hasAmount,note_id:pmsStableId('note',n)};});}
-  function noteTaskRows(start=null,end=null){return activeNoteTaskRows(start,end);}
-  const pmsArchiveBaseSystemCleaningRows=typeof systemCleaningRows==='function'?systemCleaningRows:null;
-  function pmsArchiveDate(v){const s=String(v||'').slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:'';}
-  function pmsArchiveCleaningBookings(){const roomIds=new Set(roomList().map(r=>String(r.id||'')));return archiveList().filter(item=>{if(!item||typeof item!=='object')return false;const roomId=String(item.room_id||item.roomId||''),checkin=pmsArchiveDate(item.checkin),checkout=pmsArchiveDate(item.checkout);if(!roomId||!roomIds.has(roomId)||!checkin||!checkout||checkout<=checkin)return false;if(checkout>TODAY)return false;if(String(item.kind||'').toLowerCase()==='lock'||item.is_locked||item.isLocked||isLockedBooking(item))return false;return true;}).map(item=>({room_id:String(item.room_id||item.roomId),platform:item.platform||'iCal历史',channel_note:item.channel_note||item.channelNote||'',checkin:pmsArchiveDate(item.checkin),checkout:pmsArchiveDate(item.checkout),status:item.status||item.summary||'历史 iCal 订单',source:'ical_archive',booking_type:'booking',is_locked:false,channel_listing_id:item.channel_listing_id||item.channelListingId||'',external_event_uid:item.uid||item.external_event_uid||item.raw_hash||item.id||'',guest:item.guest||''}));}
-  function pmsSystemCleaningRowsWithArchive(){const rows=pmsArchiveBaseSystemCleaningRows?pmsArchiveBaseSystemCleaningRows():[];const seen=new Set(rows.map(r=>[r.date,r.target_type||'room',r.target_id].join('|')));pmsArchiveCleaningBookings().forEach(b=>{const row={date:b.checkout,target_id:b.room_id,target_type:'room',source:`${b.platform||'iCal'}历史`,type:'system_archive',booking:b,actual:true,reason:'历史 iCal 退房自动生成'};const k=[row.date,row.target_type,row.target_id].join('|');if(!seen.has(k)){rows.push(row);seen.add(k);}});return rows;}
-  if(pmsArchiveBaseSystemCleaningRows){systemCleaningRows=pmsSystemCleaningRowsWithArchive;window.systemCleaningRows=systemCleaningRows;}
-  if(typeof systemCleaningRows==='function'&&typeof commonAreaRows==='function'){actualCleaningRows=function(start=null,end=null){const rows=[...systemCleaningRows().filter(r=>!isLockedBooking(r.booking)),...commonAreaRows(start,end)].filter(r=>r&&(!start||r.date>=start)&&(!end||r.date<=end));manualList().filter(isManualRowEffective).forEach(m=>{const type=m.target_type||'room';if(!m.date||!targetMatches(m.target_id,type))return;if(start&&m.date<start)return;if(end&&m.date>end)return;if(m.type==='add'){rows.push({date:m.date,target_id:m.target_id,target_type:type,source:'手动增加',type:'manual_add',actual:true,reason:m.reason,amount:adjustAmount(m.amount),manual_id:pmsStableId('manual',m)});}else if(m.type==='remove'){rows.forEach(r=>{if(r.date===m.date&&r.target_id===m.target_id&&(r.target_type||'room')===type){r.actual=false;r.reason='房东取消：'+(m.reason||'');}});}});const taskRows=dedupeCleaningRows(rows.filter(r=>r.actual!==false));const taskKeys=new Set(taskRows.map(r=>[r.date,r.target_type||'room',r.target_id].join('|')));activeNoteTaskRows(start,end).forEach(n=>{const k=[n.date,n.target_type||'room',n.target_id].join('|');if(!taskKeys.has(k)){taskRows.push(n);taskKeys.add(k);}});return taskRows;};}
-  function baseFinanceRows(start,end){const rows=[...(typeof systemCleaningRows==='function'?systemCleaningRows():[]).filter(r=>!isLockedBooking(r.booking)),...(typeof commonAreaRows==='function'?commonAreaRows(start,end):[])];return dedupeCleaningRows(rows.filter(r=>r.date>=start&&r.date<=end&&targetMatches(r.target_id,r.target_type))).map(r=>({...r,finance_base:true,finance_amount:targetFee(r.target_id,r.target_type),source:r.target_type==='common'?(r.source||'公区每日保洁'):`系统退房${r.source?`（${r.source}）`:''}`,reason:r.reason||(r.target_type==='common'?'公区每日保洁':'系统退房自动生成')}));}
-  function manualRowsForFinance(rows,start,end){return rows.filter(m=>m&&m.date>=start&&m.date<=end&&isManualRowEffective(m)&&adjustAmount(m.amount)!==0).map(m=>({date:m.date,target_id:m.target_id,target_type:m.target_type||'room',source:manualFinanceSource(m),type:'finance_adjustment',actual:true,reason:m.reason||'',amount:adjustAmount(m.amount),finance_adjustment:true,manual_id:pmsStableId('manual',m)}));}
-  function adjustmentFinanceRows(start,end){return manualRowsForFinance(ownerManualRows(),start,end);}
-  function cleanerAdjustmentRows(start,end){return manualRowsForFinance(cleanerManualRows(),start,end);}
-  function taskAmount(row){if(row&&(row.note_task||row.type==='manual_add'||row.type==='manual_remove'||String(row.source||'').startsWith('手动')||String(row.source||'')==='备注'))return adjustAmount(row.amount);return targetFee(row.target_id,row.target_type);}
-  function taskFeeText(row){return signedMoneyText(taskAmount(row));}
-  function cleaningTaskKey(row){return [row.date,row.target_type||'room',row.target_id,row.type||'',row.source||'',row.reason||''].map(x=>String(x||'')).join('|');}
-  function cleaningTaskConfirmation(row){const k=cleaningTaskKey(row);return cleaningConfirmList().find(x=>x&&x.task_key===k)||cleaningConfirmList().find(x=>x&&x.date===row.date&&x.target_id===row.target_id&&(x.target_type||'room')===(row.target_type||'room'))||null;}
-  function ensureCleaningTaskCss(){let s=document.getElementById('pmsCleaningTaskConfirmStyles');if(!s){s=document.createElement('style');s.id='pmsCleaningTaskConfirmStyles';document.head.appendChild(s);}s.textContent=`.clean-task-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.clean-task-feedback{width:min(260px,100%);min-height:34px;border:1px solid #cbd5e1;border-radius:7px;padding:6px 8px}.clean-task-status{display:inline-flex;border-radius:999px;padding:3px 8px;font-size:12px;font-weight:900;border:1px solid #cbd5e1;background:#fff;color:#475569}.clean-task-status.done{border-color:#86efac;background:#dcfce7;color:#166534}.clean-task-status.pending{border-color:#fde68a;background:#fffbeb;color:#92400e}`;}
-  async function persistCleaningConfirmations(btn){const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='保存中...';}try{const res=await fetch(apiUrl('/api/state'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cleaningTaskConfirmations:cleaningConfirmList()})});const data=await res.json().catch(()=>({}));if(!res.ok||data.ok===false)throw new Error(data.error||'save cleaning confirmation failed');await afterState(data);return data;}catch(e){alert('保存保洁确认失败：'+(e&&e.message?e.message:e));throw e;}finally{if(btn){btn.disabled=false;btn.textContent=old||'保存';}}}
-  function upsertCleaningConfirmation(row,patch){const key=cleaningTaskKey(row),list=cleaningConfirmList(),idx=list.findIndex(x=>x&&x.task_key===key),old=idx>=0?list[idx]:{};const next={...old,id:old.id||('cleanconf_'+safe(key).slice(0,80)),date:row.date,target_type:row.target_type||'room',target_id:row.target_id,task_key:key,source:row.source||'',task_type:row.type||'',task_reason:row.reason||'',amount:taskAmount(row),updated_at:new Date().toISOString().slice(0,19),...patch};if(idx>=0)list.splice(idx,1,next);else list.unshift(next);setCleaningConfirmList(list);return next;}
-  async function confirmCleaningTask(key,btn){const row=(S.cleaningTaskRowsByKey||{})[key];if(!row)return alert('找不到这条保洁任务');const input=document.getElementById('cleanFeedback_'+safe(key));upsertCleaningConfirmation(row,{completed:true,status:'已完成',feedback:(input&&input.value)||'',confirmed_by:(current()&&(current().name||current().username))||'保洁',confirmed_at:new Date().toISOString().slice(0,19)});await persistCleaningConfirmations(btn);refreshAll();}
-  async function saveCleaningTaskFeedback(key,btn){const row=(S.cleaningTaskRowsByKey||{})[key];if(!row)return alert('找不到这条保洁任务');const input=document.getElementById('cleanFeedback_'+safe(key));const existing=cleaningTaskConfirmation(row)||{};upsertCleaningConfirmation(row,{completed:!!existing.completed,status:existing.status||'未完成',feedback:(input&&input.value)||'',confirmed_by:existing.confirmed_by||'',confirmed_at:existing.confirmed_at||''});await persistCleaningConfirmations(btn);refreshAll();}
-  function cleaningTaskControls(row){const key=cleaningTaskKey(row),arg=encodeURIComponent(key),conf=cleaningTaskConfirmation(row)||{},done=!!conf.completed,feedback=conf.feedback||'',canEdit=String(row.date||'')<=TODAY;S.cleaningTaskRowsByKey=S.cleaningTaskRowsByKey||{};S.cleaningTaskRowsByKey[key]=row;return `<div class="clean-task-actions"><span class="clean-task-status ${done?'done':'pending'}">${done?'已完成':'未完成'}</span><textarea class="clean-task-feedback" id="cleanFeedback_${safe(key)}" placeholder="保洁反馈，可填写异常或完成情况">${esc(feedback)}</textarea>${canEdit?`<button class="smallbtn primary" onclick="confirmCleaningTask(decodeURIComponent('${esc(arg)}'),this)">确认完成</button><button class="smallbtn" onclick="saveCleaningTaskFeedback(decodeURIComponent('${esc(arg)}'),this)">保存反馈</button>`:''}${done&&conf.confirmed_at?`<span class="small">${esc(conf.confirmed_at)}</span>`:''}</div>`;}
-  function cleaningTableScoped(items,showSource=true){ensureCleaningTaskCss();if(!items.length)return `<div class="card"><p class="small">暂无记录</p></div>`;S.cleaningTaskRowsByKey={};const showProp=showPropColumn();return `<div class="card"><table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>类型</th><th>对象</th>${showSource?'<th>来源</th>':''}<th>费用</th><th>备注/任务</th><th>保洁确认/反馈</th></tr>`+items.map(r=>`<tr class="${r.date===TODAY?'today-row':''}"><td>${esc(r.date)}</td>${showProp?`<td>${propBadge(targetPropId(r.target_id,r.target_type))}</td>`:''}<td>${objectBadge(r.target_type)}</td><td><span class="badge ${r.target_type==='common'?'orange':''}">${esc(cleanTargetName(r.target_id,r.target_type))}</span></td>${showSource?`<td>${esc(r.source||'')}</td>`:''}<td>${taskFeeText(r)}</td><td>${esc(r.reason||'')}${r.note_task?'':renderInlineNotesScoped(r.date,r.target_id,r.target_type)}</td><td>${cleaningTaskControls(r)}</td></tr>`).join('')+`</table></div>`;}
-  async function addManualChange(){const selected=document.getElementById('manualTarget')?.value||'',target=findCleanTarget(selected);if(!target)return alert('当前房源没有可调整的对象');if(!targetMatches(target.id,target.type))return alert('这个对象不在当前房源范围内');const type=document.getElementById('manualType')?.value||'add',date=document.getElementById('manualDate')?.value||TODAY,raw=String(document.getElementById('manualAmount')?.value??'').trim();const amount=raw===''?0:adjustAmount(raw);const row={id:'manual_'+Date.now()+'_'+Math.random().toString(16).slice(2),date,target_id:target.id,target_type:target.type,type,amount,reason:document.getElementById('manualReason')?.value||'未填写原因',created_by:(current()&&current().name)||'房东',created_at:new Date().toISOString().slice(0,19)};upsertManualChange(row);const reason=document.getElementById('manualReason'),amountEl=document.getElementById('manualAmount');if(reason)reason.value='';if(amountEl){amountEl.value='';amountEl.dataset.auto='1';}updateManualAmount(true);refreshAll();try{await persistAll();alert('已保存成功');}catch(e){alert('保存调整记录失败：'+(e&&e.message?e.message:e));}}
-  async function addCleaningNote(){const room=document.getElementById('cleanNoteRoom')?.value||document.getElementById('roomNoteRoom')?.value||'',text=(document.getElementById('cleanNoteText')?.value||document.getElementById('noteText')?.value||'').trim();if(!room)return alert('当前房源没有可备注的房间');if(!roomMatches(room))return alert('这个房间不在当前房源范围内');if(!text)return alert('请先填写备注内容');const kind=document.getElementById('cleanNoteKind')?.value||'checkout',date=document.getElementById('cleanNoteDate')?.value||'',money=document.getElementById('cleanNoteAmount'),amountRaw=String(money?.value??'').trim(),hasAmount=amountRaw!=='';let amount=0;if(hasAmount){amount=Number(amountRaw);if(!Number.isFinite(amount))return alert('调整金额格式不正确');}if(!date)return alert(`这个房间没有对应的${kind==='checkin'?'入住':'退房'}日期，不能添加这种备注`);const noteType=kind==='checkin'?'入住备注':'退房保洁备注',note={id:'note_'+Date.now()+'_'+Math.random().toString(16).slice(2),date,target_id:room,target_type:'room',note:text,priority:noteType,note_type:kind,amount,amount_present:hasAmount,created_by:(current()&&current().name)||'房东',created_at:new Date().toISOString().slice(0,19)};cleanNoteList().unshift(note);if(hasAmount&&amount!==0){manualList().unshift({id:'manual_'+Date.now()+'_'+Math.random().toString(16).slice(2),date,target_id:room,target_type:'room',type:amount>0?'add':'remove',amount,reason:`${noteType}：${text}`,source:'备注',from_note:true,note_adjustment:true,note_id:note.id,created_by:(current()&&current().name)||'房东',created_at:new Date().toISOString().slice(0,19)});}const box=document.getElementById('cleanNoteText')||document.getElementById('noteText');if(box)box.value='';if(money)money.value='';refreshAll();try{await persistAll();alert('已保存成功');}catch(e){alert('保存保洁备注失败：'+(e&&e.message?e.message:e));}}
-  function pendingDeleteAllowed(row){return String(row&&row.date||'')>TODAY;}
-  async function deleteManualChange(id,btn){const row=manualList().find(m=>pmsStableId('manual',m)===id||m.id===id);if(!row)return alert('找不到这条调整记录');if(!pendingDeleteAllowed(row))return alert('这条记录已经到生效日期，不能直接删除；需要用反向调整记录冲正。');if(!confirm('确定删除这条未生效调整记录？'))return;setManualList(manualList().filter(m=>(pmsStableId('manual',m)!==id&&m.id!==id)));refreshAll();try{await persistAll();}catch(e){alert('删除调整记录失败：'+(e&&e.message?e.message:e));}}
-  function setManualList(rows){try{manualChanges=rows;}catch(e){window.manualChanges=rows;}}
-  async function deleteCleaningNote(id,btn){let removed=false;setCleaningNoteList(cleanNoteList().filter(n=>{const keep=!(pmsStableId('note',n)===id||n.id===id);if(!keep){if(!pendingDeleteAllowed(n)){alert('这条备注已经到生效日期，不能直接删除。');removed=false;return true;}removed=true;}return keep;}));if(!removed)return;setManualList(manualList().filter(m=>m.note_id!==id));refreshAll();try{await persistAll();}catch(e){alert('删除备注失败：'+(e&&e.message?e.message:e));}}
-  function setCleaningNoteList(rows){try{cleaningNotes=rows;}catch(e){window.cleaningNotes=rows;}}
-  function noteStatusBadge(n){if(n.kind==='roomDate')return '<span class="badge green">日期备注</span>';return isCleaningNoteEffective(n)?'<span class="badge green">有效</span>':'<span class="badge red">已失效</span>';}
-  function renderOwnerNotes(){const fd=document.getElementById('noteFilterDate')?.value||'',ft=document.getElementById('noteFilterTargetType')?.value||'';let rows=allOwnerNotes();if(fd)rows=rows.filter(n=>n.date===fd);if(ft==='room'||ft==='common')rows=rows.filter(n=>n.target_type===ft&&n.kind==='cleaning');if(ft==='roomDate')rows=rows.filter(n=>n.kind==='roomDate');rows.sort((a,b)=>b.date.localeCompare(a.date));const el=document.getElementById('ownerNotesList');if(!el)return;if(!rows.length){el.innerHTML='<p class="small">暂无备注</p>';return;}const showProp=showPropColumn();el.innerHTML=`<table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>房间</th><th>备注类型</th><th>状态</th><th>备注内容</th><th>调整金额</th><th>操作人</th><th>操作</th></tr>`+rows.map(n=>{const id=pmsStableId(n.kind==='roomDate'?'roomnote':'note',n),typeText=n.note_type==='checkin'?'入住备注':n.note_type==='checkout'?'退房保洁备注':(n.kind==='roomDate'?'房间日期备注':(n.priority||'保洁备注')),amountText=noteAmountPresent(n)&&adjustAmount(n.amount)!==0?signedMoneyText(n.amount):'',deleteBtn=n.kind==='roomDate'?'':(pendingDeleteAllowed(n)?`<button class="smallbtn" onclick="deleteCleaningNote('${esc(id)}',this)">删除</button>`:'<span class="small">已生效</span>');return `<tr><td>${esc(n.date)}</td>${showProp?`<td>${esc(propName(targetPropId(n.target_id,n.target_type)))}</td>`:''}<td>${esc(cleanTargetName(n.target_id,n.target_type))}</td><td><span class="badge purple">${esc(typeText)}</span></td><td>${noteStatusBadge(n)}</td><td>${esc(n.note)}</td><td>${amountText}</td><td>${esc(n.created_by||'房东')}</td><td>${deleteBtn}</td></tr>`;}).join('')+`</table>`;}
-  function renderManualRecordsHTML(rows,withCard=true){const showProp=showPropColumn();let html=`<table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>对象</th><th>来源/类型</th><th>调整金额</th><th>原因</th><th>操作人</th><th>操作</th></tr>`+rows.map(m=>{const id=pmsStableId('manual',m),deleteBtn=pendingDeleteAllowed(m)?`<button class="smallbtn" onclick="deleteManualChange('${esc(id)}',this)">删除</button>`:'<span class="small">已生效</span>';return `<tr><td>${esc(m.date)}</td>${showProp?`<td>${esc(propName(targetPropId(m.target_id,m.target_type)))}</td>`:''}<td>${esc(cleanTargetName(m.target_id,m.target_type))}</td><td>${isNoteAdjustment(m)?'<span class="badge purple">备注调整</span>':changeBadge(m.type)}</td><td>${signedMoneyText(m.amount)}</td><td>${esc(m.reason||'')}</td><td>${esc(m.created_by||'房东')}</td><td>${deleteBtn}</td></tr>`;}).join('')+`</table>`;return withCard?`<div class="card">${html}</div>`:html;}
-  function renderCleanerNotesForDate(date){const notes=cleanNoteList().filter(n=>isCleaningNoteEffective(n)&&n.date===date&&targetMatches(n.target_id,n.target_type));const roomNotes=roomDateNoteList().filter(n=>n.date===date&&roomMatches(n.room_id)).map(n=>({date:n.date,target_id:n.room_id,target_type:'room',note:n.note,priority:n.priority,created_by:n.created_by,roomDate:true}));const all=notes.concat(roomNotes);if(!all.length)return '';return `<div class="card"><h2>${date===TODAY?'今日':'当天'}特别备注</h2><div class="small">房东添加的特殊事项；没有填写金额或金额为 0 的备注只进保洁任务，不进入费用调整。</div><br>`+all.map(n=>`<div class="note-card ${n.priority==='重要'?'important':''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(cleanTargetName(n.target_id,n.target_type))}${propBadge(targetPropId(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('')+`</div>`;}
-  function pmsShortDate(value){const s=String(value||'');return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(s)?s.slice(5):s;}
-  function pmsDateRange(start,end){return `${pmsShortDate(start)} → ${pmsShortDate(end)}`;}
-  function pmsRemainText(date,checkout){return `还剩 ${Math.max(0,daysBetween(date,checkout))} 天退房`;}
-  function bookingChannel(b){const id=String((b&&b.channel_listing_id)||'');return channelList().find(ch=>String((ch&&ch.id)||'')===id)||null;}
-  function bookingChannelLabelText(b){const ch=bookingChannel(b),platform=String((b&&b.platform)||(ch&&ch.platform)||'iCal').trim()||'iCal',note=String((b&&(b.channel_note||b.channelNote))||(ch&&(ch.channel_note||ch.channelNote||ch.note||ch.label))||'').trim();return note?`${platform} · ${note}`:platform;}
-  function bookingSourceLabels(b){const labels=Array.isArray(b&&b._source_labels)?b._source_labels:[bookingChannelLabelText(b)];return Array.from(new Set(labels.map(x=>String(x||'').trim()).filter(Boolean)));}
-  function bookingSourceBadges(b){const labels=bookingSourceLabels(b);const chips=labels.slice(0,3).map(x=>`<span class="badge purple">${esc(x)}</span>`).join('');const more=labels.length>3?`<span class="badge purple">+${labels.length-3}</span>`:'';const merged=Number(b&&b._merged_count||1)>1?`<span class="badge orange">已合并 ${Number(b._merged_count)} 条同房间同日期</span>`:'';return chips+more+merged;}
-  function pmsStayMirrorKey(b){return [b&&b.room_id,b&&b.checkin,b&&b.checkout,isLockedBooking(b)?'lock':'booking'].map(x=>String(x||'')).join('|');}
-  function dedupeBookingsByStay(rows){const by=new Map();(rows||[]).forEach(b=>{if(!b)return;const label=bookingChannelLabelText(b),k=pmsStayMirrorKey(b);if(!by.has(k)){by.set(k,{...b,_merged_count:1,_source_labels:label?[label]:[]});return;}const cur=by.get(k);cur._merged_count=(Number(cur._merged_count)||1)+1;cur._source_labels=bookingSourceLabels(cur);if(label&&!cur._source_labels.includes(label))cur._source_labels.push(label);if(!cur.guest&&b.guest)cur.guest=b.guest;if(!cur.platform&&b.platform)cur.platform=b.platform;if(!cur.status&&b.status)cur.status=b.status;if(!cur.summary&&b.summary)cur.summary=b.summary;if(!cur.external_event_uid&&b.external_event_uid)cur.external_event_uid=b.external_event_uid;if(!cur.channel_listing_id&&b.channel_listing_id)cur.channel_listing_id=b.channel_listing_id;if(!cur.channel_note&&(b.channel_note||b.channelNote))cur.channel_note=b.channel_note||b.channelNote;});return Array.from(by.values());}
-  function sameStayMirror(a,b){return pmsStayMirrorKey(a)===pmsStayMirrorKey(b);}
-  function ensureDailyCompactCss(){let s=document.getElementById('pmsDailyCompactStyles');if(!s){s=document.createElement('style');s.id='pmsDailyCompactStyles';document.head.appendChild(s);}s.textContent=`#dailyWorkMetrics.grid{grid-template-columns:repeat(auto-fit,minmax(108px,1fr))!important;gap:8px!important}#dailyWorkMetrics .metric{min-height:68px!important;padding:10px!important}#dailyWorkMetrics .metric .small{font-size:12px!important;line-height:1.15!important}#dailyWorkMetrics .metric .num{font-size:24px!important;line-height:1.05!important}#dailyWorkContent .work-grid{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(128px,1fr))!important;align-items:stretch;gap:8px!important;overflow:visible!important}#dailyWorkContent .work-card{min-width:0!important;padding:8px!important}#dailyWorkContent .work-card h3{font-size:15px!important;line-height:1.12!important;margin:0 0 6px!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}#dailyWorkContent .note-card{padding:7px 8px!important;margin:5px 0!important}#dailyWorkContent .note-card>div{white-space:normal!important;overflow:visible!important;text-overflow:clip!important;font-size:12.5px!important;line-height:1.22!important}#dailyWorkContent .note-title{display:flex!important;gap:4px!important;align-items:center!important;flex-wrap:wrap!important;margin-bottom:4px!important}#dailyWorkContent .badge{font-size:11.5px!important;padding:2px 6px!important;line-height:1.1!important}.daily-main-line{font-size:12.5px!important;line-height:1.2!important;font-weight:800}.daily-main-line strong{font-weight:900}.daily-sub-line{font-size:11.5px!important;color:#475569!important;line-height:1.2!important;margin-top:3px}.work-card.conflict .daily-main-line,.work-card.locked .daily-main-line{color:#be123c}@media(max-width:760px){#dailyWorkMetrics.grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}#dailyWorkContent .work-grid{grid-template-columns:1fr!important}}`;}
-  function dailyBookingCard(b,date,cls){const room=`<span class="badge">${esc(cleanRoomName(b.room_id))}</span>${propBadge(roomPropId(b.room_id))} ${bookingSourceBadges(b)||platformBadge(b.platform)}`;let main='',sub='';if(cls==='checkin'){main=`<strong>${esc(pmsRemainText(date,b.checkout))}</strong>`;sub=`退房：${esc(pmsShortDate(b.checkout))} ｜ 客人：${esc(b.guest||'')}`;}else if(cls==='stay'){main=`<strong>${esc(pmsRemainText(date,b.checkout))}</strong> ｜ 退房：${esc(pmsShortDate(b.checkout))}`;sub=`入住：${esc(pmsShortDate(b.checkin))} ｜ 客人：${esc(b.guest||'')}`;}else{main=`${esc(pmsDateRange(b.checkin,b.checkout))}`;sub=`客人：${esc(b.guest||'')}`;}return `<div class="note-card"><div class="note-title">${room}</div><div class="daily-main-line">${main}</div><div class="daily-sub-line">${sub}</div>${renderRoomDateNotesForWork(date,b.room_id)}</div>`;}
-  function dailyBookingCards(title,rows,cls,date){return `<div class="work-card ${cls}"><h3>${title}（${rows.length}）</h3>`+(rows.length?rows.map(b=>dailyBookingCard(b,date,cls)).join(''):'<p class="small">暂无</p>')+`</div>`;}
-  function dailyEmptyCards(date,emptyRooms,checkouts){return `<div class="work-card empty"><h3>空房（${emptyRooms.length}）</h3>`+(emptyRooms.length?emptyRooms.map(r=>{const out=checkouts.find(b=>b.room_id===r.id),label=out?'退房后空房':'当晚未预定';return `<div class="note-card"><div class="note-title"><span class="badge available">${esc(cleanRoomName(r.id))}</span>${propBadge(roomPropId(r.id))} <span class="badge green">${esc(label)}</span></div><div class="daily-main-line">${out?'退房后可继续售卖':'今晚无占用记录'}</div>${out?`<div class="daily-sub-line">退房订单：${esc(pmsDateRange(out.checkin,out.checkout))} ${bookingSourceBadges(out)||platformBadge(out.platform)}</div>`:''}${renderRoomDateNotesForWork(date,r.id)}</div>`;}).join(''):'<p class="small">暂无空房</p>')+`</div>`;}
-  function dailyLockCards(locked){return `<div class="work-card locked"><h3>不开放锁定（${locked.length}）</h3>`+(locked.length?locked.map(b=>`<div class="note-card lock-note"><div class="note-title"><span class="badge orange">${esc(cleanRoomName(b.room_id))}</span>${propBadge(roomPropId(b.room_id))} <span class="badge red">不开放锁定</span> ${bookingSourceBadges(b)||platformBadge(b.platform)}</div><div class="daily-main-line">${esc(pmsDateRange(b.checkin,b.checkout))}</div><div class="daily-sub-line">原因：${esc(lockReason(b))}</div></div>`).join(''):'<p class="small">暂无</p>')+`</div>`;}
-  function dailyConflictRows(date,base){const rows=[],source=dedupeBookingsByStay(base);ownerRooms().forEach(room=>{const touching=source.filter(b=>b.room_id===room.id&&b.checkin<addDays(date,1)&&b.checkout>date);for(let i=0;i<touching.length;i++){for(let j=i+1;j<touching.length;j++){const a=touching[i],b=touching[j],normalTurnover=(a.checkout===date&&b.checkin===date)||(b.checkout===date&&a.checkin===date),overlapNights=a.checkin<b.checkout&&b.checkin<a.checkout;if(overlapNights&&!normalTurnover&&!sameStayMirror(a,b))rows.push({room,a,b});}}});return rows.sort((x,y)=>cleanRoomName(x.room.id).localeCompare(cleanRoomName(y.room.id)));}
-  function dailyConflictCards(date,base){const rows=dailyConflictRows(date,base);return `<div class="work-card conflict"><h3>重叠风险（${rows.length}）</h3>`+rows.map(x=>`<div class="note-card"><div class="note-title"><span class="badge conflict">${esc(cleanRoomName(x.room.id))}</span>${propBadge(roomPropId(x.room.id))} <span class="badge red">疑似重叠</span></div><div class="daily-main-line">${esc(pmsDateRange(x.a.checkin,x.a.checkout))} ${bookingSourceBadges(x.a)||platformBadge(x.a.platform)}</div><div class="daily-main-line">${esc(pmsDateRange(x.b.checkin,x.b.checkout))} ${bookingSourceBadges(x.b)||platformBadge(x.b.platform)}</div><div class="daily-sub-line">同一晚可能被多个订单占用，需要复核。</div></div>`).join('')+`</div>`;}
-  function dailyChannelReviewCards(){const rows=channelReviewRows();return `<div class="work-card channel-review"><h3>渠道需复核（${rows.length}）</h3>`+rows.map(r=>`<div class="note-card"><div class="note-title"><span class="badge orange">${esc(cleanRoomName(r.id))}</span>${propBadge(roomPropId(r.id))} <span class="badge red">暂不算空房</span></div><div class="daily-sub-line">${esc(roomChannelReviewText(r.id))}</div></div>`).join('')+`</div>`;}
-  renderDailyWork=function(){ensureDailyEmptyCss();ensureDailyConflictCss();ensureChannelReviewCss();ensureDailyCompactCss();const wd=document.getElementById('workDate');if(wd&&!wd.value)wd.value=TODAY;const d=(wd&&wd.value)||TODAY,base=dedupeBookingsByStay(ownerRealBookings()),locked=dedupeBookingsByStay(ownerLockBookings()).filter(b=>b.checkin<=d&&b.checkout>d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id))),checkouts=base.filter(b=>b.checkout===d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id))),checkins=base.filter(b=>b.checkin===d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id))),stays=base.filter(b=>b.checkin<d&&b.checkout>d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id))),emptyRooms=dailyEmptyRoomsForDate(d,base,locked),cleanRows=scopedCleaningRows(d,d).filter(r=>r.date===d),notes=allOwnerNotes().filter(n=>n.date===d),conflicts=dailyConflictRows(d,base),reviewRows=channelReviewRows(),metrics=document.getElementById('dailyWorkMetrics');if(metrics)metrics.innerHTML=`<div class="metric"><div class="small">退房</div><div class="num">${checkouts.length}</div></div><div class="metric"><div class="small">入住</div><div class="num">${checkins.length}</div></div><div class="metric"><div class="small">剩余在住</div><div class="num">${stays.length}</div></div><div class="metric"><div class="small">空房</div><div class="num">${emptyRooms.length}</div></div><div class="metric"><div class="small">不开放锁定房间</div><div class="num">${locked.length}</div></div><div class="metric"><div class="small">保洁任务</div><div class="num">${cleanRows.length}</div></div>${conflicts.length?`<div class="metric"><div class="small">重叠风险</div><div class="num">${conflicts.length}</div></div>`:''}${reviewRows.length?`<div class="metric"><div class="small">渠道需复核</div><div class="num">${reviewRows.length}</div></div>`:''}`;const cards=[];if(conflicts.length)cards.push(dailyConflictCards(d,base));if(reviewRows.length)cards.push(dailyChannelReviewCards());cards.push(dailyBookingCards('退房',checkouts,'checkout',d),dailyBookingCards('入住',checkins,'checkin',d),dailyBookingCards('剩余在住',stays,'stay',d),dailyEmptyCards(d,emptyRooms,checkouts),dailyLockCards(locked));const content=document.getElementById('dailyWorkContent');if(content)content.innerHTML=`<div class="work-grid">${cards.join('')}</div><div class="card"><h2>当天保洁任务</h2>${cleaningTableScoped(cleanRows)}</div><div class="card"><h2>当天备注</h2>${notes.length?notes.map(n=>`<div class="note-card ${n.priority==='重要'?'important':''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(cleanTargetName(n.target_id,n.target_type))}${propBadge(targetPropId(n.target_id,n.target_type))} ${n.kind==='roomDate'?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join(''):'<p class="small">暂无备注</p>'}</div>`;};
-  Object.assign(window,{confirmCleaningTask,saveCleaningTaskFeedback,deleteManualChange,deleteCleaningNote});
-  function refreshOwnerScopedViews(){initSelects();renderOwnerMetrics();renderDailyWork();renderOwnerCalendar();renderSixMonthStats();renderOwnerBookings();renderManualRecords();renderCleaningFinance();renderOwnerNotes();}
-  function adminOwners(){return userList().filter(u=>u&&u.role==='owner');}
-  function adminCleanerUsers(){return userList().filter(u=>u&&u.role==='cleaner');}
-  function adminUserName(u){return String((u&&(u.name||u.display_name||u.username||u.cleaner_code||u.id))||'未命名用户').trim();}
-  function adminUserGroups(u){const ids=[];if(u&&Array.isArray(u.group_ids))ids.push(...u.group_ids);if(u&&u.group_id)ids.push(u.group_id);return Array.from(new Set(ids.map(String).filter(Boolean)));}
-  function adminGroupName(id){const g=groupList().find(x=>String(x.id||'')===String(id||''));return (g&&(g.name||g.id))||id||'未分组';}
-  function adminPropName(p){return displayPropertyName(p&&p.name,p&&p.id);}
-  function adminOwnerForProperty(p){const gid=p&&p.group_id;return adminOwners().filter(u=>adminUserGroups(u).includes(String(gid||'')));}
-  function adminCleanerLabel(code){const normalized=String(code||'').trim().toUpperCase();const u=adminCleanerUsers().find(x=>String(x.cleaner_code||'').trim().toUpperCase()===normalized);return u?`${adminUserName(u)}（${normalized}）`:(normalized||'未知保洁');}
-  function adminPlatformBadges(r){const channels=roomChannels(r&&r.id).filter(x=>x&&x.id);const channelBadges=channels.map(x=>`<span class="badge green">${esc(x.platform||'渠道')}${x.is_new_listing?' · 新发布':''}${x.ical_url?' · 已导入':' · 未导入'}</span>`).join('');if(channelBadges)return channelBadges;const rows=[['Airbnb',r&&r.airbnb_ical],['Booking',r&&r.booking_ical],['Vrbo',r&&r.vrbo_ical],['其他平台',r&&r.other_ical],['公开链接',r&&r.public_url]];return rows.filter(x=>String(x[1]||'').trim()).map(x=>`<span class="badge green">${esc(x[0])}</span>`).join('')||'<span class="small">未设置渠道 iCal / 公开链接</span>';}
-  function adminPropertySummary(p){const owners=adminOwnerForProperty(p),rs=propRooms(p.id),areas=propAreas(p.id),links=propCleaners(p.id);const cleanerText=links.length?links.map(x=>adminCleanerLabel(x.cleaner_code)).join('、'):'未绑定';const areaRows=areas.length?areas.map(a=>`${cleanTargetName(a.id,'common')}（$${Number(a.cleaning_fee||0)}）`).join('、'):'无';const roomRows=rs.length?rs.map(r=>`<tr><td><strong>${esc(cleanRoomName(r.id))}</strong><div class="small">${esc(r.id||'')}</div></td><td>$${Number(r.cleaning_fee||0)}</td><td>${adminPlatformBadges(r)}</td></tr>`).join(''):'<tr><td colspan="3">暂无房间</td></tr>';return `<div class="admin-panel admin-property-card"><div class="property-detail-head"><div><h3>${esc(adminPropName(p))}</h3><div class="small">房东：${esc(owners.map(adminUserName).join('、')||'未分配')} | 分组：${esc(adminGroupName(p.group_id))}</div></div><div class="small">房间 ${rs.length} | 公区/特殊房间 ${areas.length} | 保洁绑定 ${links.length}</div></div><div class="admin-property-meta"><div><strong>保洁绑定</strong><div>${esc(cleanerText)}</div></div><div><strong>公区/特殊房间</strong><div>${esc(areaRows)}</div></div></div><table class="admin-table"><tr><th>房间</th><th>清洁费</th><th>已设置内容</th></tr>${roomRows}</table></div>`;}
-  function adminOwnerRows(){const owners=adminOwners();if(!owners.length)return '<tr><td colspan="8">暂无房东账号</td></tr>';return owners.map(u=>{const gids=adminUserGroups(u),ownerProps=props().filter(p=>gids.includes(String(p.group_id||''))),rooms=ownerProps.reduce((s,p)=>s+propRooms(p.id).length,0),areas=ownerProps.reduce((s,p)=>s+propAreas(p.id).length,0),cleaners=new Set(ownerProps.flatMap(p=>propCleaners(p.id).map(x=>String(x.cleaner_code||'').trim().toUpperCase()).filter(Boolean)));return `<tr><td><strong>${esc(adminUserName(u))}</strong><div class="small">${esc(u.id||'')}</div></td><td>${esc(u.username||'未设置')}</td><td>${esc(gids.map(adminGroupName).join('、')||'未分组')}</td><td>${ownerProps.length}</td><td>${rooms}</td><td>${areas}</td><td>${cleaners.size}</td><td>${esc(u.created_at||'')}</td></tr>`;}).join('');}
-  function adminCleanerRows(){const cleaners=adminCleanerUsers();if(!cleaners.length)return '<tr><td colspan="7">暂无保洁账号</td></tr>';return cleaners.map(u=>{const code=String(u.cleaner_code||'').trim().toUpperCase(),links=cleanerLinks().filter(x=>String(x.cleaner_code||'').trim().toUpperCase()===code),linkedProps=links.map(x=>props().find(p=>p.id===x.property_id)).filter(Boolean);return `<tr><td><strong>${esc(adminUserName(u))}</strong><div class="small">${esc(u.id||'')}</div></td><td>${esc(u.username||'')}</td><td>${esc(code||'未生成')}</td><td>${esc(u.phone||'')}</td><td>${linkedProps.length}</td><td>${esc(linkedProps.map(adminPropName).join('、')||'未绑定')}</td><td>${esc(u.created_at||'')}</td></tr>`;}).join('');}
-  function adminOwnerCleanerRows(){const owners=adminOwners();if(!owners.length)return '<tr><td colspan="6">暂无房东账号</td></tr>';return owners.map(owner=>{const gids=adminUserGroups(owner),ownerProps=props().filter(p=>gids.includes(String(p.group_id||''))),rooms=ownerProps.reduce((s,p)=>s+propRooms(p.id).length,0),areas=ownerProps.reduce((s,p)=>s+propAreas(p.id).length,0),links=ownerProps.flatMap(p=>propCleaners(p.id).map(link=>({property:p,code:String(link.cleaner_code||'').trim().toUpperCase()}))).filter(x=>x.code),uniqueCodes=[...new Set(links.map(x=>x.code))],relation=uniqueCodes.map(code=>{const names=links.filter(x=>x.code===code).map(x=>adminPropName(x.property));return `${adminCleanerLabel(code)}：${names.join('、')}`;}).join('；')||'未绑定保洁';return `<tr><td><strong>${esc(adminUserName(owner))}</strong><div class="small">${esc(owner.username||owner.id||'')}</div></td><td>${esc(gids.map(adminGroupName).join('、')||'未分组')}</td><td>${ownerProps.length}</td><td>${rooms} / ${areas}</td><td>${uniqueCodes.length}</td><td>${esc(relation)}</td></tr>`;}).join('');}
-  function adminCleanerOwnerRows(){const cleaners=adminCleanerUsers();if(!cleaners.length)return '<tr><td colspan="6">暂无保洁账号</td></tr>';return cleaners.map(cleaner=>{const code=String(cleaner.cleaner_code||'').trim().toUpperCase(),links=cleanerLinks().filter(x=>String(x.cleaner_code||'').trim().toUpperCase()===code),linkedProps=links.map(x=>props().find(p=>p.id===x.property_id)).filter(Boolean),ownerNames=[...new Set(linkedProps.flatMap(p=>adminOwnerForProperty(p).map(adminUserName)))];return `<tr><td><strong>${esc(adminUserName(cleaner))}</strong><div class="small">${esc(code||cleaner.id||'未生成编号')}</div></td><td>${esc(cleaner.username||'')}</td><td>${ownerNames.length}</td><td>${esc(ownerNames.join('、')||'未绑定房东')}</td><td>${linkedProps.length}</td><td>${esc(linkedProps.map(adminPropName).join('、')||'未绑定房源')}</td></tr>`;}).join('');}
-  function renderAdminDashboard(){const el=document.getElementById('owner');if(!el)return;const owners=adminOwners(),cleaners=adminCleanerUsers(),ps=props(),rs=roomList(),areas=areaList();el.innerHTML=`<div class="admin-shell admin-dashboard"><div class="admin-panel"><h2>注册用户管理后台</h2><div class="small">管理员只看全局注册用户、房东分组、保洁账号、房源房间配置和绑定关系；不显示房东/保洁业务操作页。</div></div><div class="admin-metric-grid"><div class="admin-metric"><div class="small">房东注册用户</div><div class="num">${owners.length}</div></div><div class="admin-metric"><div class="small">保洁注册用户</div><div class="num">${cleaners.length}</div></div><div class="admin-metric"><div class="small">房源</div><div class="num">${ps.length}</div></div><div class="admin-metric"><div class="small">房间</div><div class="num">${rs.length}</div></div><div class="admin-metric"><div class="small">公区/特殊房间</div><div class="num">${areas.length}</div></div><div class="admin-metric"><div class="small">房源保洁绑定</div><div class="num">${cleanerLinks().length}</div></div></div><div class="admin-panel"><h2>房东 / 保洁绑定关系</h2><div class="small">房东和保洁通过“房源绑定保洁编号”形成关系；这里按房东汇总。</div><table class="admin-table"><tr><th>房东</th><th>房东组</th><th>房源数</th><th>房间/公区</th><th>保洁数</th><th>绑定保洁与覆盖房源</th></tr>${adminOwnerCleanerRows()}</table></div><div class="admin-panel"><h2>保洁 / 房东覆盖关系</h2><div class="small">同一个保洁可以服务多个房东、多个房源；这里按保洁汇总。</div><table class="admin-table"><tr><th>保洁</th><th>登录账号</th><th>房东数</th><th>服务房东</th><th>房源数</th><th>服务房源</th></tr>${adminCleanerOwnerRows()}</table></div><div class="admin-panel"><h2>房东注册用户列表</h2><table class="admin-table"><tr><th>用户</th><th>登录账号</th><th>房东组</th><th>房源</th><th>房间</th><th>公区</th><th>绑定保洁</th><th>注册时间</th></tr>${adminOwnerRows()}</table></div><div class="admin-panel"><h2>保洁注册列表</h2><table class="admin-table"><tr><th>保洁</th><th>登录账号</th><th>保洁编号</th><th>电话</th><th>绑定房源数</th><th>绑定房源</th><th>注册时间</th></tr>${adminCleanerRows()}</table></div><div class="admin-panel"><h2>房源 / 房间配置明细</h2><div class="admin-property-list">${ps.map(adminPropertySummary).join('')||'<p class="small">暂无房源</p>'}</div></div></div>`;}
-  function applyAdminMode(){const u=current();if(!u||u.role!=='admin')return false;const title=document.querySelector('header h1'),subtitle=document.querySelector('header h1 + .small');if(title)title.textContent='PMS 管理员后台';if(subtitle)subtitle.textContent='管理注册用户、房东分组、保洁账号、房源房间配置和绑定关系。';document.title='PMS 管理员后台';const cleaner=document.getElementById('cleaner'),owner=document.getElementById('owner');if(cleaner)cleaner.classList.remove('active');if(owner)owner.classList.add('active');const nav=document.querySelector('.nav');if(nav){nav.style.display='flex';nav.innerHTML='<button class="active" type="button">注册用户管理</button><button id="logoutBtn" type="button">退出登录</button>';const btn=document.getElementById('logoutBtn');if(btn)btn.onclick=typeof logout==='function'?logout:function(){localStorage.removeItem('pms_session');location.href='/login';};}renderAdminDashboard();return true;}
-  function bindCalendarRangeControls(){['rangeStart','rangeEnd','ownerRoomFilter'].forEach(id=>{const el=document.getElementById(id);if(el&&!el.dataset.pmsRangeBound){el.onchange=refreshCalendarRangeViews;el.dataset.pmsRangeBound='1';}});updateRangePresetButtons();}
-  function suppressLegacyPropertyManagement(){document.querySelectorAll('.property-management-card').forEach(el=>el.remove());try{window.insertPropertyManagement=function(){};}catch(e){}}
-  function setup(){installPropertyRoomClickFallback();ensureCss();ensureUiPolishCss();ensureFinanceHistoryCss();removeLegacyIntroCards();polishAccountBar();suppressLegacyPropertyManagement();bindCalendarRangeControls();document.querySelectorAll('.small').forEach(el=>{const text=el.textContent||'';if(text.includes('在住房间会显示'))el.textContent='剩余在住会显示“还剩几天退房”，方便判断是否需要提前安排续住沟通、补充用品或中途清洁。';if(text.includes('黄色边框表示该房间该日期有房东备注')||text.includes('未来房态：绿色整格表示在住'))el.textContent='未来房态：绿色整格表示在住；左上绿色三角表示当天退房；右下绿色三角表示当天入住；同日退房又入住会用 / 对角线同时显示；红色表示不开放锁定；黄色边框表示有房东备注。';});const cleanerManualBtn=document.querySelector('button[onclick*="cleanerManual"]');if(cleanerManualBtn)cleanerManualBtn.textContent='历史/调整';const cleanerHistoryBtn=document.querySelector('button[onclick*="cleanerHistory"]');if(cleanerHistoryBtn)cleanerHistoryBtn.style.display='none';const cleanTab=document.querySelector('button[onclick*="ownerCleaning"]');if(cleanTab)cleanTab.textContent='保洁管理';const notesTab=document.querySelector('button[onclick*="ownerNotes"]');if(notesTab)notesTab.style.display='none';const notesSection=document.getElementById('ownerNotes');if(notesSection){notesSection.style.display='none';}const tab=document.querySelector('button[onclick*="ownerRooms"]');if(tab){tab.textContent='房间设置';tab.setAttribute('onclick',"showOwnerTab('ownerRooms', this); backToPropertyList();");}const section=document.getElementById('ownerRooms');if(section){const card=section.querySelector(':scope > .card');if(card){const h2=card.querySelector('h2');const p=card.querySelector('p.small');const isDetail=!!activeProp();if(h2){h2.textContent=isDetail?'':'房间管理';h2.style.display=isDetail?'none':'';}if(p){p.textContent=isDetail?'':'房源的添加、改名、删除和筛选已经放到上方房源管理模块；点上方“进入房间管理”后，这里只显示该房源的房间、公区、iCal 和保洁绑定。';p.style.display=isDetail?'none':'';}card.querySelectorAll('button[onclick=\"syncIcal()\"],button[onclick=\"addRoom()\"] ,button[onclick=\"addCommonArea()\"],#syncIcalBtn').forEach(btn=>{btn.style.display='none';});}}const common=document.getElementById('commonSettings');if(common&&common.closest('.card'))common.closest('.card').style.display='none';}
-  async function saveCommonAreas(btn,successText){await persistAll();renderRoomSettings();return true;}
-  function renderCommonSettings(){const common=document.getElementById('commonSettings');if(common)common.innerHTML='';}
 
-
-  S.mailEdits=S.mailEdits||{};
-  S.mailImports=S.mailImports||{};
-  const MAIL_TXT={notSet:'\u672a\u8bbe\u7f6e',bound:'\u5df2\u7ed1\u5b9a\u90ae\u7bb1',waiting:'\u7b49\u5f85\u786e\u8ba4',rule:'\u5df2\u5efa\u8f6c\u53d1\u89c4\u5219',active:'\u5df2\u751f\u6548',paused:'\u6682\u505c',noCopy:'\u8fd8\u6ca1\u6709\u53ef\u590d\u5236\u7684 PMS \u8f6c\u53d1\u5730\u5740',copied:'\u5df2\u590d\u5236',copy:'\u590d\u5236',saving:'\u4fdd\u5b58\u4e2d...',saved:'\u5df2\u4fdd\u5b58\uff0c\u5df2\u4ece\u670d\u52a1\u5668\u91cd\u65b0\u8bfb\u53d6',saveFail:'\u4fdd\u5b58\u90ae\u7bb1\u8f6c\u53d1\u8bbe\u7f6e\u5931\u8d25\uff1a',confirmClear:'\u786e\u5b9a\u6e05\u7a7a\u8fd9\u4e2a\u623f\u6e90\u7684\u90ae\u7bb1\u8f6c\u53d1\u8bbe\u7f6e\uff1f',airbnbMail:'Airbnb \u901a\u77e5\u90ae\u7bb1',boundMail:'\u5df2\u7ed1\u5b9a\u90ae\u7bb1',notFilled:'\u672a\u586b\u5199',pmsAddress:'PMS \u8f6c\u53d1\u5730\u5740',adminMissing:'\u7ba1\u7406\u5458\u672a\u914d\u7f6e\u540e\u53f0\u6536\u4fe1\u90ae\u7bb1',status:'\u72b6\u6001',edit:'\u4fee\u6539\u8bbe\u7f6e',setup:'\u8bbe\u7f6e\u90ae\u7bb1\u8f6c\u53d1',copyAddress:'\u590d\u5236\u8f6c\u53d1\u5730\u5740',clear:'\u6e05\u7a7a',title:'\u623f\u6e90\u90ae\u4ef6\u8f6c\u53d1',help:'\u6309\u623f\u6e90\u4fdd\u5b58\u3002\u53ea\u8bb0\u5f55\u8f6c\u53d1\u89c4\u5219\u548c\u72b6\u6001\uff0c\u4e0d\u4fdd\u5b58\u90ae\u7bb1\u5bc6\u7801\uff0c\u4e5f\u4e0d\u4f1a\u8bfb\u53d6\u79c1\u4eba\u90ae\u7bb1\u3002',sourceInput:'\u8fd9\u4e2a\u623f\u6e90\u63a5\u6536 Airbnb \u901a\u77e5\u7684\u90ae\u7bb1',exampleMail:'\u4f8b\u5982\uff1ahost@gmail.com',forwardStatus:'\u8f6c\u53d1\u72b6\u6001',notes:'\u5907\u6ce8',notesPh:'\u4f8b\u5982\uff1a\u8fd9\u4e2a\u623f\u6e90\u7684 Airbnb \u901a\u77e5\u6765\u81ea\u54ea\u4e2a\u90ae\u7bb1\uff0c\u6216\u8f6c\u53d1\u89c4\u5219\u8fd8\u5728\u7b49\u5f85\u9a8c\u8bc1\u3002',save:'\u4fdd\u5b58\u8bbe\u7f6e',cancel:'\u53d6\u6d88',adminInbox:'\u540e\u53f0\u6536\u4fe1\u90ae\u7bb1',adminHelp:'\u7ba1\u7406\u5458\u914d\u7f6e\u4e00\u6b21\uff0c\u623f\u6e90\u4f1a\u81ea\u52a8\u751f\u6210\u5404\u81ea\u7684 PMS \u8f6c\u53d1\u5730\u5740\u3002\u4f8b\uff1ainbox+pms_property123@gmail.com',saveAdmin:'\u4fdd\u5b58\u540e\u53f0\u90ae\u7bb1',pmsInbox:'PMS \u540e\u53f0\u6536\u4fe1 Gmail',aliasPrefix:'\u522b\u540d\u524d\u7f00',mode:'\u751f\u6210\u65b9\u5f0f',direct:'\u76f4\u63a5\u4f7f\u7528\u540c\u4e00\u4e2a\u90ae\u7bb1',internalNote:'\u5185\u90e8\u5907\u6ce8\uff0c\u53ef\u7a7a',adminTableTitle:'\u623f\u6e90\u90ae\u7bb1\u8f6c\u53d1\u8bbe\u7f6e',adminTableHelp:'\u8fd9\u91cc\u6c47\u603b\u6bcf\u4e2a\u623f\u6e90\u7684 Airbnb \u901a\u77e5\u90ae\u7bb1\u3001PMS \u8f6c\u53d1\u5730\u5740\u548c\u5f53\u524d\u8f6c\u53d1\u72b6\u6001\u3002',property:'\u623f\u6e90',owner:'\u623f\u4e1c',updated:'\u66f4\u65b0\u65f6\u95f4',noProperty:'\u6682\u65e0\u623f\u6e90',unassigned:'\u672a\u5206\u914d',notGenerated:'\u672a\u751f\u6210'};
-  function nowIso(){return new Date().toISOString().slice(0,19);}
-  function pmsSafeNowIso(){
+  function logoutImpl(){
     try{
-      if(typeof nowIso === 'function') return nowIso();
+      Object.keys(localStorage || {}).forEach(k => { if(/^pms/i.test(k) || k.includes('last-good-state')) localStorage.removeItem(k); });
+      sessionStorage.clear();
+      document.cookie.split(';').forEach(c => {
+        const n = c.split('=')[0].trim();
+        if(n) document.cookie = n + '=; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+      });
     }catch(e){}
-    return new Date().toISOString().slice(0,19);
+    fetch('/api/logout', {method: 'POST', keepalive: true}).catch(() => {});
+    location.replace('/logout?ts=' + Date.now());
   }
-  function mailConfigList(){try{return mailForwardingConfig||[]}catch(e){return window.mailForwardingConfig||[];}}
-  function setMailConfigList(v){try{mailForwardingConfig=v;}catch(e){window.mailForwardingConfig=v;}}
-  function propertyMailList(){try{return propertyMailForwarding||[]}catch(e){return window.propertyMailForwarding||[];}}
-  function setPropertyMailList(v){try{propertyMailForwarding=v;}catch(e){window.propertyMailForwarding=v;}}
-  function mailEventList(){try{return mailEvents||[]}catch(e){return window.mailEvents||[];}}
-  function setMailEventList(v){try{mailEvents=v;}catch(e){window.mailEvents=v;}}
-  const pmsMailBaseApplyStateObject=applyStateObject;
-  function mailStateFromResponse(data){return (data&&data.state&&typeof data.state==='object')?data.state:data;}
-  function applyMailState(data){const state=mailStateFromResponse(data);if(state&&Array.isArray(state.mailForwardingConfig))setMailConfigList(state.mailForwardingConfig);if(state&&Array.isArray(state.propertyMailForwarding))setPropertyMailList(state.propertyMailForwarding);if(state&&Array.isArray(state.mailEvents))setMailEventList(state.mailEvents);return state;}
-  applyStateObject=function(data){const baseState=pmsMailBaseApplyStateObject(data);return applyMailState(baseState||data)||baseState;};
-  function primaryMailConfig(){const row=mailConfigList()[0];return row&&typeof row==='object'?row:{};}
-  function propertyMailSetting(propertyId){return propertyMailList().find(x=>x&&String(x.property_id||'')===String(propertyId||''))||{};}
-  function mailStatusText(v,bound){if(bound&&(!v||v==='not_set'))return MAIL_TXT.bound;return ({not_set:MAIL_TXT.notSet,verification_pending:MAIL_TXT.waiting,rule_created:MAIL_TXT.rule,active:MAIL_TXT.active,paused:MAIL_TXT.paused})[v||'not_set']||MAIL_TXT.notSet;}
-  function mailStatusClass(v,bound){return v==='active'||(bound&&(!v||v==='not_set'))?'good':(v==='verification_pending'||v==='rule_created')?'warn':'';}
-  function mailSafeAlias(v){return String(v||'property').trim().replace(/[^a-zA-Z0-9_-]/g,'_')||'property';}
-  function generatedMailAddress(propertyId){const cfg=primaryMailConfig(),inbox=String(cfg.inbox_email||'').trim();if(!inbox||!inbox.includes('@'))return '';const parts=inbox.split('@'),local=parts.slice(0,-1).join('@'),domain=parts[parts.length-1],prefix=mailSafeAlias(cfg.alias_prefix||'pms'),prop=mailSafeAlias(propertyId);return cfg.plus_alias_enabled===false?inbox:`${local}+${prefix}_${prop}@${domain}`;}
-  function mailAddressForProperty(propertyId){const row=propertyMailSetting(propertyId);return String(row.pms_forward_address||'').trim()||generatedMailAddress(propertyId);}
-  function mailInputId(propertyId,field){return 'mail_'+safe(propertyId)+'_'+safe(field);}
-  function setMailEdit(propertyId,on){if(on)S.mailEdits[propertyId]=true;else delete S.mailEdits[propertyId];}
-  function editPropertyMail(propertyId){setMailEdit(propertyId,true);renderRoomSettings();renderOwnerMail();}
-  function cancelPropertyMailEdit(propertyId){setMailEdit(propertyId,false);renderRoomSettings();renderOwnerMail();}
-  function copyMailAddress(address,btn){const text=String(address||'').trim();if(!text)return alert(MAIL_TXT.noCopy);if(navigator.clipboard)navigator.clipboard.writeText(text).catch(()=>{});if(btn){const old=btn.textContent;btn.textContent=MAIL_TXT.copied;setTimeout(()=>btn.textContent=old||MAIL_TXT.copy,1200);}}
-  function mailStatusId(propertyId){return 'mail_status_'+safe(propertyId);}
-  function showMailStatus(id,text,kind){if(!id)return;[id,id+'_form',id+'_head'].forEach(targetId=>{const el=document.getElementById(targetId);if(!el)return;if(el._mailTimer)clearTimeout(el._mailTimer);el.textContent=text||'';el.className='mail-save-status '+(kind||'');if(text&&kind==='ok')el._mailTimer=setTimeout(()=>{el.textContent='';},3200);});}
-  function mergePropertyMailRow(row){if(!row||!row.property_id)return;const next=propertyMailList().filter(x=>x&&String(x.property_id||'')!==String(row.property_id)).concat([row]);setPropertyMailList(next);}
-  async function refreshMailStateFromServer(){const res=await fetch(apiUrl('/api/state'),{method:'GET',cache:'no-store'});const data=await res.json().catch(()=>({}));if(!res.ok||data.ok===false)throw new Error(data.error||'reload state failed');await afterState(data);applyMailState(data);return data;}
-  function verifyPropertyMailSaved(expected,state){if(!expected||!expected.property_id||expected._clear)return;const rows=state&&Array.isArray(state.propertyMailForwarding)?state.propertyMailForwarding:propertyMailList();const row=rows.find(x=>x&&String(x.property_id||'')===String(expected.property_id))||{};const wanted=String(expected.source_email||'').trim();const got=String(row.source_email||'').trim();if(wanted!==got)throw new Error(`服务器保存后重新读取不一致：当前读到 ${got||MAIL_TXT.notFilled}`);}
-  function mailSaveRequest(payload){if(payload&&Array.isArray(payload.propertyMailForwarding))return {url:'/api/property-mail',body:payload.propertyMailForwarding[0]||{}};if(payload&&Array.isArray(payload.mailForwardingConfig))return {url:'/api/mail-config',body:payload.mailForwardingConfig[0]||{}};return {url:'/api/state',body:payload};}
-  async function postMailPayload(payload,btn,statusId){const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent=MAIL_TXT.saving;}showMailStatus(statusId,MAIL_TXT.saving,'loading');try{const req=mailSaveRequest(payload);const expected=payload&&Array.isArray(payload.propertyMailForwarding)?payload.propertyMailForwarding[0]:null;const res=await fetch(apiUrl(req.url),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(req.body)});const data=await res.json().catch(()=>({}));if(!res.ok||data.ok===false)throw new Error(data.error||'save failed');await afterState(data);const reloaded=await refreshMailStateFromServer();verifyPropertyMailSaved(expected,mailStateFromResponse(reloaded));if(data&&data.propertyMail)mergePropertyMailRow(data.propertyMail);if(expected&&!expected._clear)mergePropertyMailRow(data.propertyMail||expected);showMailStatus(statusId,MAIL_TXT.saved,'ok');return data;}catch(e){const msg=e&&e.message?e.message:String(e||'未知错误');showMailStatus(statusId,msg,'error');alert(MAIL_TXT.saveFail+msg);try{e._pmsMailAlerted=true;}catch(_err){}throw e;}finally{if(btn){btn.disabled=false;btn.textContent=old||MAIL_TXT.save;}}}
-  function readPropertyMailForm(propertyId){const p=props().find(x=>x.id===propertyId)||{};const row=propertyMailSetting(propertyId);return {id:row.id||('mail_property_'+propertyId),property_id:propertyId,owner_id:(current()&&current().id)||row.owner_id||'',group_id:p.group_id||row.group_id||groupId(),source_email:(document.getElementById(mailInputId(propertyId,'source_email'))||{}).value||'',pms_forward_address:mailAddressForProperty(propertyId),forward_status:(document.getElementById(mailInputId(propertyId,'forward_status'))||{}).value||'not_set',notes:(document.getElementById(mailInputId(propertyId,'notes'))||{}).value||'',updated_at:pmsSafeNowIso()};}
-  async function savePropertyMail(propertyId,btn){const row=readPropertyMailForm(propertyId);if(!String(row.source_email||'').trim()){showMailStatus(mailStatusId(propertyId),'没有内容可保存：请先填写邮箱。','error');alert('没有内容可保存：请先填写邮箱。');return;}const data=await postMailPayload({propertyMailForwarding:[row]},btn,mailStatusId(propertyId));mergePropertyMailRow((data&&data.propertyMail)||row);setMailEdit(propertyId,false);renderRoomSettings();alert('已保存成功');}
-  async function clearPropertyMail(propertyId,btn){if(!confirm(MAIL_TXT.confirmClear))return;setPropertyMailList(propertyMailList().filter(x=>x&&String(x.property_id||'')!==String(propertyId)));await postMailPayload({propertyMailForwarding:[{property_id:propertyId,_clear:true}]},btn,mailStatusId(propertyId));setMailEdit(propertyId,false);renderRoomSettings();}
-  async function savePropertyMail(propertyId,btn){try{const row=readPropertyMailForm(propertyId);if(!String(row.source_email||'').trim()){showMailStatus(mailStatusId(propertyId),'没有内容可保存：请先填写邮箱。','error');alert('没有内容可保存：请先填写邮箱。');return;}const data=await postMailPayload({propertyMailForwarding:[row]},btn,mailStatusId(propertyId));mergePropertyMailRow((data&&data.propertyMail)||row);setMailEdit(propertyId,false);renderRoomSettings();refreshPropertyHub();alert('已保存成功');}catch(e){const msg=e&&e.message?e.message:String(e||'未知错误');showMailStatus(mailStatusId(propertyId),msg,'error');if(!e||!e._pmsMailAlerted)alert(MAIL_TXT.saveFail+msg);}}
-  async function clearPropertyMail(propertyId,btn){try{if(!confirm(MAIL_TXT.confirmClear))return;setPropertyMailList(propertyMailList().filter(x=>x&&String(x.property_id||'')!==String(propertyId)));await postMailPayload({propertyMailForwarding:[{property_id:propertyId,_clear:true}]},btn,mailStatusId(propertyId));setMailEdit(propertyId,false);renderRoomSettings();refreshPropertyHub();}catch(e){const msg=e&&e.message?e.message:String(e||'未知错误');showMailStatus(mailStatusId(propertyId),msg,'error');alert('清空邮箱设置失败：'+msg);}}
-  function ensurePropertyMailCss(){let s=document.getElementById('pmsPropertyMailStyles');if(!s){s=document.createElement('style');s.id='pmsPropertyMailStyles';document.head.appendChild(s);}s.textContent=`.property-mail-panel{border-color:#a7f3d0!important;border-left:6px solid #0f766e;background:#fbfffe}.property-mail-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr)) auto;gap:10px;align-items:center}.property-mail-item{border:1px solid #dbeafe;background:#f8fafc;border-radius:8px;padding:9px 10px;min-width:0}.property-mail-label{font-size:12px;color:#64748b;font-weight:900}.property-mail-value{font-weight:900;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.property-mail-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:12px}.property-mail-form textarea{min-height:70px}.property-mail-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}.mail-save-status{font-size:13px;font-weight:900;color:#64748b}.mail-save-status.ok{color:#047857}.mail-save-status.error{color:#be123c}.mail-save-status.loading{color:#1d4ed8}.status-pill{display:inline-flex;border-radius:999px;padding:3px 9px;border:1px solid #cbd5e1;background:#fff;color:#475569;font-weight:900;font-size:12px}.status-pill.good{border-color:#86efac;background:#dcfce7;color:#166534}.status-pill.warn{border-color:#fde68a;background:#fffbeb;color:#92400e}.admin-mail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;align-items:end}.admin-mail-table td,.admin-mail-table th{vertical-align:top}`;}
-  function renderPropertyMailPanel(p){ensurePropertyMailCss();const row=propertyMailSetting(p.id),bound=!!String(row.source_email||'').trim(),saved=!!row.property_id,editing=!!S.mailEdits[p.id],addr=mailAddressForProperty(p.id),status=row.forward_status||'not_set';const savedAt=row.updated_at?`<div class="small">保存时间：${esc(row.updated_at)}</div>`:'';const summary=!editing?`<div class="property-mail-summary"><div class="property-mail-item"><div class="property-mail-label">${bound?MAIL_TXT.boundMail:MAIL_TXT.airbnbMail}</div><div class="property-mail-value">${row.source_email?esc(row.source_email):MAIL_TXT.notFilled}</div>${savedAt}</div><div class="property-mail-item"><div class="property-mail-label">${MAIL_TXT.pmsAddress}</div><div class="property-mail-value" title="${esc(addr)}">${addr?esc(addr):MAIL_TXT.adminMissing}</div></div><div class="property-mail-item"><div class="property-mail-label">${MAIL_TXT.status}</div><div class="property-mail-value"><span class="status-pill ${mailStatusClass(status,bound)}">${esc(mailStatusText(status,bound))}</span></div></div><div class="property-mail-actions"><span class="mail-save-status" id="${mailStatusId(p.id)}"></span><button class="smallbtn primary" onclick="editPropertyMail('${esc(p.id)}')">${saved?MAIL_TXT.edit:MAIL_TXT.setup}</button>${addr?`<button class="smallbtn" onclick="copyMailAddress('${esc(addr)}',this)">${MAIL_TXT.copyAddress}</button>`:''}${saved?`<button class="smallbtn" onclick="clearPropertyMail('${esc(p.id)}',this)">${MAIL_TXT.clear}</button>`:''}</div></div>`:'';const form=editing?`<div class="property-mail-form"><label>${MAIL_TXT.sourceInput}<input id="${mailInputId(p.id,'source_email')}" value="${esc(row.source_email||'')}" placeholder="${MAIL_TXT.exampleMail}"></label><label>${MAIL_TXT.forwardStatus}<select id="${mailInputId(p.id,'forward_status')}"><option value="not_set"${status==='not_set'?' selected':''}>${MAIL_TXT.notSet}</option><option value="verification_pending"${status==='verification_pending'?' selected':''}>${MAIL_TXT.waiting}</option><option value="rule_created"${status==='rule_created'?' selected':''}>${MAIL_TXT.rule}</option><option value="active"${status==='active'?' selected':''}>${MAIL_TXT.active}</option><option value="paused"${status==='paused'?' selected':''}>${MAIL_TXT.paused}</option></select></label><label>${MAIL_TXT.pmsAddress}<input readonly value="${esc(addr||MAIL_TXT.adminMissing)}"></label><label style="grid-column:1/-1">${MAIL_TXT.notes}<textarea id="${mailInputId(p.id,'notes')}" placeholder="${MAIL_TXT.notesPh}">${esc(row.notes||'')}</textarea></label><div class="property-mail-actions" style="grid-column:1/-1"><span class="mail-save-status" id="${mailStatusId(p.id)}_form"></span><button class="smallbtn primary" onclick="savePropertyMail('${esc(p.id)}',this)">${MAIL_TXT.save}</button><button class="smallbtn" onclick="cancelPropertyMailEdit('${esc(p.id)}')">${MAIL_TXT.cancel}</button></div></div>`:'';return `<div class="property-subcard property-mail-panel"><div class="property-detail-head"><div><h3 style="margin:0">${MAIL_TXT.title}</h3><div class="small">${MAIL_TXT.help}</div></div>${editing?'':`<span class="mail-save-status" id="${mailStatusId(p.id)}_head"></span>`}</div>${summary}${form}</div>`;}
-  const MAIL_EVENT_TXT={title:'\u623f\u6e90 Airbnb \u90ae\u4ef6\u63d0\u9192',help:'\u4ece PMS \u540e\u53f0 Gmail \u8bfb\u53d6\u5e76\u6309\u623f\u6e90\u5173\u8054\uff1a\u6295\u8bc9\u3001\u53d6\u6d88\u3001\u65b0\u8ba2\u5355\u3001\u6539\u5355\u3001\u8be2\u95ee\u548c\u8bc4\u4ef7\u63d0\u9192\u90fd\u4f1a\u5728\u8fd9\u91cc\u6c47\u603b\u3002',none:'\u6682\u65e0\u90ae\u4ef6\u63d0\u9192',reservation:'\u8ba2\u5355',guest:'\u5ba2\u4eba',date:'\u65e5\u671f',room:'\u623f\u95f4',listing:'\u5e73\u53f0\u623f\u6e90',action:'\u5904\u7406',received:'\u6536\u5230',unmatched:'\u672a\u5339\u914d\u623f\u95f4',importBtn:'\u5bfc\u5165/\u89e3\u6790\u90ae\u4ef6',importTitle:'\u5bfc\u5165 Gmail \u90ae\u4ef6',importHelp:'\u53ef\u7c98\u8d34 Gmail \u539f\u59cb\u90ae\u4ef6 JSON\uff08\u542b subject/body/snippet/to/email_ts\uff09\uff0c\u7cfb\u7edf\u4f1a\u81ea\u52a8\u89e3\u6790\u65b0\u8ba2\u5355\u3001\u53d6\u6d88\u3001\u6539\u5355\u3001\u5ba2\u670d\u3001\u8be2\u95ee\u548c\u8bc4\u4ef7\uff1b\u4e5f\u53ef\u7c98\u8d34\u5df2\u89e3\u6790\u7684 mailEvents\u3002',importPh:'{\"rawEmails\":[{\"id\":\"Gmail ID\",\"subject\":\"Airbnb \u90ae\u4ef6\u6807\u9898\",\"snippet\":\"\u90ae\u4ef6\u6458\u8981\",\"body\":\"\u90ae\u4ef6\u6b63\u6587\",\"to\":[\"1024466398@qq.com\"],\"email_ts\":\"2026-06-18T22:03:49+00:00\"}]}',importSave:'\u89e3\u6790\u5e76\u5199\u5165 PMS',importEmpty:'\u6ca1\u6709\u5185\u5bb9\u53ef\u5bfc\u5165',importOk:'\u5df2\u5bfc\u5165\u5e76\u91cd\u65b0\u8bfb\u53d6'};
-  function ensureMailEventCss(){let s=document.getElementById('pmsMailEventStyles');if(!s){s=document.createElement('style');s.id='pmsMailEventStyles';document.head.appendChild(s);}s.textContent=`.mail-events-panel{border-color:#bae6fd!important;border-left:6px solid #0284c7;background:#f8fcff}.mail-event-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:10px}.mail-event-card{border:1px solid #dbeafe;background:#fff;border-radius:8px;padding:10px;display:grid;gap:7px;min-width:0}.mail-event-card.high{border-color:#fecaca;background:#fff7f7}.mail-event-card.warn{border-color:#fde68a;background:#fffbeb}.mail-event-title{font-weight:900;color:#0f172a;line-height:1.25}.mail-event-summary{color:#334155;line-height:1.45}.mail-event-meta{display:flex;gap:6px;flex-wrap:wrap}.mail-event-pill{display:inline-flex;border-radius:999px;padding:3px 8px;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:900}.mail-event-pill.type{background:#dcfce7;color:#166534}.mail-event-pill.high{background:#fee2e2;color:#991b1b}.mail-event-pill.warn{background:#fef3c7;color:#92400e}.mail-event-empty{border:1px dashed #bfdbfe;border-radius:8px;padding:12px;background:#f8fafc;color:#64748b}.mail-import-box{margin-top:10px;border:1px solid #bae6fd;background:#fff;border-radius:8px;padding:10px}.mail-import-box textarea{width:100%;box-sizing:border-box;min-height:120px;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font-size:13px}.mail-import-actions{display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-top:8px;flex-wrap:wrap}.mail-events-toolbar{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}`;}
-  function mailEventTypeText(v){return ({complaint:'\u6295\u8bc9',support:'\u5ba2\u670d/\u98ce\u9669',cancellation:'\u53d6\u6d88\u8ba2\u5355',new_booking:'\u65b0\u8ba2\u5355',reservation_change:'\u6539\u5355',inquiry:'\u8be2\u95ee/\u7533\u8bf7',review:'\u8bc4\u4ef7',payment:'\u6b3e\u9879',notice:'\u901a\u77e5'})[String(v||'notice')]||String(v||'notice');}
-  function mailEventShortDate(v){return String(v||'').replace(/^[0-9]{4}-/,'');}
-  function mailEventDateRange(e){const a=mailEventShortDate(e.checkin),b=mailEventShortDate(e.checkout);return a&&b?`${a} \u2192 ${b}`:(a||b||mailEventShortDate(e.event_date)||'');}
-  function mailEventRoomText(e){if(e.room_id){const r=roomList().find(x=>x&&x.id===e.room_id);if(r&&r.name)return r.name;}return e.room_name||e.listing_id||MAIL_EVENT_TXT.unmatched;}
-  function mailEventReceivedAt(e){return String((e&&(e.received_at||e.event_ts||e.email_ts||e.created_at))||'');}
-  function propertyMailEvents(propertyId){return mailEventList().filter(e=>e&&String(e.property_id||'')===String(propertyId||'')).sort((a,b)=>mailEventReceivedAt(b).localeCompare(mailEventReceivedAt(a)));}
-  function renderMailEventCard(e){const sev=String(e.severity||'normal'),cls=sev==='high'?'high':(sev==='warn'||sev==='warning'?'warn':''),range=mailEventDateRange(e),room=mailEventRoomText(e),action=e.action_status||e.status||'',meta=[`<span class="mail-event-pill type">${esc(mailEventTypeText(e.event_type))}</span>`];if(sev==='high')meta.push(`<span class="mail-event-pill high">\u9ad8\u4f18\u5148\u7ea7</span>`);else if(cls==='warn')meta.push(`<span class="mail-event-pill warn">\u9700\u5173\u6ce8</span>`);if(e.reservation_code)meta.push(`<span class="mail-event-pill">${MAIL_EVENT_TXT.reservation}: ${esc(e.reservation_code)}</span>`);return `<div class="mail-event-card ${cls}"><div class="mail-event-meta">${meta.join('')}</div><div class="mail-event-title">${esc(e.title||e.raw_subject||mailEventTypeText(e.event_type))}</div><div class="small">${MAIL_EVENT_TXT.room}: ${esc(room)}${range?` \u00b7 ${MAIL_EVENT_TXT.date}: ${esc(range)}`:''}${e.guest?` \u00b7 ${MAIL_EVENT_TXT.guest}: ${esc(e.guest)}`:''}</div>${e.summary?`<div class="mail-event-summary">${esc(e.summary)}</div>`:''}${action?`<div class="small"><strong>${MAIL_EVENT_TXT.action}:</strong> ${esc(action)}</div>`:''}<div class="small">${MAIL_EVENT_TXT.received}: ${esc(mailEventShortDate(e.received_at||e.created_at||''))}</div></div>`;}
-  function mailImportId(propertyId){return 'mail_import_'+safe(propertyId);}
-  function mailImportStatusId(propertyId){return 'mail_import_status_'+safe(propertyId);}
-  function setMailImportOpen(propertyId,on){if(on)S.mailImports[propertyId]=true;else delete S.mailImports[propertyId];}
-  function openMailImport(propertyId){setMailImportOpen(propertyId,true);renderRoomSettings();renderOwnerMail();}
-  function cancelMailImport(propertyId){setMailImportOpen(propertyId,false);renderRoomSettings();renderOwnerMail();}
-  function normalizeMailImportRows(propertyId,parsed){const rows=Array.isArray(parsed)?parsed:(parsed&&Array.isArray(parsed.mailEvents)?parsed.mailEvents:[]);if(!rows.length)throw new Error(MAIL_EVENT_TXT.importEmpty);const prop=props().find(x=>String(x.id)===String(propertyId))||{},mail=propertyMailSetting(propertyId),targetMail=mailAddressForProperty(propertyId);return rows.map((raw,index)=>{const row={...(raw||{})};row.id=String(row.id||row.message_id||row.thread_id||('mail_'+Date.now()+'_'+index));row.property_id=propertyId;row.group_id=row.group_id||prop.group_id||groupId();row.source_email=row.source_email||mail.source_email||'';row.target_mail=row.target_mail||targetMail||'';row.created_at=row.created_at||pmsSafeNowIso();row.received_at=row.received_at||row.created_at;return row;});}
-  function mailImportLooksRaw(x){return !!(x&&(x.body||x.snippet||x.subject)&&!(x.event_type||x.eventType||x.title||x.summary));}
-  function mailImportRawRows(parsed){if(Array.isArray(parsed))return parsed.filter(mailImportLooksRaw);if(parsed&&Array.isArray(parsed.rawEmails))return parsed.rawEmails;if(parsed&&Array.isArray(parsed.raw_emails))return parsed.raw_emails;if(parsed&&Array.isArray(parsed.emails))return parsed.emails;if(parsed&&Array.isArray(parsed.messages))return parsed.messages;return [];}
-  async function importMailEvents(propertyId,btn){const statusId=mailImportStatusId(propertyId),box=document.getElementById(mailImportId(propertyId));const text=String((box&&box.value)||'').trim();if(!text){showMailStatus(statusId,MAIL_EVENT_TXT.importEmpty,'error');alert(MAIL_EVENT_TXT.importEmpty);return;}const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent=MAIL_TXT.saving;}showMailStatus(statusId,MAIL_TXT.saving,'loading');try{const parsed=JSON.parse(text);const rawRows=mailImportRawRows(parsed);let res,rowCount=0;if(rawRows.length){rowCount=rawRows.length;res=await fetch(apiUrl('/api/mail-events/parse'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:propertyId,rawEmails:rawRows})});}else{const rows=normalizeMailImportRows(propertyId,parsed);rowCount=rows.length;res=await fetch(apiUrl('/api/mail-events'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mailEvents:rows})});}const data=await res.json().catch(()=>({}));if(!res.ok||data.ok===false)throw new Error(data.error||'import failed');await afterState(data);const reloaded=await refreshMailStateFromServer();applyMailState(reloaded);setMailImportOpen(propertyId,false);renderRoomSettings();refreshPropertyHub();alert(`${MAIL_EVENT_TXT.importOk}：${rowCount} 条`);}catch(e){const msg=e&&e.message?e.message:String(e||'未知错误');showMailStatus(statusId,msg,'error');alert('导入邮件事件失败：'+msg);}finally{if(btn){btn.disabled=false;btn.textContent=old||MAIL_EVENT_TXT.importSave;}}}
-  function friendlyGmailSyncError(msg){const text=String(msg||'未知错误');if(text.includes('Gmail OAuth')||text.includes('GMAIL_CLIENT_ID')||text.includes('GMAIL_REFRESH_TOKEN'))return '后台 Gmail 未授权：转发邮件已经能在系统 Gmail 里收到，但线上 PMS 服务器还没有配置 Gmail OAuth 环境变量，所以暂时不能自动写入房源提醒。';if(text.includes('401')||text.includes('Unauthorized'))return '登录状态失效：请重新登录 PMS 后再同步后台 Gmail。';return text;}
-  async function syncMailEventsFromGmail(propertyId,btn){const statusId=mailImportStatusId(propertyId),old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='同步中...';}showMailStatus(statusId,'正在读取后台 Gmail...','loading');try{const res=await fetch(apiUrl('/api/mail-events/sync'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:propertyId,days:3,max_results:25})});const data=await res.json().catch(()=>({}));if(!res.ok||data.ok===false)throw new Error(data.error||'sync failed');await afterState(data);const reloaded=await refreshMailStateFromServer();applyMailState(reloaded);const details=Array.isArray(data.details)?data.details:[],emailCount=details.reduce((n,x)=>n+Number(x&&x.emails||0),0),eventCount=Array.isArray(data.mailEvents)?data.mailEvents.length:0;showMailStatus(statusId,`同步完成：读取 ${emailCount} 封，写入 ${eventCount} 条提醒`,'ok');renderRoomSettings();refreshPropertyHub();alert(`同步完成：读取 ${emailCount} 封邮件，写入 ${eventCount} 条提醒。`);}catch(e){const msg=friendlyGmailSyncError(e&&e.message?e.message:String(e||'未知错误'));showMailStatus(statusId,msg,'error');alert('同步后台 Gmail 失败：'+msg);}finally{if(btn){btn.disabled=false;btn.textContent=old||'同步后台 Gmail';}}}
-  function renderMailImportBox(p){if(!S.mailImports[p.id])return '';return `<div class="mail-import-box"><strong>${MAIL_EVENT_TXT.importTitle}</strong><div class="small">${MAIL_EVENT_TXT.importHelp}</div><textarea id="${mailImportId(p.id)}" placeholder='${MAIL_EVENT_TXT.importPh}'></textarea><div class="mail-import-actions"><span class="mail-save-status" id="${mailImportStatusId(p.id)}"></span><button class="smallbtn primary" onclick="importMailEvents('${esc(p.id)}',this)">${MAIL_EVENT_TXT.importSave}</button><button class="smallbtn" onclick="cancelMailImport('${esc(p.id)}')">${MAIL_TXT.cancel}</button></div></div>`;}
-  function renderPropertyMailEventsPanel(p){ensureMailEventCss();const allRows=propertyMailEvents(p.id),rows=allRows.slice(0,8),total=allRows.length,last=allRows[0]?mailEventShortDate(mailEventReceivedAt(allRows[0])):'',countText=total?`\u5171 ${total} \u6761${total>rows.length?`\uff0c\u663e\u793a\u6700\u65b0 ${rows.length} \u6761`:''}${last?`\uff0c\u6700\u65b0 ${esc(last)}`:''}`:'0';const toolbar=`<div class="mail-events-toolbar"><span class="mail-save-status" id="${mailImportStatusId(p.id)}"></span><span class="status-pill ${total?'warn':''}">${countText}</span><button class="smallbtn primary" onclick="syncMailEventsFromGmail('${esc(p.id)}',this)">\u540c\u6b65\u540e\u53f0 Gmail</button><button class="smallbtn" onclick="openMailImport('${esc(p.id)}')">${MAIL_EVENT_TXT.importBtn}</button></div>`,emptyHint='\u5f53\u524d\u623f\u6e90\u8fd8\u6ca1\u6709\u5199\u5165 PMS \u7684\u90ae\u4ef6\u63d0\u9192\u3002\u82e5\u70b9\u51fb\u540c\u6b65\u63d0\u793a\u540e\u53f0 Gmail \u672a\u6388\u6743\uff0c\u8868\u793a\u90ae\u4ef6\u5df2\u53ef\u5728\u7cfb\u7edf Gmail \u6536\u5230\uff0c\u4f46 Render \u670d\u52a1\u5668\u8fd8\u6ca1\u6709\u81ea\u52a8\u8bfb\u4fe1\u6388\u6743\u3002';return `<div class="property-subcard mail-events-panel"><div class="property-detail-head"><div><h3 style="margin:0">${MAIL_EVENT_TXT.title}</h3><div class="small">${MAIL_EVENT_TXT.help}</div></div>${toolbar}</div>${renderMailImportBox(p)}${rows.length?`<div class="mail-event-grid">${rows.map(renderMailEventCard).join('')}</div>`:`<div class="mail-event-empty">${esc(emptyHint)}</div>`}</div>`;}
-  function selectedMailProperties(){const ids=ownerPropIds();return props().filter(p=>ids.includes(p.id));}
-  function ensureOwnerMailTab(){const owner=document.getElementById('owner');if(!owner)return;const tabbar=owner.querySelector('.tabbar'),roomsBtn=tabbar&&tabbar.querySelector('button[onclick*="ownerRooms"]');if(roomsBtn)roomsBtn.textContent='房间设置';if(tabbar&&!tabbar.querySelector('button[data-pms-mail-tab]')){const btn=document.createElement('button');btn.type='button';btn.dataset.pmsMailTab='1';btn.textContent='邮件提醒';btn.onclick=function(){showOwnerTab('ownerMail',this);renderOwnerMail();};if(roomsBtn)roomsBtn.insertAdjacentElement('afterend',btn);else tabbar.appendChild(btn);}if(!document.getElementById('ownerMail')){const pane=document.createElement('div');pane.id='ownerMail';pane.className='tab-content';const rooms=document.getElementById('ownerRooms');if(rooms)rooms.insertAdjacentElement('afterend',pane);else owner.appendChild(pane);}}
-  function openPropertyMailTab(propertyId){const id=String(propertyId||'');if(id&&!ownerPropIds().includes(id))saveOwnerPropIds([id]);ensureOwnerMailTab();const owner=document.getElementById('owner'),btn=owner&&owner.querySelector('button[data-pms-mail-tab]');if(typeof showOwnerTab==='function')showOwnerTab('ownerMail',btn||null);renderOwnerMail();setTimeout(()=>{const root=document.getElementById('ownerMail');if(root)root.scrollIntoView({block:'start',behavior:'smooth'});},0);}
-  function renderOwnerMail(){ensurePropertyMailDigestCss();ensurePropertyMailCss();ensureMailEventCss();ensureOwnerMailTab();const root=document.getElementById('ownerMail');if(!root)return;const ps=selectedMailProperties();if(!ps.length){root.innerHTML=`<div class="card mail-tab-shell"><h2>邮件提醒</h2><div class="empty-panel">请先在上方勾选房源。</div></div>`;return;}const total=ps.reduce((n,p)=>n+propertyMailEvents(p.id).length,0);root.innerHTML=`<div class="card mail-tab-shell"><div class="property-detail-head"><div><h2>邮件提醒</h2><div class="small">按房源管理 Airbnb 通知邮箱、PMS 转发地址和邮件提醒。邮件内容不会影响房态；房态只按 iCal 同步结果计算。</div></div><span class="status-pill ${total?'warn':''}">共 ${total} 条</span></div>${ps.map(p=>`<div class="mail-property-block"><div class="mail-property-block-title"><div><h3 style="margin:0">${esc(displayPropertyName(p.name,p.id))}</h3><div class="small">${propertyMailEvents(p.id).length} 条邮件提醒</div></div>${propertyMailDigestHtml(p.id)}</div>${renderPropertyMailPanel(p)}${renderPropertyMailEventsPanel(p)}</div>`).join('')}</div>`;}
-  const pmsMailTabBaseSetup=setup;
-  setup=function(){pmsMailTabBaseSetup();ensureOwnerMailTab();};
-  const pmsMailBaseRenderPropertyDetail=renderPropertyDetail;
-  renderPropertyDetail=function(p){return pmsMailBaseRenderPropertyDetail(p);};
-  function adminMailConfigForm(){const cfg=primaryMailConfig();return `<div class="admin-panel" id="adminMailForwardingPanel"><div class="property-detail-head"><div><h2>${MAIL_TXT.adminInbox}</h2><div class="small">${MAIL_TXT.adminHelp}</div><div class="mail-save-status" id="adminMailSaveStatus"></div></div><button class="smallbtn primary" onclick="saveAdminMailConfig(this)">${MAIL_TXT.saveAdmin}</button></div><div class="admin-mail-grid"><label>${MAIL_TXT.pmsInbox}<input id="adminMailInbox" value="${esc(cfg.inbox_email||'')}" placeholder="yourpms@gmail.com"></label><label>${MAIL_TXT.aliasPrefix}<input id="adminMailAliasPrefix" value="${esc(cfg.alias_prefix||'pms')}" placeholder="pms"></label><label>${MAIL_TXT.mode}<select id="adminMailPlusAlias"><option value="true"${cfg.plus_alias_enabled!==false?' selected':''}>Gmail plus alias</option><option value="false"${cfg.plus_alias_enabled===false?' selected':''}>${MAIL_TXT.direct}</option></select></label><label>${MAIL_TXT.notes}<input id="adminMailNotes" value="${esc(cfg.notes||'')}" placeholder="${MAIL_TXT.internalNote}"></label></div></div>`;}
-  async function saveAdminMailConfig(btn){const row={id:'main',inbox_email:(document.getElementById('adminMailInbox')||{}).value||'',alias_prefix:(document.getElementById('adminMailAliasPrefix')||{}).value||'pms',plus_alias_enabled:(document.getElementById('adminMailPlusAlias')||{}).value!=='false',notes:(document.getElementById('adminMailNotes')||{}).value||'',updated_at:pmsSafeNowIso()};if(!String(row.inbox_email||'').trim()){showMailStatus('adminMailSaveStatus','没有内容可保存：请先填写邮箱。','error');alert('没有内容可保存：请先填写邮箱。');return;}setMailConfigList([row]);await postMailPayload({mailForwardingConfig:[row]},btn,'adminMailSaveStatus');if(typeof renderAdminDashboard==='function')renderAdminDashboard();alert('已保存成功');}
-  function adminMailRows(){const rows=propertyMailList();if(!props().length)return `<tr><td colspan="7">${MAIL_TXT.noProperty}</td></tr>`;return props().map(p=>{const row=rows.find(x=>x&&x.property_id===p.id)||{},owners=adminOwnerForProperty(p).map(adminUserName).join('\u3001')||MAIL_TXT.unassigned,addr=row.pms_forward_address||generatedMailAddress(p.id),status=row.forward_status||'not_set',bound=!!String(row.source_email||'').trim();return `<tr><td>${esc(adminPropName(p))}</td><td>${esc(owners)}</td><td>${row.source_email?esc(row.source_email):`<span class="small">${MAIL_TXT.notFilled}</span>`}</td><td>${addr?esc(addr):`<span class="small">${MAIL_TXT.notGenerated}</span>`}</td><td><span class="status-pill ${mailStatusClass(status,bound)}">${esc(mailStatusText(status,bound))}</span></td><td>${esc(row.updated_at||'')}</td><td>${esc(row.notes||'')}</td></tr>`;}).join('');}
-  function adminMailTable(){return `<div class="admin-panel"><h2>${MAIL_TXT.adminTableTitle}</h2><div class="small">${MAIL_TXT.adminTableHelp}</div><table class="admin-table admin-mail-table"><tr><th>${MAIL_TXT.property}</th><th>${MAIL_TXT.owner}</th><th>${MAIL_TXT.airbnbMail}</th><th>${MAIL_TXT.pmsAddress}</th><th>${MAIL_TXT.status}</th><th>${MAIL_TXT.updated}</th><th>${MAIL_TXT.notes}</th></tr>${adminMailRows()}</table></div>`;}
-  function injectAdminMailPanels(){ensurePropertyMailCss();const shell=document.querySelector('.admin-dashboard');if(!shell||document.getElementById('adminMailForwardingPanel'))return;const metrics=shell.querySelector('.admin-metric-grid');if(metrics)metrics.insertAdjacentHTML('afterend',adminMailConfigForm()+adminMailTable());else shell.insertAdjacentHTML('afterbegin',adminMailConfigForm()+adminMailTable());}
-  const pmsMailBaseRenderAdminDashboard=renderAdminDashboard;
-  renderAdminDashboard=function(){const result=pmsMailBaseRenderAdminDashboard.apply(this,arguments);injectAdminMailPanels();return result;};
-  Object.assign(window,{editPropertyMail,cancelPropertyMailEdit,savePropertyMail,clearPropertyMail,copyMailAddress,saveAdminMailConfig,openMailImport,cancelMailImport,importMailEvents,syncMailEventsFromGmail,openPropertyMailTab});
-  function installMailClickFallback(){if(document.__pmsMailClickFallback)return;document.__pmsMailClickFallback=true;document.addEventListener('click',ev=>{const btn=ev.target&&ev.target.closest?ev.target.closest('button[onclick]'):null;if(!btn)return;const code=String(btn.getAttribute('onclick')||'');let m=null;if((m=code.match(/savePropertyMail\('([^']+)'/))){ev.preventDefault();ev.stopImmediatePropagation();savePropertyMail(m[1],btn);return;}if((m=code.match(/editPropertyMail\('([^']+)'/))){ev.preventDefault();ev.stopImmediatePropagation();editPropertyMail(m[1]);return;}if((m=code.match(/cancelPropertyMailEdit\('([^']+)'/))){ev.preventDefault();ev.stopImmediatePropagation();cancelPropertyMailEdit(m[1]);return;}if((m=code.match(/clearPropertyMail\('([^']+)'/))){ev.preventDefault();ev.stopImmediatePropagation();clearPropertyMail(m[1],btn);return;}if(code.includes('saveAdminMailConfig')){ev.preventDefault();ev.stopImmediatePropagation();saveAdminMailConfig(btn);}},true);}
-  function propertyIdFromMailButton(btn,explicit){if(explicit)return explicit;const panel=btn&&btn.closest?btn.closest('.property-mail-panel'):null;if(panel){for(const p of props()){const a=document.getElementById(mailInputId(p.id,'source_email')),b=document.getElementById(mailInputId(p.id,'forward_status')),c=document.getElementById(mailInputId(p.id,'notes'));if((a&&panel.contains(a))||(b&&panel.contains(b))||(c&&panel.contains(c)))return p.id;}}const p=activeProp();return p&&p.id?p.id:'';}
-  function installMailClickFallback(){if(document.__pmsMailClickFallbackV2)return;document.__pmsMailClickFallbackV2=true;document.addEventListener('click',ev=>{const btn=ev.target&&ev.target.closest?ev.target.closest('button'):null;if(!btn)return;const code=String(btn.getAttribute('onclick')||''),text=String(btn.textContent||'').trim();const inMail=!!(btn.closest&&btn.closest('.property-mail-panel'));let m=null;if((m=code.match(/savePropertyMail\('([^']+)'/))||(inMail&&text.includes('保存设置')?['',propertyIdFromMailButton(btn)]:null)){ev.preventDefault();ev.stopImmediatePropagation();const id=propertyIdFromMailButton(btn,m[1]);if(!id){alert('保存邮箱设置失败：找不到当前房源。');return;}savePropertyMail(id,btn);return;}if((m=code.match(/editPropertyMail\('([^']+)'/))||(inMail&&text.includes('设置邮箱转发')?['',propertyIdFromMailButton(btn)]:null)||(inMail&&text.includes('修改设置')?['',propertyIdFromMailButton(btn)]:null)){ev.preventDefault();ev.stopImmediatePropagation();const id=propertyIdFromMailButton(btn,m[1]);if(id)editPropertyMail(id);return;}if((m=code.match(/cancelPropertyMailEdit\('([^']+)'/))||(inMail&&text==='取消'?['',propertyIdFromMailButton(btn)]:null)){ev.preventDefault();ev.stopImmediatePropagation();const id=propertyIdFromMailButton(btn,m[1]);if(id)cancelPropertyMailEdit(id);return;}if((m=code.match(/clearPropertyMail\('([^']+)'/))||(inMail&&text.includes('清空')?['',propertyIdFromMailButton(btn)]:null)){ev.preventDefault();ev.stopImmediatePropagation();const id=propertyIdFromMailButton(btn,m[1]);if(id)clearPropertyMail(id,btn);return;}if(code.includes('saveAdminMailConfig')||text.includes('保存后台邮箱')){ev.preventDefault();ev.stopImmediatePropagation();saveAdminMailConfig(btn);}},true);}
-  installMailClickFallback();
-  function renderRoomSettings(){setup();if(activeProp()&&!props().some(p=>p.id===activeProp().id))setActive('');const h=document.getElementById('roomSettings');if(!h)return;if(!props().length){h.innerHTML=`<div class='empty-panel'><strong>还没有房源</strong><div class='small' style='margin-top:8px'>先在上方房源管理模块添加房源。</div></div>`;return;}const p=activeProp();h.innerHTML=p?renderPropertyDetail(p):`<div class='empty-panel'><strong>从上方房源管理进入房间管理</strong><div class='small' style='margin-top:8px'>上方已经可以完成房源筛选、添加、改名、删除；这里只在进入某个房源后显示房间、公区、iCal 和保洁绑定。</div></div>`;}
-  function renderOwner(){removeLegacyIntroCards();if(applyAdminMode())return;if(!props().length&&!roomList().length&&typeof window.loadState==='function'&&!S.ownerRenderLoadStarted){S.ownerRenderLoadStarted=true;ensureDataGate('正在加载房源数据...');window.loadState().then(()=>{S.ownerRenderLoadStarted=false;renderOwner();}).catch(()=>{S.ownerRenderLoadStarted=false;clearDataGate();});return;}if(props().length&&(!Array.isArray(S.ownerPropertyIds))&&!S.ownerPropertyId){saveOwnerPropIds(validPropIds());}setup();refreshOwnerScopedViews();ensureOwnerPropertyModuleVisible();removeLegacyIntroCards();}
-  function ensureRoomChannelCompactV2Css(){let s=document.getElementById('pmsRoomChannelCompactV2');if(!s){s=document.createElement('style');s.id='pmsRoomChannelCompactV2';document.head.appendChild(s);}s.textContent=`.room-setting-list{gap:12px!important}.room-setting-card{padding:10px!important;border-left-width:4px!important;box-shadow:0 6px 14px rgba(15,23,42,.04)!important}.room-compact-head{display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:10px;align-items:center;border:1px solid #bae6fd;background:#f8fbff;border-radius:8px;padding:10px 12px}.room-compact-title{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}.room-compact-title .readonly-title{font-size:19px!important;line-height:1.15}.room-compact-title .readonly-meta{font-size:13px!important}.room-compact-sub{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px}.room-sync-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.sync-inline-status{display:inline-flex;align-items:center;border-radius:999px;border:1px solid #cbd5e1;background:#f8fafc;padding:6px 10px;font-size:13px;font-weight:900;color:#475569}.sync-inline-status.loading{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.sync-inline-status.ok{border-color:#86efac;background:#ecfdf5;color:#047857}.sync-inline-status.error{border-color:#fecaca;background:#fff1f2;color:#be123c}.channel-panel{margin-top:8px!important;border:1px solid #dbeafe;border-radius:8px;background:#fff;padding:8px!important;display:grid;gap:8px}.channel-panel-head{display:flex!important;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin:0!important}.channel-panel-head h3{font-size:16px!important;line-height:1.2;margin:0!important}.channel-panel-summary{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:3px}.channel-row{border:1px solid #dbeafe;border-left:4px solid #2563eb;border-radius:8px;background:#fbfdff;padding:8px 10px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}.channel-row.good{border-left-color:#0f766e}.channel-row.warn{border-left-color:#f59e0b;background:#fffbeb}.channel-row.error{border-left-color:#e11d48;background:#fff1f2}.channel-row-title{display:flex;gap:7px;align-items:center;flex-wrap:wrap;font-size:15px;font-weight:900}.channel-row-meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px}.channel-row-links{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:5px}.channel-url-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid #dbeafe;background:#fff;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:800;color:#334155;max-width:260px}.channel-url-chip .url-short{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.channel-url-chip.missing{border-color:#fde68a;background:#fffbeb;color:#92400e}.channel-mini-label{font-size:11px;color:#64748b;font-weight:900}.channel-row .channel-actions{display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap}.channel-row .smallbtn,.room-sync-row .smallbtn{min-height:32px!important;padding:6px 10px!important}.channel-edit-compact{padding:10px!important}.channel-edit-compact .channel-grid{grid-template-columns:130px minmax(180px,1fr) 210px minmax(220px,1.2fr)!important;gap:8px!important}.channel-edit-compact .channel-url-grid{grid-template-columns:minmax(260px,1fr) minmax(260px,1fr)!important;gap:8px!important}.channel-edit-compact input,.channel-edit-compact select{min-height:36px!important}.channel-edit-hint{font-size:12px!important;line-height:1.4;margin-top:6px!important}.channel-empty{padding:9px 10px!important}.channel-card-readonly{padding:0!important;border:0!important;background:transparent!important}@media(max-width:980px){.room-compact-head,.channel-row{grid-template-columns:1fr}.channel-row .channel-actions{justify-content:flex-start}.channel-edit-compact .channel-grid,.channel-edit-compact .channel-url-grid{grid-template-columns:1fr!important}}`;}
-  function channelLabel(ch){const platform=String((ch&&ch.platform)||'Airbnb').trim()||'Airbnb';const note=String((ch&&(ch.channel_note||ch.channelNote||ch.note||ch.label))||'').trim();return note?`${platform} · ${note}`:`${platform} 渠道上架`;}
-  function channelUrlChip(label,value,copyable){const text=String(value||'').trim();if(!text)return `<span class="channel-url-chip missing"><span class="channel-mini-label">${esc(label)}</span>未填</span>`;const shown=text.length>42?text.slice(0,20)+'...'+text.slice(-14):text;return `<span class="channel-url-chip" title="${esc(text)}"><span class="channel-mini-label">${esc(label)}</span><span class="url-short">${esc(shown)}</span>${copyable?`<button class="tiny-link" onclick="copyIcalUrl('${esc(text)}',this)">复制</button>`:''}</span>`;}
-  function channelRowClass(ch){if(ch&&ch.sync_error)return 'error';if(channelNeedsReview(ch)||channelHasInferredLock(ch)||!String(ch&&ch.ical_url||'').trim())return 'warn';return 'good';}
-  function renderChannelEditCard(ch){ensureRoomChannelCompactV2Css();const feed=channelFeedUrl(ch);return `<div class="channel-card channel-edit-compact"><div class="channel-card-head"><div><div class="channel-title">${esc(channelLabel(ch))}</div>${channelStatusPills(ch)}</div><div class="channel-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存渠道</button><button class="smallbtn" onclick="cancelChannelEdit('${esc(ch.id)}')">取消</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-grid"><label>平台<select id="${channelInputId(ch.id,'platform')}">${channelPlatformOptions(ch.platform)}</select></label><label>同平台备注<input id="${channelInputId(ch.id,'channel_note')}" value="${esc(ch.channel_note||'')}" placeholder="例如：老账号、新账号、Booking A"></label><label>是否平台新发布房源<select id="${channelInputId(ch.id,'is_new_listing')}">${channelNewOptions(ch.is_new_listing)}</select></label><label>该平台房源链接（可选）<input id="${channelInputId(ch.id,'listing_url')}" value="${esc(ch.listing_url||'')}" placeholder="粘贴这个渠道的房源页面链接"></label></div><div class="channel-url-grid"><label>该平台导出的 iCal<input id="${channelInputId(ch.id,'ical_url')}" value="${esc(ch.ical_url||'')}" placeholder="粘贴平台 Export calendar 导出的 .ics 链接"></label><div class="channel-copyline"><input readonly value="${esc(feed)}"><button class="smallbtn primary" onclick="copyChannelFeed('${esc(ch.id)}',this)">复制防超卖 iCal</button></div></div><div class="channel-edit-hint">同一个真实房间上架多个 Airbnb / Booking 时，每个渠道单独建一条记录，并填写备注区分账号或平台房源。PMS 会读取每条 iCal 的 UID，生成对应渠道专属防超卖链接。</div></div>`;}
-  function renderChannelSummaryCard(ch){ensureRoomChannelCompactV2Css();ensureIcalDiagnosticCss();const feed=channelFeedUrl(ch),note=String(ch.channel_note||'').trim(),cls=channelRowClass(ch);return `<div class="channel-card channel-card-readonly"><div class="channel-row ${cls}"><div><div class="channel-row-title"><span>${esc(channelLabel(ch))}</span>${note?'':`<span class="channel-mini-pill warn">备注未填</span>`}</div><div class="channel-row-meta">${channelStatusPills(ch)}</div><div class="channel-row-links">${channelUrlChip('导入 iCal',ch.ical_url,true)}${channelUrlChip('房源链接',ch.listing_url,true)}${channelUrlChip('防超卖 iCal',feed,false)}</div>${renderIcalDiagnostic(ch)}</div><div class="channel-actions"><button class="smallbtn" onclick="diagnoseChannelIcal('${esc(ch.id)}',this)">检查</button><button class="smallbtn primary" onclick="copyChannelFeed('${esc(ch.id)}',this)">复制防超卖</button><button class="smallbtn primary" onclick="editChannelListing('${esc(ch.id)}')">修改</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div></div>`;}
-  function renderChannelSummaryCard(ch){ensureRoomChannelCompactV2Css();ensureIcalDiagnosticCss();const feed=channelFeedUrl(ch),note=String(ch.channel_note||'').trim(),cls=channelRowClass(ch),hasIcal=String(ch&&ch.ical_url||'').trim();const quick=hasIcal?'':`<div class="channel-quick-ical" style="display:grid;grid-template-columns:minmax(240px,1fr) auto;gap:8px;align-items:center;margin-top:8px"><input id="${channelInputId(ch.id,'ical_url')}" value="${esc(ch.ical_url||'')}" placeholder="粘贴平台 Export calendar iCal 链接"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存 iCal</button></div>`;return `<div class="channel-card channel-card-readonly"><div class="channel-row ${cls}"><div><div class="channel-row-title"><span>${esc(channelLabel(ch))}</span>${note?'':`<span class="channel-mini-pill warn">备注未填</span>`}</div><div class="channel-row-meta">${channelStatusPills(ch)}</div><div class="channel-row-links">${channelUrlChip('导入 iCal',ch.ical_url,true)}${channelUrlChip('房源链接',ch.listing_url,true)}${channelUrlChip('防超卖 iCal',feed,false)}</div>${quick}${renderIcalDiagnostic(ch)}</div><div class="channel-actions"><button class="smallbtn" onclick="diagnoseChannelIcal('${esc(ch.id)}',this)">检查</button><button class="smallbtn primary" onclick="copyChannelFeed('${esc(ch.id)}',this)">复制防超卖</button><button class="smallbtn primary" onclick="editChannelListing('${esc(ch.id)}')">修改</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div></div>`;}
-  function renderChannelCard(ch){ensureChannelStateCss();ensureRoomChannelCompactV2Css();return S.channelEdits&&S.channelEdits[ch.id]?renderChannelEditCard(ch):renderChannelSummaryCard(ch);}
-  function renderChannelListingsPanel(r){ensureRoomChannelCompactV2Css();ensureChannelStateCss();const list=roomChannels(r.id),ready=list.filter(ch=>String(ch&&ch.ical_url||'').trim()).length,needs=list.filter(ch=>channelNeedsReview(ch)||channelHasInferredLock(ch)||ch.sync_error||!String(ch&&ch.ical_url||'').trim()).length,cards=list.map(renderChannelCard).join('');return `<div class="channel-panel"><div class="channel-panel-head"><div><h3>渠道 / iCal</h3><div class="channel-panel-summary"><span class="channel-mini-pill">${list.length} 个渠道</span><span class="channel-mini-pill good">${ready} 个已填 iCal</span>${needs?`<span class="channel-mini-pill warn">${needs} 个需处理</span>`:''}</div></div><div class="channel-actions"><button class="smallbtn primary" onclick="addChannelListing('${esc(r.id)}',this)">添加渠道</button><button class="smallbtn" onclick="clearRoomChannels('${esc(r.id)}',this)">清空渠道/iCal</button></div></div>${cards||`<div class="channel-empty"><strong>还没有渠道上架记录</strong><div class="small">先添加 Airbnb 渠道，把该房间在 Airbnb 导出的 iCal 粘贴进来；第二个平台再新增一条渠道记录。</div></div>`}</div>`;}
-  function propertySyncResultHtml(propertyId){const item=S.syncResults&&S.syncResults[propertyId];return item?`<span class="sync-inline-status ${esc(item.kind||'')}">${esc(item.text||'')}</span>`:'';}
-  function roomChannelSummaryText(r){const list=roomChannels(r.id),ready=list.filter(ch=>String(ch&&ch.ical_url||'').trim()).length;return `${list.length} 个渠道 · ${ready} 个已填 iCal`;}
-  function roomLatestChannelSync(r){const times=roomChannels(r.id).map(ch=>String(ch&&ch.last_sync||'').trim()).filter(Boolean).sort();return times.length?times[times.length-1]:String(r&&r.last_sync||'').trim();}
-  function roomSyncPill(r){const last=roomLatestChannelSync(r);return last?`<span class='channel-mini-pill good' title='自动同步和手动点击同步都会更新这个时间'>最近 iCal 同步：${esc(last)}</span>`:'';}
-  function renderRoomCard(r){ensureRoomChannelCompactV2Css();ensureChannelReviewCss();const edit=!!S.rooms[r.id],channels=roomChannelSummaryText(r);const basic=edit?`<div class='inline-edit-card'><div><label>房间名字</label><input id='${roomNameId(r.id)}' value='${esc(r.name||'')}'></div><div><label>清洁费</label><input id='${roomFeeId(r.id)}' type='number' value='${esc(r.cleaning_fee||0)}'></div><div class='text-actions'><button class='smallbtn primary' onclick='saveRoomBasics("${esc(r.id)}",this)'>保存</button><button class='smallbtn' onclick='cancelRoomBasics("${esc(r.id)}")'>取消</button><button class='smallbtn' onclick='deleteRoomUi("${esc(r.id)}",this)'>删除</button></div></div>`:`<div class='room-compact-head'><div><div class='room-compact-title'><span class='readonly-title'>${esc(objectDisplayName(r,'room')||'房间')}</span><span class='readonly-meta'>清洁费：$${Number(r.cleaning_fee||0)}</span></div><div class='room-compact-sub'><span class='channel-mini-pill'>${esc(channels)}</span>${roomSyncPill(r)}</div></div><div class='text-actions'><button class='smallbtn' onclick='editRoomBasics("${esc(r.id)}",this)'>修改</button><button class='smallbtn' onclick='deleteRoomUi("${esc(r.id)}",this)'>删除</button></div></div>`;return `<div class='room-setting-card'>${basic}${renderChannelListingsPanel(r)}${roomSyncStatus(r)}<div class='room-sync-row'><button class='smallbtn primary' onclick='syncPropertyIcal("${esc(roomPropId(r.id))}",this)'>同步当前房源 iCal</button>${propertySyncResultHtml(roomPropId(r.id))}<span class='small'>读取当前房源下每个房间的所有渠道 iCal。</span></div></div>`;}
-  async function persistPropertyChannels(propertyId){const roomIds=new Set(propRooms(propertyId).map(r=>r.id));const rows=channelList().filter(ch=>ch&&roomIds.has(ch.room_id)).map(ch=>readChannelForm(ch.id)||ch);if(!rows.length)return null;const res=await fetch(apiUrl('/api/state'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channelListings:rows})});const data=await res.json().catch(()=>({ok:false,error:'服务器没有返回有效结果'}));if(!res.ok||data.ok===false)throw new Error(data.error||'保存当前房源渠道失败');await afterState(data);return data;}
-  async function syncPropertyIcal(propertyId,btn){const id=propertyId||(activeProp()&&activeProp().id);if(!id)return alert('请先进入一个房源');S.syncResults=S.syncResults||{};const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='同步中...';}S.syncResults[id]={kind:'loading',text:'同步中：先保存当前房源渠道...'};renderRoomSettings();try{collectIcalInputs(id);await persistPropertyChannels(id);S.syncResults[id]={kind:'loading',text:'同步中：正在读取 iCal，请稍等...'};renderRoomSettings();const started=Date.now();const controller=window.AbortController?new AbortController():null;const timer=controller?setTimeout(()=>controller.abort(),70000):null;const res=await fetch(apiUrl('/api/sync'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:id}),signal:controller?controller.signal:undefined});if(timer)clearTimeout(timer);const data=await res.json().catch(()=>({ok:false,error:'服务器没有返回有效结果'}));if(!res.ok||data.ok===false){const debug=data.debug_id?` 编号：${data.debug_id}`:'';const detail=data.detail?`（${data.detail}）`:'';throw new Error((data.error||'iCal 同步失败')+debug+detail);}applySyncState(data);refreshOwnerScopedViews();const roomIds=new Set(propRooms(id).map(r=>r.id)),errs=syncErrorList().filter(e=>roomIds.has(e.room_id)),channelCount=channelList().filter(ch=>roomIds.has(ch.room_id)).length,bookingCount=channelList().filter(ch=>roomIds.has(ch.room_id)).reduce((n,ch)=>n+Number(ch.synced_booking_count||0),0),seconds=Math.max(1,Math.round((Date.now()-started)/1000));S.syncResults[id]={kind:errs.length?'error':'ok',text:errs.length?`同步完成 ${seconds} 秒，但 ${errs.length} 个渠道失败`:`同步完成 ${seconds} 秒：${channelCount} 个渠道，导入 ${bookingCount} 条`};renderRoomSettings();if(errs.length)alert(`iCal 同步完成，但有 ${errs.length} 个渠道失败。错误已显示在对应房间。`);return data;}catch(e){const msg=e&&e.name==='AbortError'?'同步超过 70 秒已停止，请先检查是否有失效 iCal 链接。':(e&&e.message?e.message:String(e||'未知错误'));S.syncResults[id]={kind:'error',text:'同步失败：'+msg};renderRoomSettings();alert('同步失败：'+msg);return null;}finally{if(btn){btn.disabled=false;btn.textContent=old||'同步当前房源 iCal';}}}
-  function readPropertyMailForm(propertyId){const p=props().find(x=>x.id===propertyId)||{};const row=propertyMailSetting(propertyId);return {id:row.id||('mail_property_'+propertyId),property_id:propertyId,owner_id:(current()&&current().id)||row.owner_id||'',group_id:p.group_id||row.group_id||groupId(),source_email:(document.getElementById(mailInputId(propertyId,'source_email'))||{}).value||'',pms_forward_address:mailAddressForProperty(propertyId),forward_status:(document.getElementById(mailInputId(propertyId,'forward_status'))||{}).value||'not_set',notes:(document.getElementById(mailInputId(propertyId,'notes'))||{}).value||'',updated_at:new Date().toISOString().slice(0,19)};}
-  function textLooksBroken(value){const text=String(value||'').trim();if(!text)return false;return /�|\?{2,}|[鈫锛銆]|(?:涓|鏆|鎴|淇|娓|閫|鍏|绌|宸|鐢|璇|绠|鍚|瀹|搴|棿|浣|鐨|熬)/.test(text);}
-  function cleanDisplayText(value,fallback){const text=String(value||'').trim();return (!text||textLooksBroken(text))?fallback:text;}
-  function compactDate(value){const text=String(value||'');return text.replace(/^[0-9]{4}-/,'');}
-  function cleaningSourceText(row){const raw=String(row&&row.source||'');if(!textLooksBroken(raw)&&raw.trim())return raw;if(row&&row.note_task)return '备注';if(row&&row.target_type==='common')return '公区每日保洁';if(row&&row.finance_adjustment)return Number(row.amount||0)<0?'手动减少':'手动增加';if(row&&Number(row.amount||0)<0)return '手动减少';return '系统退房';}
-  function cleaningReasonText(row){const raw=String(row&&row.reason||'');if(!textLooksBroken(raw)&&raw.trim())return raw;if(row&&row.note_task)return '保洁备注';const source=cleaningSourceText(row);if(source.includes('公区'))return '公区默认每日打扫';if(source.includes('减少'))return '手动减少保洁';if(source.includes('增加'))return '手动增加保洁';return '系统退房自动生成';}
-  function cleaningRowUniqueKey(row){const source=cleaningSourceText(row),base=[row.date,row.target_type,row.target_id].join('|');const isSystem=(source.includes('系统退房')||source.includes('Airbnb')||source.includes('Booking')||source.includes('Vrbo'))&&!row.finance_adjustment&&!row.note_task;return isSystem?'system|'+base:[row.id||row.change_id||row.note_id||'',base,source,row.amount,cleaningReasonText(row)].join('|');}
-  function dedupeCleaningRows(rows){const seen=new Set(),out=[];(rows||[]).forEach(row=>{const key=cleaningRowUniqueKey(row||{});if(seen.has(key))return;seen.add(key);out.push(row);});return out;}
-  function scopedCleaningRows(start,end){const rows=(typeof actualCleaningRows==='function'?actualCleaningRows(start,end):[]).filter(r=>targetMatches(r.target_id,r.target_type));return dedupeCleaningRows(rows);}
-  function renderInlineNotesScoped(date,target_id,target_type){const ns=ownerCleanNotes().filter(n=>n.date===date&&n.target_id===target_id&&n.target_type===target_type);const roomNs=target_type==='room'?ownerRoomDateNotes().filter(n=>n.date===date&&n.room_id===target_id).map(n=>({date:n.date,target_id:n.room_id,target_type:'room',note:n.note,priority:n.priority,created_by:n.created_by,roomDate:true})):[];return ns.concat(roomNs).map(n=>`<div class="note-card ${n.priority==='重要'?'important':''}"><div class="note-title">${priorityBadge(n.priority)} ${esc(cleanTargetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':'备注'}</div><div>${esc(cleanDisplayText(n.note,'保洁备注'))}</div></div>`).join('');}
-  function cleaningTableScoped(items,showSource=true){ensureCleaningTaskCss();items=dedupeCleaningRows(items||[]);if(!items.length)return `<div class="card"><p class="small">暂无记录</p></div>`;S.cleaningTaskRowsByKey={};const showProp=showPropColumn();return `<div class="card"><table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>类型</th><th>对象</th>${showSource?'<th>来源</th>':''}<th>费用</th><th>备注/任务</th><th>保洁确认/反馈</th></tr>`+items.map(r=>`<tr class="${r.date===TODAY?'today-row':''}"><td>${esc(r.date)}</td>${showProp?`<td>${propBadge(targetPropId(r.target_id,r.target_type))}</td>`:''}<td>${objectBadge(r.target_type)}</td><td><span class="badge ${r.target_type==='common'?'orange':''}">${esc(cleanTargetName(r.target_id,r.target_type))}</span></td>${showSource?`<td>${esc(cleaningSourceText(r))}</td>`:''}<td>${taskFeeText(r)}</td><td>${esc(cleaningReasonText(r))}${r.note_task?'':renderInlineNotesScoped(r.date,r.target_id,r.target_type)}</td><td>${cleaningTaskControls(r)}</td></tr>`).join('')+`</table></div>`;}
-  function financeRowHtml(r,showProp){return `<tr class="${r.date===TODAY?'today-row':''}"><td>${esc(r.date)}</td>${showProp?`<td>${esc(propName(targetPropId(r.target_id,r.target_type)))}</td>`:''}<td>${objectBadge(r.target_type)} <span class="badge ${r.target_type==='common'?'orange':''}">${esc(cleanTargetName(r.target_id,r.target_type))}</span></td><td>${esc(cleaningSourceText(r))}</td><td><strong>${financeAmountText(r)}</strong></td><td>${esc(cleaningReasonText(r))}${r.finance_adjustment?'':renderInlineNotesScoped(r.date,r.target_id,r.target_type)}</td></tr>`;}
-  function ensureDailyFinanceCss(){let s=document.getElementById('pmsDailyFinanceStyles');if(!s){s=document.createElement('style');s.id='pmsDailyFinanceStyles';document.head.appendChild(s);}s.textContent=`.finance-day-list{display:grid;gap:12px}.finance-day-block{padding:0!important;overflow:hidden}.finance-day-block>summary{display:grid;grid-template-columns:minmax(170px,1fr) auto;gap:10px;align-items:center;cursor:pointer;list-style:none;padding:12px 14px;background:#f8fafc;border-bottom:1px solid #d8e1ef}.finance-day-block>summary::-webkit-details-marker{display:none}.finance-day-title{font-size:17px;font-weight:900;color:#0f172a}.finance-day-total{font-size:17px;font-weight:900;color:#0f766e}.finance-day-sub{font-size:12px;color:#64748b;font-weight:800;margin-top:2px}.finance-day-block table{border:0!important;border-radius:0!important}.finance-day-block tr:last-child td{border-bottom:0!important}.finance-day-empty{padding:14px;color:#64748b}.finance-row-kind{white-space:nowrap}.finance-money{text-align:right;white-space:nowrap;font-weight:900}@media(max-width:760px){.finance-day-block>summary{grid-template-columns:1fr}.finance-money{text-align:left}}`;}
-  function financeWeekdayLabel(date){const day=new Date(String(date||'')+'T00:00:00').getDay();return ['周日','周一','周二','周三','周四','周五','周六'][day]||'';}
-  function financeTargetSortValue(row){const type=row&&row.target_type==='common'?1:0;const pid=targetPropId(row.target_id,row.target_type),pname=propName(pid),name=cleanTargetName(row.target_id,row.target_type);return [type,pname,name,row.finance_adjustment?1:0,cleaningSourceText(row)].join('|');}
-  function financeSameDaySort(a,b){return financeTargetSortValue(a).localeCompare(financeTargetSortValue(b),undefined,{numeric:true,sensitivity:'base'});}
-  function financeFutureSort(a,b){return String(a.date||'').localeCompare(String(b.date||''))||financeSameDaySort(a,b);}
-  function financeHistorySort(a,b){return String(b.date||'').localeCompare(String(a.date||''))||financeSameDaySort(a,b);}
-  function financeDailyRowHtml(row,showProp){return `<tr class="${row.date===TODAY?'today-row':''}">${showProp?`<td>${esc(propName(targetPropId(row.target_id,row.target_type)))}</td>`:''}<td class="finance-row-kind">${objectBadge(row.target_type)}</td><td><strong>${esc(cleanTargetName(row.target_id,row.target_type))}</strong></td><td>${esc(cleaningSourceText(row))}</td><td class="finance-money">${financeAmountText(row)}</td><td>${esc(cleaningReasonText(row))}${row.finance_adjustment?'':renderInlineNotesScoped(row.date,row.target_id,row.target_type)}</td></tr>`;}
-  function financeDayGroups(rows){const days=[];rows.forEach(row=>{let day=days.find(x=>x.date===row.date);if(!day){day={date:row.date,rows:[]};days.push(day);}day.rows.push(row);});return days;}
-  function financeDayHtml(day,showProp){day.rows.sort(financeSameDaySort);const total=day.rows.reduce((s,r)=>s+financeRowAmount(r),0),roomCount=day.rows.filter(r=>(r.target_type||'room')==='room').length,commonCount=day.rows.filter(r=>r.target_type==='common').length,adjustCount=day.rows.filter(r=>r.finance_adjustment).length;return `<details class="card finance-day-block" open><summary><div><div class="finance-day-title">${esc(day.date)} ${esc(financeWeekdayLabel(day.date))}</div><div class="finance-day-sub">房间 ${roomCount} 项 · 公区 ${commonCount} 项 · 调整 ${adjustCount} 项</div></div><div class="finance-day-total">当天合计 ${signedMoneyText(total)}</div></summary><table><tr>${showProp?'<th>房源</th>':''}<th>类型</th><th>房间/公区</th><th>来源</th><th>金额</th><th>说明</th></tr>${day.rows.map(r=>financeDailyRowHtml(r,showProp)).join('')}</table></details>`;}
-  function financeSectionHtml(title,rows,sorter,emptyText,showProp){const sorted=[...rows].sort(sorter),days=financeDayGroups(sorted),total=sorted.reduce((s,r)=>s+financeRowAmount(r),0);return `<section class="finance-section"><h3>${esc(title)} <span class="small">${sorted.length} 项 · 合计 ${signedMoneyText(total)}</span></h3>${days.length?days.map(d=>financeDayHtml(d,showProp)).join(''):`<div class="card"><p class="small">${esc(emptyText)}</p></div>`}</section>`;}
-  function cleaningFinanceTableScoped(items){ensureDailyFinanceCss();const rows=items||[];if(!rows.length)return `<div class="card"><p class="small">暂无费用记录</p></div>`;const showProp=showPropColumn(),future=rows.filter(r=>String(r.date||'')>TODAY),history=rows.filter(r=>String(r.date||'')<=TODAY);return `<div class="finance-day-list">${financeSectionHtml('将来保洁费用',future,financeFutureSort,'当前日期范围内没有将来保洁费用。',showProp)}${financeSectionHtml('历史保洁费用',history,financeHistorySort,'当前日期范围内没有历史保洁费用。',showProp)}</div>`;}
-  function ensureDailyWorkCompactCardsCss(){let s=document.getElementById('pmsDailyWorkCompactCards');if(!s){s=document.createElement('style');s.id='pmsDailyWorkCompactCards';document.head.appendChild(s);}s.textContent=`#dailyWorkContent .note-card .booking-main{font-size:14px!important;line-height:1.35}#dailyWorkContent .note-card .small{font-size:12px!important}.booking-time-strong{font-weight:900;color:#0f766e}.work-card.checkin .booking-time-strong{color:#1d4ed8}.work-card.checkout .booking-time-strong{color:#be123c}`;}
-  function pmsRenderDailyWorkFinal(){ensureDailyEmptyCss();ensureDailyWorkCompactCardsCss();const wd=document.getElementById('workDate');if(wd&&!wd.value)wd.value=TODAY;const d=(wd&&wd.value)||TODAY;const base=dedupeBookingsByStay(ownerRealBookings());const locked=dedupeBookingsByStay(ownerLockBookings()).filter(b=>b.checkin<=d&&b.checkout>d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id)));const checkouts=base.filter(b=>b.checkout===d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id)));const checkins=base.filter(b=>b.checkin===d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id)));const stays=base.filter(b=>b.checkin<d&&b.checkout>d).sort((a,b)=>cleanRoomName(a.room_id).localeCompare(cleanRoomName(b.room_id)));const emptyRooms=dailyEmptyRoomsForDate(d,base,locked);const cleanRows=scopedCleaningRows(d,d).filter(r=>r.date===d);const notes=allOwnerNotes().filter(n=>n.date===d);const metrics=document.getElementById('dailyWorkMetrics');if(metrics)metrics.innerHTML=`<div class="metric"><div class="small">退房</div><div class="num">${checkouts.length}</div></div><div class="metric"><div class="small">入住</div><div class="num">${checkins.length}</div></div><div class="metric"><div class="small">剩余在住</div><div class="num">${stays.length}</div></div><div class="metric"><div class="small">空房</div><div class="num">${emptyRooms.length}</div></div><div class="metric"><div class="small">不开放锁定晚数</div><div class="num">${locked.reduce((s,b)=>s+Math.max(0,daysBetween(b.checkin,b.checkout)),0)}</div></div><div class="metric"><div class="small">保洁任务</div><div class="num">${cleanRows.length}</div></div>`;function bookingCards(title,rows,cls){return `<div class="work-card ${cls}"><h3>${title}（${rows.length}）</h3>`+(rows.length?rows.map(b=>{const remainingDays=Math.max(0,daysBetween(d,b.checkout));let main='';if(cls==='checkin')main=`<div class="booking-main"><span class="booking-time-strong">还剩 ${remainingDays} 天退房</span> ｜ 退房：${esc(compactDate(b.checkout))}</div>`;else if(cls==='stay')main=`<div class="booking-main"><span class="booking-time-strong">还剩 ${remainingDays} 天退房</span> ｜ 退房：${esc(compactDate(b.checkout))}</div>`;else main=`<div class="booking-main"><span class="booking-time-strong">退房：${esc(compactDate(b.checkout))}</span> ｜ 入住：${esc(compactDate(b.checkin))}</div>`;return `<div class="note-card"><div class="note-title"><span class="badge">${esc(cleanRoomName(b.room_id))}</span>${propBadge(roomPropId(b.room_id))} ${bookingSourceBadges(b)||platformBadge(b.platform)}</div>${main}<div class="small">订单：${esc(compactDate(b.checkin))} → ${esc(compactDate(b.checkout))}${b.guest?` ｜ 客人：${esc(b.guest)}`:''}</div>${renderRoomDateNotesForWork(d,b.room_id)}</div>`;}).join(''):'<p class="small">暂无</p>')+`</div>`;}function emptyCards(){return `<div class="work-card empty"><h3>空房（${emptyRooms.length}）</h3>`+(emptyRooms.length?emptyRooms.map(r=>{const out=checkouts.find(b=>b.room_id===r.id);const label=out?'今日退房后空房':'当晚未预定';return `<div class="note-card"><div class="note-title"><span class="badge available">${esc(cleanRoomName(r.id))}</span>${propBadge(roomPropId(r.id))} <span class="badge green">${esc(label)}</span></div><div class="empty-room-note">${out?'退房后如已清洁，可安排同日入住或继续售卖。':'这晚没有入住、在住或锁定记录。'}</div>${out?`<div class="small">退房订单：${esc(compactDate(out.checkin))} → ${esc(compactDate(out.checkout))} ${bookingSourceBadges(out)||platformBadge(out.platform)}</div>`:''}${renderRoomDateNotesForWork(d,r.id)}</div>`;}).join(''):'<p class="small">暂无空房</p>')+`</div>`;}function lockCards(){return `<div class="work-card locked"><h3>不开放锁定（${locked.length}）</h3>`+(locked.length?locked.map(b=>`<div class="note-card lock-note"><div class="note-title"><span class="badge orange">${esc(cleanRoomName(b.room_id))}</span>${propBadge(roomPropId(b.room_id))} <span class="badge red">不开放锁定</span> ${bookingSourceBadges(b)||platformBadge(b.platform)}</div><div>${esc(compactDate(b.checkin))} → ${esc(compactDate(b.checkout))}</div><div class="small">原因：${esc(cleanDisplayText(lockReason(b),'平台日历不开放或关联房源占用'))}</div></div>`).join(''):'<p class="small">暂无</p>')+`</div>`;}const content=document.getElementById('dailyWorkContent');if(content)content.innerHTML=`<div class="work-grid">${bookingCards('退房',checkouts,'checkout')}${bookingCards('入住',checkins,'checkin')}${bookingCards('剩余在住',stays,'stay')}${emptyCards()}${lockCards()}</div><div class="card"><h2>当天保洁任务</h2>${cleaningTableScoped(cleanRows)}</div><div class="card"><h2>当天备注</h2>${notes.length?notes.map(n=>`<div class="note-card ${n.priority==='重要'?'important':''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(cleanTargetName(n.target_id,n.target_type))}${propBadge(targetPropId(n.target_id,n.target_type))} ${n.kind==='roomDate'?'日期备注':''}</div><div>${esc(cleanDisplayText(n.note,'备注'))}</div></div>`).join(''):'<p class="small">暂无备注</p>'}</div>`;}
-  // Keep the richer daily-work renderer above; this legacy renderer must not replace it.
-  Object.assign(window,{diagnoseChannelIcal});
-  function propertyChannelPayload(propertyId){const roomIds=new Set(propRooms(propertyId).map(r=>r.id));return channelList().filter(ch=>ch&&roomIds.has(ch.room_id)).map(ch=>readChannelForm(ch.id)||ch);}
-  syncPropertyIcal=async function(propertyId,btn){const id=propertyId||(activeProp()&&activeProp().id);if(!id)return alert('请先进入一个房源');S.syncResults=S.syncResults||{};const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent='同步中...';}try{collectIcalInputs(id);const rows=propertyChannelPayload(id);S.syncResults[id]={kind:'loading',text:'同步中：正在直接读取平台 iCal...'};renderRoomSettings();const started=Date.now();const controller=window.AbortController?new AbortController():null;const timer=controller?setTimeout(()=>controller.abort(),70000):null;const res=await fetch(apiUrl('/api/sync'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:id,channelListings:rows}),signal:controller?controller.signal:undefined});if(timer)clearTimeout(timer);const data=await res.json().catch(()=>({ok:false,error:'服务器没有返回有效结果'}));if(!res.ok||data.ok===false){const debug=data.debug_id?` 编号：${data.debug_id}`:'';const detail=data.detail?`（${data.detail}）`:'';throw new Error((data.error||'iCal 同步失败')+debug+detail);}applySyncState(data);refreshOwnerScopedViews();const roomIds=new Set(propRooms(id).map(r=>r.id)),errs=syncErrorList().filter(e=>roomIds.has(e.room_id)),channelCount=channelList().filter(ch=>roomIds.has(ch.room_id)).length,bookingCount=channelList().filter(ch=>roomIds.has(ch.room_id)).reduce((n,ch)=>n+Number(ch.synced_booking_count||0),0),seconds=Math.max(1,Math.round((Date.now()-started)/1000));S.syncResults[id]={kind:errs.length?'error':'ok',text:errs.length?`同步完成 ${seconds} 秒，但 ${errs.length} 个渠道失败`:`同步完成 ${seconds} 秒：${channelCount} 个渠道，导入 ${bookingCount} 条`};renderRoomSettings();if(errs.length)alert(`iCal 同步完成，但有 ${errs.length} 个渠道失败。错误已显示在对应房间。`);return data;}catch(e){const msg=e&&e.name==='AbortError'?'同步超过 70 秒已停止，请先检查是否有失效 iCal 链接。':(e&&e.message?e.message:String(e||'未知错误'));S.syncResults[id]={kind:'error',text:'同步失败：'+msg};renderRoomSettings();alert('同步失败：'+msg);return null;}finally{if(btn){btn.disabled=false;btn.textContent=old||'同步当前房源 iCal';}}};
-  window.syncPropertyIcal=syncPropertyIcal;
-  const pmsBaseGroupIdForEmptyOwner=groupId;
-  groupId=function(){const p=props()[0]||{},u=current()||{},gids=Array.isArray(u.group_ids)?u.group_ids:[];return p.group_id||gids[0]||u.group_id||(pmsBaseGroupIdForEmptyOwner?pmsBaseGroupIdForEmptyOwner():'group_default');};
-  const pmsBaseOwnerScopeHtmlForEmptyOwner=ownerScopeHtml;
-  ownerScopeHtml=function(){if(props().length)return pmsBaseOwnerScopeHtmlForEmptyOwner();return `<div class="metric property-scope-panel" style="grid-column:1/-1"><div class="property-scope-head"><div><div class="small">房源筛选 / 房源管理</div><strong>还没有房源</strong><div class="small">这个账号还没有可管理的房源。先添加一个房源，再进入房间管理添加房间和 iCal。</div></div><div class="property-scope-actions"><button class="smallbtn primary" onclick="addProperty()">添加房源</button></div></div><div id="ownerPropertyFilter" class="property-cards"><span class="small">房源模块已显示；点击“添加房源”开始配置。</span></div></div>`;};
-  const pmsBaseRenderRoomSettingsForEmptyOwner=renderRoomSettings;
-  renderRoomSettings=function(){pmsBaseRenderRoomSettingsForEmptyOwner();const root=document.getElementById('roomSettings');if(root&&!props().length){root.innerHTML=`<div class="empty-panel"><strong>还没有房源</strong><div class="small" style="margin-top:8px">上方房源管理模块可以直接添加房源。添加后再进入房间管理配置房间和 iCal。</div><div style="margin-top:10px"><button class="smallbtn primary" onclick="addProperty()">添加房源</button></div></div>`;}};
-  const pmsBaseSyncPropertyIcalGuarded=syncPropertyIcal;
-  syncPropertyIcal=async function(propertyId,btn){const id=propertyId||(activeProp()&&activeProp().id);if(!id)return alert('请先进入一个房源');collectIcalInputs(id);const rows=propertyChannelPayload(id),importRows=rows.filter(r=>String(r&&r.ical_url||'').trim()),newOnly=rows.length&&!importRows.length&&rows.every(r=>r&&r.is_new_listing);S.syncResults=S.syncResults||{};if(!rows.length){S.syncResults[id]={kind:'error',text:'同步失败：这个房源还没有渠道 iCal'};renderRoomSettings();alert('同步失败：请先在房间里点击“添加渠道”，粘贴 Airbnb 导出的 iCal，再同步。');return null;}if(!importRows.length&&!newOnly){S.syncResults[id]={kind:'error',text:'同步失败：没有填写平台导出的 iCal'};renderRoomSettings();alert('同步失败：这个房源没有填写可读取的平台 iCal。');return null;}const data=await pmsBaseSyncPropertyIcalGuarded(propertyId,btn);if(data){const roomIds=new Set(propRooms(id).map(r=>r.id)),errs=syncErrorList().filter(e=>roomIds.has(e.room_id)),imported=channelList().filter(ch=>roomIds.has(ch.room_id)).reduce((n,ch)=>n+Number(ch.synced_booking_count||0),0);if(importRows.length&&!errs.length&&imported===0){S.syncResults[id]={kind:'error',text:'iCal 已读取，但导入 0 条订单，请检查链接是否是平台导出的 Export iCal'};renderRoomSettings();alert('iCal 已读取，但导入 0 条订单。请确认复制的是 Airbnb/平台导出的 Export calendar 链接，不是房源页面链接。');}}return data;};
-  window.syncPropertyIcal=syncPropertyIcal;
-  const pmsBaseCleaningTaskControlsForReview=cleaningTaskControls;
-  const pmsBaseNoteStatusBadgeForReview=typeof noteStatusBadge==='function'?noteStatusBadge:null;
-  function canResolveCancellationReview(){
-    const u=current()||{},path=String(location&&location.pathname||'');
-    if(typeof currentIsCleaner==='function'&&currentIsCleaner())return false;
-    return u.role==='owner'||u.role==='admin'||path.includes('/owner');
-  }
-  function reviewNoteId(note){return pmsStableId('note',note);}
-  function cancellationReviewNoteForRow(row){
-    if(!row)return null;
-    const type=row.target_type||'room',rowNoteId=String(row.note_id||'');
-    const notes=ownerCleanNotes().filter(n=>n&&n.cancellation_review&&!n.deleted&&!n._deleted&&!n.inactive);
-    if(rowNoteId){
-      const direct=notes.find(n=>reviewNoteId(n)===rowNoteId||String(n.id||'')===rowNoteId);
-      if(direct)return direct;
+  function ensureLogoutButton(){
+    const nav = document.querySelector('.nav') || document.querySelector('header') || document.body;
+    let btn = qs('logoutBtn');
+    if(!btn){
+      btn = document.createElement('button');
+      btn.id = 'logoutBtn';
+      btn.type = 'button';
+      btn.className = 'smallbtn';
+      nav.appendChild(btn);
     }
-    return notes.find(n=>n.date===row.date&&String(n.target_id||'')===String(row.target_id||'')&&(n.target_type||'room')===type)||null;
+    btn.textContent = '退出登录';
+    btn.style.display = '';
+    btn.onclick = logoutImpl;
+    return btn;
   }
-  function reviewStatusText(note){
-    const status=String((note&&note.owner_review_status)||'pending');
-    if(status==='clean_needed')return '房东已确认：需要保洁';
-    if(status==='moved_next_day')return '房东已改到第二天';
-    if(status==='no_cleaning')return '房东已确认：不需要保洁';
-    return '等待房东确认';
-  }
-  function ensureOwnerReviewCss(){
-    let s=document.getElementById('pmsOwnerReviewStyles');
-    if(!s){s=document.createElement('style');s.id='pmsOwnerReviewStyles';document.head.appendChild(s);}
-    s.textContent=`.owner-review-box{width:100%;border:1px solid #fbbf24;background:#fffbeb;border-radius:8px;padding:8px;margin-bottom:8px}.owner-review-title{font-weight:900;color:#92400e;margin-bottom:6px}.owner-review-actions{display:flex;gap:6px;flex-wrap:wrap}.owner-review-actions .danger{border-color:#fecaca;color:#b91c1c;background:#fff1f2}.owner-review-status{display:inline-flex;border-radius:999px;padding:3px 8px;font-size:12px;font-weight:900;border:1px solid #fbbf24;background:#fff7ed;color:#92400e}`;
-  }
-  function cancellationReviewControls(row){
-    const note=cancellationReviewNoteForRow(row);
-    if(!note||!canResolveCancellationReview())return '';
-    ensureOwnerReviewCss();
-    const key=encodeURIComponent(cleaningTaskKey(row)),status=String(note.owner_review_status||'pending');
-    if(status!=='pending')return `<div class="owner-review-box"><span class="owner-review-status">${esc(reviewStatusText(note))}</span></div>`;
-    return `<div class="owner-review-box"><div class="owner-review-title">房东复核：客人可能取消或订单变化</div><div class="owner-review-actions"><button class="smallbtn primary" onclick="resolveCancellationReview(decodeURIComponent('${esc(key)}'),'keep',this)">确认需要保洁</button><button class="smallbtn" onclick="resolveCancellationReview(decodeURIComponent('${esc(key)}'),'move_next_day',this)">改到第二天</button><button class="smallbtn danger" onclick="resolveCancellationReview(decodeURIComponent('${esc(key)}'),'cancel',this)">不需要保洁</button></div></div>`;
-  }
-  function upsertReviewManualRemove(row,note,actor,now,reason){
-    const noteId=reviewNoteId(note),id='manual_review_remove_'+safe(noteId+'_'+row.date);
-    const list=manualList(),idx=list.findIndex(m=>m&&m.id===id);
-    const next={...(idx>=0?list[idx]:{}),id,date:row.date,target_id:row.target_id,target_type:row.target_type||'room',type:'remove',amount:0,reason,source:'房东复核',from_note:true,review_cancel:true,note_id:noteId,created_by:actor,created_at:(idx>=0?list[idx].created_at:now),updated_at:now};
-    if(idx>=0)list.splice(idx,1,next);else list.unshift(next);
-    setManualList(list);
-  }
-  function upsertRescheduledReviewNote(row,note,actor,now){
-    const nextDate=addDays(row.date,1),sourceId=reviewNoteId(note),id='note_review_next_'+safe(sourceId+'_'+nextDate);
-    const list=cleanNoteList(),idx=list.findIndex(n=>n&&n.id===id);
-    const amount=taskAmount(row)||targetFee(row.target_id,row.target_type||'room')||0;
-    const text=`房东确认改到第二天保洁：${cleanTargetName(row.target_id,row.target_type||'room')}，原复核日期 ${row.date}。${note.note||''}`;
-    const next={...(idx>=0?list[idx]:{}),id,date:nextDate,target_id:row.target_id,target_type:row.target_type||'room',note:text,priority:'房东确认',note_type:'cancel_review_rescheduled',amount,amount_present:true,source:'房东复核改期',created_by:actor,created_at:(idx>=0?list[idx].created_at:now),updated_at:now,parent_review_note_id:sourceId,checkin:note.checkin||'',checkout:note.checkout||'',platform:note.platform||'',channel_listing_id:note.channel_listing_id||'',owner_review_status:'clean_needed'};
-    if(idx>=0)list.splice(idx,1,next);else list.unshift(next);
-    setCleaningNoteList(list);
-    return nextDate;
-  }
-  async function persistCancellationReview(btn){
-    const old=btn&&btn.textContent;
-    if(btn){btn.disabled=true;btn.textContent='保存中...';}
-    try{
-      const res=await fetch(apiUrl('/api/state'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({manualChanges:manualList(),cleaningNotes:cleanNoteList()})});
-      const data=await res.json().catch(()=>({}));
-      if(!res.ok||data.ok===false)throw new Error(data.error||'保存房东确认失败');
-      await afterState(data);
-      return data;
-    }finally{
-      if(btn){btn.disabled=false;btn.textContent=old||'保存';}
+  function ensureVersionBadge(){
+    let style = qs('pmsVersionBadgeStyles');
+    if(!style){
+      style = document.createElement('style');
+      style.id = 'pmsVersionBadgeStyles';
+      style.textContent = '.pms-version-badge{position:fixed;right:12px;bottom:12px;z-index:999;display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:6px 9px;font-size:11px;font-weight:900;line-height:1;white-space:nowrap;pointer-events:none;opacity:.88;box-shadow:0 8px 20px rgba(15,23,42,.10)}';
+      document.head.appendChild(style);
     }
-  }
-  async function resolveCancellationReview(key,action,btn){
-    const row=(S.cleaningTaskRowsByKey||{})[key];
-    if(!row)return alert('找不到这条保洁任务，请刷新后再试。');
-    const note=cancellationReviewNoteForRow(row);
-    if(!note)return alert('找不到对应的房东复核提醒。');
-    if(action==='cancel'&&!confirm('确认这天不需要保洁？系统会取消当天这条保洁任务。'))return;
-    if(action==='move_next_day'&&!confirm('确认改到第二天保洁？系统会取消当天任务，并新增第二天保洁。'))return;
-    const now=new Date().toISOString().slice(0,19),actor=(current()&&(current().name||current().username||current().id))||'房东';
-    note.id=note.id||reviewNoteId(note);
-    note.owner_review_action=action;
-    note.owner_reviewed_by=actor;
-    note.owner_reviewed_at=now;
-    note.updated_at=now;
-    let msg='已保存房东确认';
-    if(action==='keep'){
-      note.owner_review_status='clean_needed';
-      note.owner_review_note='房东确认需要保洁，保留当天任务。';
-      msg='已确认需要保洁，当前任务会保留。';
-    }else if(action==='move_next_day'){
-      note.owner_review_status='moved_next_day';
-      note.owner_review_note='房东确认改到第二天保洁，取消当天任务。';
-      note.inactive=true;
-      upsertReviewManualRemove(row,note,actor,now,'房东复核：旧订单变化，保洁改到第二天。');
-      const nextDate=upsertRescheduledReviewNote(row,note,actor,now);
-      msg=`已改到 ${nextDate} 保洁，今天这条任务已取消。`;
-    }else{
-      note.owner_review_status='no_cleaning';
-      note.owner_review_note='房东确认不需要保洁，取消当天任务。';
-      note.inactive=true;
-      upsertReviewManualRemove(row,note,actor,now,'房东复核：确认不需要保洁。');
-      msg='已取消当天这条保洁任务。';
+    let badge = qs('pmsVersionBadge');
+    if(!badge){
+      badge = document.createElement('span');
+      badge.id = 'pmsVersionBadge';
+      badge.className = 'pms-version-badge';
+      document.body.appendChild(badge);
     }
-    try{
-      await persistCancellationReview(btn);
-      refreshAll();
-      alert(msg);
-    }catch(e){
-      alert('保存房东确认失败：'+(e&&e.message?e.message:e));
-    }
+    badge.textContent = 'PMS v' + VERSION;
   }
-  noteStatusBadge=function(n){
-    if(n&&n.owner_review_status)return `<span class="badge purple">${esc(reviewStatusText(n))}</span>`;
-    return pmsBaseNoteStatusBadgeForReview?pmsBaseNoteStatusBadgeForReview(n):'<span class="badge green">有效</span>';
-  };
-  cleaningTaskControls=function(row){
-    const base=pmsBaseCleaningTaskControlsForReview(row);
-    const review=cancellationReviewControls(row);
-    return review?`<div class="clean-task-with-review">${review}${base}</div>`:base;
-  };
-  function pmsCleanTaskPropKey(row){
-    const type=row&&row.target_type==='common'?'common':'room';
-    const id=row&&row.target_id;
-    let pid='';
-    try{pid=targetPropId(id,type)||'';}catch(e){}
-    let name='';
-    try{name=cleanTargetName(id,type)||'';}catch(e){}
-    return [String(row&&row.date||''),type,String(pid),String(name).trim().toLowerCase()].join('|');
-  }
-  function pmsCleanTaskIsGenerated(row){
-    if(!row||row.finance_adjustment||row.note_task)return false;
-    const source=cleaningSourceText(row);
-    const reason=cleaningReasonText(row);
-    if((row.target_type||'room')==='common')return true;
-    if(row.booking)return true;
-    return /Airbnb|Booking|Vrbo|iCal|system/i.test(source)||/system/i.test(reason)||String(reason||'').includes('自动生成');
-  }
-  function pmsMergeCleanTask(base,row){
-    const sources=new Set(String(base.source||'').split(' + ').filter(Boolean));
-    const reasons=new Set(String(base.reason||'').split('；').filter(Boolean));
-    if(row&&row.source)sources.add(row.source);
-    if(row&&row.reason)reasons.add(row.reason);
-    if(sources.size)base.source=Array.from(sources).join(' + ');
-    if(reasons.size)base.reason=Array.from(reasons).join('；');
-    if(!base.booking&&row&&row.booking)base.booking=row.booking;
-    if(!base.id&&row&&row.id)base.id=row.id;
-    return base;
-  }
-  dedupeCleaningRows=function(rows){
-    const by=new Map();
-    (rows||[]).forEach(row=>{
-      if(!row||row.actual===false||!row.date)return;
-      const type=row.target_type||'room';
-      const generated=pmsCleanTaskIsGenerated(row);
-      const key=generated
-        ? ['generated',pmsCleanTaskPropKey({...row,target_type:type})].join('|')
-        : ['manual',row.id||row.change_id||row.note_id||'',pmsCleanTaskPropKey({...row,target_type:type}),cleaningSourceText(row),row.amount,cleaningReasonText(row),row.created_at||''].join('|');
-      if(by.has(key)){
-        pmsMergeCleanTask(by.get(key),row);
+  function setHeader(view){
+    const h = document.querySelector('header h1');
+    const sub = document.querySelector('header h1 + .small');
+    const name = userName(isActualCleaner() ? '保洁' : '房东');
+    if(view === 'cleaner'){
+      if(isActualCleaner()){
+        if(h) h.textContent = `${name} · 保洁工作台`;
+        if(sub) sub.textContent = '查看绑定房源的今日保洁、未来保洁、历史保洁和备注。';
       }else{
-        by.set(key,{...row,target_type:type});
+        if(h) h.textContent = `${name} · 保洁任务查看`;
+        if(sub) sub.textContent = '房东查看当前房源范围内的保洁任务和历史记录。';
       }
+      document.title = h ? h.textContent : '保洁工作台';
+    }else{
+      if(h) h.textContent = `${name} · 房东管理后台`;
+      if(sub) sub.textContent = '管理房源、房间、公区、iCal 同步和保洁绑定。';
+      document.title = h ? h.textContent : '房东管理后台';
+    }
+  }
+
+  function removeLegacyIntroCards(){
+    document.querySelectorAll('#owner > .card,#cleaner > .card').forEach(card => {
+      const text = card.textContent || '';
+      if(text.includes('房东可查看指定日期工作表') || text.includes('保洁只能查看绑定房源') || text.includes('保洁退房页面')) card.remove();
+    });
+  }
+  function ensureBaseShell(){
+    let main = document.querySelector('main');
+    if(!main){
+      main = document.createElement('main');
+      document.body.appendChild(main);
+    }
+    if(!qs('owner')){
+      const owner = document.createElement('section');
+      owner.id = 'owner';
+      owner.className = 'section';
+      main.appendChild(owner);
+    }
+    if(!qs('cleaner')){
+      const cleaner = document.createElement('section');
+      cleaner.id = 'cleaner';
+      cleaner.className = 'section';
+      main.appendChild(cleaner);
+    }
+    ensureOwnerContainers();
+    ensureCleanerContainers();
+  }
+  function ensureOwnerContainers(){
+    const owner = qs('owner');
+    if(!owner) return;
+    Array.from(owner.children || []).forEach(child => {
+      if(child && child.id !== 'ownerTabsCard' && child.classList && child.classList.contains('card') && child.querySelector && child.querySelector('.tabbar')) child.remove();
+    });
+    if(!qs('ownerMetrics')){
+      const div = document.createElement('div');
+      div.id = 'ownerMetrics';
+      div.className = 'grid';
+      owner.prepend(div);
+    }
+    if(!qs('ownerTabsCard')){
+      const card = document.createElement('div');
+      card.id = 'ownerTabsCard';
+      card.className = 'card';
+      card.innerHTML = `<div class="tabbar">
+        <button class="active" onclick="showOwnerTab('ownerDailyWork', this)">指定日期工作表</button>
+        <button onclick="showOwnerTab('ownerCalendar', this)">未来预订</button>
+        <button onclick="showOwnerTab('ownerCleaning', this)">保洁费用/调整</button>
+        <button onclick="showOwnerTab('ownerNotes', this)">备注管理</button>
+        <button onclick="showOwnerTab('ownerRooms', this)">房间/公区设置</button>
+      </div>`;
+      qs('ownerMetrics').insertAdjacentElement('afterend', card);
+    }
+    const pane = (id, html) => {
+      if(qs(id)) return;
+      const div = document.createElement('div');
+      div.id = id;
+      div.className = 'tab-content' + (id === 'ownerDailyWork' ? ' active' : '');
+      div.innerHTML = html;
+      owner.appendChild(div);
+    };
+    pane('ownerDailyWork', `<div class="card"><h2>指定日期工作表</h2><div class="toolbar"><span class="small">日期：</span><input id="workDate" type="date" onchange="renderDailyWork()"><button class="smallbtn primary" onclick="document.getElementById('workDate').value=TODAY;renderDailyWork()">今天</button><button class="smallbtn" onclick="document.getElementById('workDate').value=addDays(document.getElementById('workDate').value||TODAY,1);renderDailyWork()">下一天</button><button class="smallbtn" onclick="document.getElementById('workDate').value=addDays(document.getElementById('workDate').value||TODAY,-1);renderDailyWork()">上一天</button></div><div id="dailyWorkMetrics" class="grid"></div></div><div id="dailyWorkContent"></div>`);
+    pane('ownerCalendar', `<div class="card"><h2>未来房态总览</h2><div class="toolbar"><span class="small">默认未来 14 天，可切换 28 天，也可指定日期范围：</span><button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">未来14天</button><button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">未来28天</button><input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()"><input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()"><select id="ownerRoomFilter" onchange="refreshCalendarRangeViews()"></select></div><div class="scroll"><div id="calendarGrid" class="timeline"></div></div></div><div class="card"><h2>未来区间统计</h2><div id="sixMonthStats"></div></div><div class="card"><div class="toolbar"><strong>未来预订列表</strong><select id="platformFilter" onchange="renderOwnerBookings()"><option value="">全部平台</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>Other</option><option>微信直订</option></select><select id="bookingRoomFilter" onchange="renderOwnerBookings()"></select></div><div id="ownerBookings"></div></div>`);
+    pane('ownerCleaning', `<div id="ownerCleaningShell"></div>`);
+    pane('ownerNotes', `<div id="ownerNotesShell"></div>`);
+    pane('ownerRooms', `<div class="card"><h2>房间设置</h2><p class="small">从上方房源管理进入单个房源后，在这里管理房间、公区、iCal 和保洁绑定。</p><div id="roomSettings"></div></div>`);
+  }
+  function ensureCleanerContainers(){
+    const root = qs('cleaner');
+    if(!root) return;
+    if(qs('cleanerDashboardShell')) return;
+    root.innerHTML = `<div id="cleanerDashboardShell"><div id="cleanerSummary"></div><div id="cleanerMetrics" class="grid"></div><div id="cleanerTodayNotes"></div><div class="card"><div class="tabbar"><button class="active" onclick="showTab('cleanerToday', this)">今日保洁</button><button onclick="showTab('cleanerFuture', this)">未来保洁</button><button onclick="showTab('cleanerManual', this)">手动调整记录</button><button onclick="showTab('cleanerHistory', this)">历史保洁</button></div></div><div id="cleanerToday" class="tab-content active"></div><div id="cleanerFuture" class="tab-content"></div><div id="cleanerManual" class="tab-content"></div><div id="cleanerHistory" class="tab-content"></div></div>`;
+  }
+  function ensureStyles(){
+    let style = qs('pmsUnifiedStyles');
+    if(style) return;
+    style = document.createElement('style');
+    style.id = 'pmsUnifiedStyles';
+    style.textContent = `
+      .card,.metric,.property-card,.property-subcard,.room-setting-card,.work-card,.note-card,.month-block,.cell,.empty-panel{border-radius:8px!important}
+      .property-module{display:grid;gap:12px;border:2px solid #2dd4bf;background:#fbfffe;box-shadow:inset 5px 0 0 #0f766e,0 10px 22px rgba(15,118,110,.08)}
+      .property-module-head,.property-detail-head,.property-actions,.room-head,.channel-row,.mail-actions{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+      .property-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}
+      .property-card,.property-subcard,.room-setting-card{border:1px solid var(--line);background:#fff;padding:14px}
+      .property-card{display:grid;gap:10px;align-content:space-between;min-height:145px}
+      .property-title{font-size:18px;font-weight:900;color:#0f172a}
+      .property-card input,.room-setting-card input,.room-setting-card select,.mail-panel input,.mail-panel textarea{width:100%;min-width:0}
+      .property-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+      .room-setting-list{display:grid;gap:16px;margin-top:12px}
+      .room-head{border:1px solid #d8e1ef;background:#f8fafc;border-radius:8px;padding:10px}
+      .room-basics{display:grid;grid-template-columns:minmax(180px,1fr) minmax(120px,.45fr) auto;gap:8px;align-items:end;width:100%}
+      .channel-list{display:grid;gap:10px;margin-top:10px}
+      .channel-card{border:1px solid #bae6fd;background:#f8fcff;border-radius:8px;padding:10px;display:grid;gap:8px}
+      .channel-grid{display:grid;grid-template-columns:130px minmax(190px,1fr) minmax(190px,1fr) minmax(140px,.8fr) auto;gap:8px;align-items:end}
+      .feed-line,.readonly-line{word-break:break-all;border:1px solid #d8e1ef;background:#f8fafc;border-radius:8px;padding:8px 10px;font-size:12px;color:#475569}
+      .sync-status{display:inline-flex;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:900;border:1px solid #d8e1ef;background:#f8fafc;color:#475569}
+      .sync-status.ok{border-color:#86efac;background:#f0fdf4;color:#166534}.sync-status.error{border-color:#fb7185;background:#fff1f2;color:#be123c}.sync-status.warn{border-color:#fbbf24;background:#fffbeb;color:#92400e}
+      #calendarGrid .cell{position:relative;overflow:hidden;min-width:64px}
+      #calendarGrid .cell.head.weekend{background:#fffbeb!important;color:#92400e!important;border-color:#f59e0b!important}
+      #calendarGrid .cell.head.weekend-sun{background:#fff7ed!important;color:#9a3412!important;border-color:#fb923c!important}
+      #calendarGrid .cell.weekend{outline:2px solid #f59e0b!important;outline-offset:-2px}
+      #calendarGrid .cell.weekend-sun{outline-color:#f97316!important}
+      #calendarGrid .cell.checkout-only,#calendarGrid .cell.checkin-only,#calendarGrid .cell.turnover{background:#fff!important;border-color:#5eead4!important;color:#0f766e!important}
+      #calendarGrid .cell.stay-only{display:flex;align-items:center;justify-content:center;background:#ccfbf1!important;border-color:#5eead4!important;color:#0f766e!important;text-align:center}
+      #calendarGrid .cell.checkout-only:before,#calendarGrid .cell.checkin-only:before{content:"";position:absolute;inset:0;z-index:0}
+      #calendarGrid .cell.checkout-only:before{background:linear-gradient(to bottom right,#ccfbf1 0 calc(50% - 1px),transparent calc(50% + 1px) 100%)}
+      #calendarGrid .cell.checkin-only:before{background:linear-gradient(to bottom right,transparent 0 calc(50% - 1px),#ccfbf1 calc(50% + 1px) 100%)}
+      #calendarGrid .cell.turnover{background:#ccfbf1!important;border-color:#14b8a6!important}
+      #calendarGrid .cell.checkout-only:after,#calendarGrid .cell.checkin-only:after,#calendarGrid .cell.turnover:after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom right,transparent 0 calc(50% - 1.2px),#0f766e calc(50% - 1.2px) calc(50% + 1.2px),transparent calc(50% + 1.2px));opacity:.82;z-index:1}
+      #calendarGrid .cell.locked{display:flex;align-items:center;justify-content:center;text-align:center;background:#fff1f2!important;border-color:#fda4af!important;color:#9f1239!important;font-weight:900}
+      #calendarGrid .cell .cell-platform{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:900;position:relative;z-index:2}
+      .weekend-label{display:block;font-size:11px;font-weight:900;line-height:1.1;margin-top:2px;color:#b45309}
+      .work-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important}
+      .work-card h3{white-space:normal!important}
+      .finance-section{margin-top:12px}.finance-section h3{margin:0;padding:10px 12px;background:#f8fafc;border:1px solid var(--line);border-radius:8px 8px 0 0}
+      .mail-panel{border:1px solid #bae6fd;background:#f8fcff;border-radius:8px;padding:12px;display:grid;gap:10px}
+      @media(max-width:900px){.room-basics,.channel-grid{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions{align-items:stretch}.property-actions>*{width:100%}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function platformBadge(platform){
+    const p = String(platform || 'Airbnb');
+    const cls = p === 'Airbnb' ? 'blue' : p === 'Booking' ? 'green' : p === 'Vrbo' ? 'yellow' : p === 'Other' ? 'purple' : '';
+    return `<span class="badge ${cls}">${esc(p)}</span>`;
+  }
+  function objectBadge(type){return type === 'common' ? '<span class="badge orange">公区</span>' : '<span class="badge">房间</span>';}
+  function priorityBadge(value){return value === '重要' ? '<span class="badge red">重要</span>' : '<span class="badge blue">普通</span>';}
+  function changeBadge(value){return value === 'add' ? '<span class="badge green">额外增加</span>' : '<span class="badge red">取消保洁</span>';}
+
+  function inventoryGroupId(room){
+    return String((room && (room.inventory_group_id || room.inventoryGroupId)) || (room && room.id) || '');
+  }
+  function roomEntityId(roomId){
+    const room = getRooms().find(r => String(r.id) === String(roomId));
+    return inventoryGroupId(room || {id: roomId});
+  }
+  function isLockedBooking(b){
+    if(!b) return false;
+    const kind = [b.booking_type,b.kind,b.type,b.event_type,b.eventType].map(v => String(v || '').toLowerCase()).join(' ');
+    const text = [kind,b.status,b.summary,b.lock_reason,b.lockReason,b.reason,b.description,b.platform,b.source,b.guest,b.title,b.name].map(v => String(v || '').toLowerCase()).join(' ');
+    if(b.is_locked || b.isLocked || b.locked || b.blocked || b.is_blocked || b.isBlocked || kind.includes('lock') || kind.includes('block')) return true;
+    if(/不开放|锁定|锁房|手动锁|手动关闭|关闭|不可订|不可预订|封锁|暂停开放|blocked|calendar blocked|closed|unavailable|not available|not open|manual lock|manual block|owner block|hold/.test(text)) return true;
+    if(/reserved|reservation|confirmed|accepted|booked|预订|订单|入住/.test(text)) return false;
+    return false;
+  }
+  function lockReason(b){return String((b && (b.lock_reason || b.lockReason || b.status || b.summary || b.reason)) || '手动不开放锁定');}
+  function bookingStableKey(b){
+    return [roomEntityId(b && b.room_id), b && b.checkin, b && b.checkout, isLockedBooking(b) ? 'lock' : 'booking'].map(x => String(x || '')).join('|');
+  }
+  function dedupeBookings(rows){
+    const by = new Map();
+    (rows || []).forEach(row => {
+      if(!row || !row.checkin || !row.checkout) return;
+      const key = bookingStableKey(row);
+      if(!by.has(key)){
+        by.set(key, {...row, _merged_count: 1, _source_labels: [row.platform || row.source || '订单'].filter(Boolean)});
+        return;
+      }
+      const cur = by.get(key);
+      cur._merged_count = Number(cur._merged_count || 1) + 1;
+      const label = row.platform || row.source || '';
+      cur._source_labels = Array.from(new Set([...(cur._source_labels || []), label].filter(Boolean)));
+      ['guest','platform','status','summary','lock_reason','channel_listing_id'].forEach(field => { if(!cur[field] && row[field]) cur[field] = row[field]; });
     });
     return Array.from(by.values());
-  };
-  scopedCleaningRows=function(start,end){
-    const rows=(typeof actualCleaningRows==='function'?actualCleaningRows(start,end):[]).filter(r=>targetMatches(r.target_id,r.target_type));
-    return dedupeCleaningRows(rows);
-  };
-  renderOwnerCalendar=function(){
-    const startInput=document.getElementById('rangeStart');
-    if(startInput&&!startInput.value){setRangePreset(14);return;}
-    const r=calendarRange();
-    const days=Array.from({length:r.dayCount},(_,i)=>addDays(r.start,i));
-    const showRooms=selectedCalendarRooms();
-    const grid=document.getElementById('calendarGrid');
-    if(!grid)return;
-    if(!showRooms.length){
-      grid.style.gridTemplateColumns='1fr';
-      grid.innerHTML='<div class="cell head">当前房源没有房间</div>';
+  }
+  function bookingLabels(b){
+    const labels = Array.isArray(b && b._source_labels) && b._source_labels.length ? b._source_labels : [b && (b.platform || b.source || '订单')];
+    return Array.from(new Set(labels.filter(Boolean)));
+  }
+  function bookingSourceBadges(b){return bookingLabels(b).map(platformBadge).join(' ');}
+  function bookingsForRoom(room, rows){
+    const entity = inventoryGroupId(room);
+    return (rows || getBookings()).filter(b => roomEntityId(b.room_id) === entity);
+  }
+  function ownerBookingsAll(){return getBookings().filter(b => roomMatches(b.room_id));}
+  function ownerRealBookings(){return dedupeBookings(ownerBookingsAll().filter(b => !isLockedBooking(b)));}
+  function ownerLockBookings(){return dedupeBookings(ownerBookingsAll().filter(isLockedBooking));}
+  function realBookingsImpl(){return dedupeBookings(getBookings().filter(b => !isLockedBooking(b)));}
+  function lockBookingsImpl(){return dedupeBookings(getBookings().filter(isLockedBooking));}
+
+  function cleanTargetKey(row){
+    const type = row && row.target_type === 'common' ? 'common' : 'room';
+    const entity = type === 'room' ? roomEntityId(row && row.target_id) : String(row && row.target_id || '');
+    return [row && row.date, type, entity].map(x => String(x || '')).join('|');
+  }
+  function isGeneratedCleaning(row){
+    if(!row || row.finance_adjustment || row.note_task || row.type === 'manual_add') return false;
+    if((row.target_type || 'room') === 'common') return true;
+    if(row.booking) return true;
+    const text = [row.source,row.reason,row.platform].map(v => String(v || '')).join(' ');
+    return /Airbnb|Booking|Vrbo|iCal|system|系统|退房/.test(text);
+  }
+  function mergeCleaning(base,row){
+    const sources = new Set(String(base.source || '').split(' + ').filter(Boolean));
+    const reasons = new Set(String(base.reason || '').split('；').filter(Boolean));
+    if(row.source) sources.add(row.source);
+    if(row.reason) reasons.add(row.reason);
+    if(sources.size) base.source = Array.from(sources).join(' + ');
+    if(reasons.size) base.reason = Array.from(reasons).join('；');
+    if(!base.booking && row.booking) base.booking = row.booking;
+    return base;
+  }
+  function dedupeCleaningRowsImpl(rows){
+    const by = new Map();
+    (rows || []).forEach(row => {
+      if(!row || row.actual === false || !row.date) return;
+      const type = row.target_type || 'room';
+      const key = isGeneratedCleaning(row)
+        ? 'generated|' + cleanTargetKey({...row,target_type:type})
+        : ['manual', row.id || row.change_id || row.note_id || '', cleanTargetKey({...row,target_type:type}), row.source || '', row.reason || '', row.amount || '', row.type || '', row.created_at || ''].join('|');
+      if(by.has(key)) mergeCleaning(by.get(key), row);
+      else by.set(key, {...row, target_type: type});
+    });
+    return Array.from(by.values());
+  }
+  function systemCleaningRowsImpl(){
+    return realBookingsImpl().map(b => ({
+      date: b.checkout, target_id: b.room_id, target_type: 'room', source: b.platform || 'Airbnb',
+      type: 'system', booking: b, actual: true, reason: '系统退房自动生成'
+    }));
+  }
+  function commonAreaRowsImpl(start,end){
+    const s = start || addDay(today(), -90);
+    const e = end || addDay(today(), 180);
+    const rows = [];
+    getAreas().forEach(area => {
+      if(area.daily_default !== false){
+        dateRange(s,e).forEach(date => rows.push({date, target_id: area.id, target_type: 'common', source: '公区每日保洁', type: 'system_common', actual: true, reason: '公区默认每日打扫'}));
+      }
+    });
+    return rows;
+  }
+  function noteTaskRows(start,end){
+    return getNotes().filter(n => {
+      const type = n.target_type || 'room';
+      return n.date && (!start || n.date >= start) && (!end || n.date <= end) && targetMatches(n.target_id,type) && n.amount_present;
+    }).map(n => ({date:n.date,target_id:n.target_id,target_type:n.target_type || 'room',source:'备注',type:'note_task',actual:true,reason:n.note || '',amount:Number(n.amount || 0),note_task:true,note_id:n.id || ''}));
+  }
+  function actualCleaningRowsImpl(start,end){
+    const rows = systemCleaningRowsImpl().concat(commonAreaRowsImpl(start,end));
+    getManual().forEach(m => {
+      const type = m.target_type || 'room';
+      if(m.type === 'add'){
+        rows.push({date:m.date,target_id:m.target_id,target_type:type,source:m.source || '手动增加',type:'manual_add',actual:true,reason:m.reason || '',amount:Number(m.amount || targetFee(m.target_id,type))});
+      }else if(m.type === 'remove'){
+        rows.forEach(r => {
+          if(r.date === m.date && String(r.target_id) === String(m.target_id) && (r.target_type || 'room') === type){
+            r.actual = false;
+            r.reason = '房东取消：' + (m.reason || '');
+          }
+        });
+      }
+    });
+    return dedupeCleaningRowsImpl(rows.filter(r => r.actual).concat(noteTaskRows(start,end)));
+  }
+  function scopedCleaningRows(start,end){
+    return actualCleaningRowsImpl(start,end).filter(r => targetMatches(r.target_id, r.target_type));
+  }
+  function rowAmount(row){
+    if(row.type === 'manual_add' || row.note_task) return Number(row.amount || targetFee(row.target_id,row.target_type));
+    return targetFee(row.target_id,row.target_type);
+  }
+  function rowFeeText(row){return money(rowAmount(row));}
+  function roomDateNoteFor(date, roomId){return getRoomNotes().filter(n => n.date === date && String(n.room_id) === String(roomId));}
+  function noteFor(date,targetId,targetType){return getNotes().filter(n => n.date === date && String(n.target_id) === String(targetId) && (n.target_type || 'room') === (targetType || 'room'));}
+  function inlineNotes(date,targetId,targetType){
+    const all = noteFor(date,targetId,targetType).concat((targetType === 'room' ? roomDateNoteFor(date,targetId).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})) : []));
+    if(!all.length) return '';
+    return all.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate ? '日期备注' : '备注'}</div><div>${esc(n.note)}</div></div>`).join('');
+  }
+  function reviewNoteForRow(row){
+    return getNotes().find(n => n && n.cancellation_review && !n.inactive && !n.deleted && n.date === row.date && String(n.target_id) === String(row.target_id) && (n.target_type || 'room') === (row.target_type || 'room')) || null;
+  }
+  function reviewStatus(note){
+    const status = String((note && note.owner_review_status) || 'pending');
+    if(status === 'clean_needed') return '房东已确认需要保洁';
+    if(status === 'moved_next_day') return '房东已改到第二天';
+    if(status === 'no_cleaning') return '房东已确认不需要保洁';
+    return '等待房东确认';
+  }
+  function cleaningTaskKey(row){return encodeURIComponent([row.date,row.target_type || 'room',row.target_id,cleanTargetKey(row)].join('|'));}
+  function cleaningReviewControls(row){
+    const note = reviewNoteForRow(row);
+    if(!note) return '';
+    if(!isOwnerLike()) return `<span class="sync-status warn">${esc(reviewStatus(note))}</span>`;
+    if(note.owner_review_status && note.owner_review_status !== 'pending') return `<span class="sync-status ok">${esc(reviewStatus(note))}</span>`;
+    const key = cleaningTaskKey(row);
+    return `<div class="mail-actions"><span class="sync-status warn">等待房东确认</span><button class="smallbtn primary" onclick="resolveCancellationReview('${key}','keep',this)">确认需要保洁</button><button class="smallbtn" onclick="resolveCancellationReview('${key}','move_next_day',this)">改到第二天</button><button class="smallbtn" onclick="resolveCancellationReview('${key}','cancel',this)">不需要保洁</button></div>`;
+  }
+  function cleaningTableScoped(items, showSource=true){
+    const rows = dedupeCleaningRowsImpl(items || []).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
+    if(!rows.length) return `<div class="card"><p class="small">暂无记录</p></div>`;
+    const showProp = ownerPropIds().length !== 1;
+    return `<div class="card"><table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>类型</th><th>对象</th>${showSource?'<th>来源</th>':''}<th>费用</th><th>备注/任务</th><th>确认</th></tr>${rows.map(row => `<tr class="${row.date === today() ? 'today-row' : ''}"><td>${esc(row.date)}</td>${showProp?`<td>${esc(propName(targetPropId(row.target_id,row.target_type)))}</td>`:''}<td>${objectBadge(row.target_type)}</td><td><span class="badge ${row.target_type === 'common' ? 'orange' : ''}">${esc(targetName(row.target_id,row.target_type))}</span></td>${showSource?`<td>${esc(row.source || '')}</td>`:''}<td>${rowFeeText(row)}</td><td>${esc(row.reason || '')}${inlineNotes(row.date,row.target_id,row.target_type)}</td><td>${cleaningReviewControls(row)}</td></tr>`).join('')}</table></div>`;
+  }
+
+  function ensureOwnerPropertyHost(){
+    const owner = qs('owner');
+    if(!owner) return null;
+    let host = qs('ownerPropertyHubMount');
+    if(host) return host;
+    host = document.createElement('div');
+    host.id = 'ownerPropertyHubMount';
+    host.className = 'card property-module';
+    const metrics = qs('ownerMetrics');
+    if(metrics) metrics.insertAdjacentElement('beforebegin', host);
+    else owner.prepend(host);
+    return host;
+  }
+  function propertyMailDigest(propertyId){
+    const count = ui.mail.mailEvents.filter(e => String(e.property_id) === String(propertyId)).length;
+    return `<button type="button" class="smallbtn" onclick="openPropertyMailTab('${esc(propertyId)}')">邮件提醒 ${count}</button>`;
+  }
+  function propertyCard(prop){
+    const checked = ownerPropIds().includes(prop.id);
+    const rooms = propRooms(prop.id);
+    const areas = propAreas(prop.id);
+    const cleaners = propCleaners(prop.id);
+    const editing = ui.editingProperty === prop.id;
+    const nameBlock = editing
+      ? `<div class="channel-row"><input id="propertyName_${safe(prop.id)}" value="${esc(prop.name || '')}"><button class="smallbtn primary" onclick="savePropertyName('${esc(prop.id)}',this)">保存名字</button><button class="smallbtn" onclick="cancelPropertyNameEdit()">取消</button></div>`
+      : `<div class="property-title">${esc(prop.name || prop.id)}</div>`;
+    return `<div class="property-card"><div><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" ${checked?'checked':''} onchange="setOwnerPropertyFilter('${esc(prop.id)}',this.checked)"><span>显示这个房源</span></label>${nameBlock}<div class="property-meta"><span class="badge blue">${rooms.length} 个房间</span><span class="badge orange">${areas.length} 个公区</span><span class="badge green">${cleaners.length} 个保洁绑定</span></div></div><div class="property-actions">${editing?'':`<button class="smallbtn" onclick="editPropertyName('${esc(prop.id)}')">修改名字</button>`}<button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">进入房间管理</button><button class="smallbtn" onclick="deletePropertyUi('${esc(prop.id)}',this)">删除房源</button>${propertyMailDigest(prop.id)}</div></div>`;
+  }
+  function ensureOwnerPropertyModuleVisible(){
+    if(visibleAsCleaner()) return;
+    const host = ensureOwnerPropertyHost();
+    if(!host) return;
+    const props = propList();
+    const label = ownerScopeAll() ? '全部房源' : `${ownerPropIds().length} 个房源`;
+    host.innerHTML = `<div class="property-module-head"><div><h2 style="margin:0">房源管理</h2><div class="small">直接读取后台房源数据；可以添加房源、改名，并进入对应房源的房间/iCal 设置。</div></div><div class="property-actions"><span class="badge green">${esc(label)}</span><button class="smallbtn primary" onclick="addProperty()">添加房源</button><button class="smallbtn" onclick="setOwnerPropertyAll()">全部房源</button><button class="smallbtn" onclick="refreshPropertyHub()">刷新房源</button></div></div><div class="property-cards">${props.length ? props.map(propertyCard).join('') : '<div class="empty-panel">还没有房源。点“添加房源”开始配置。</div>'}</div>`;
+  }
+
+  function initSelectsImpl(){
+    const roomOptions = `<option value="">全部房间</option>` + ownerRooms().map(r => `<option value="${esc(r.id)}">${esc(roomName(r.id))}</option>`).join('');
+    ['ownerRoomFilter','bookingRoomFilter'].forEach(id => { const el = qs(id); if(el) el.innerHTML = roomOptions; });
+    const roomNoteRoom = qs('roomNoteRoom'); if(roomNoteRoom) roomNoteRoom.innerHTML = ownerRooms().map(r => `<option value="${esc(r.id)}">${esc(roomName(r.id))}</option>`).join('');
+    refreshManualTargetOptionsImpl();
+    refreshNoteTargetOptionsImpl();
+    const allTargets = `<option value="">全部对象</option>` + ownerRooms().map(r => `<option value="room:${esc(r.id)}">房间｜${esc(roomName(r.id))}</option>`).join('') + ownerAreas().map(a => `<option value="common:${esc(a.id)}">公区｜${esc(targetName(a.id,'common'))}</option>`).join('');
+    const manualFilter = qs('manualFilterTarget'); if(manualFilter) manualFilter.innerHTML = allTargets;
+  }
+  function cleanTargetOptions(selected=''){
+    return ownerRooms().map(r => `<option value="room:${esc(r.id)}" ${selected === 'room:'+r.id?'selected':''}>房间｜${esc(roomName(r.id))}</option>`).join('') + ownerAreas().map(a => `<option value="common:${esc(a.id)}" ${selected === 'common:'+a.id?'selected':''}>公区｜${esc(targetName(a.id,'common'))}</option>`).join('');
+  }
+  function parseTarget(value){
+    const text = String(value || '');
+    if(text.includes(':')){
+      const parts = text.split(':');
+      return {type: parts[0] || 'room', id: parts.slice(1).join(':')};
+    }
+    return {type: 'room', id: text};
+  }
+  function refreshManualTargetOptionsImpl(){const el = qs('manualTarget'); if(el) el.innerHTML = cleanTargetOptions(el.value);}
+  function refreshNoteTargetOptionsImpl(){const el = qs('noteTarget'); if(el) el.innerHTML = cleanTargetOptions(el.value);}
+
+  function renderOwnerMetricsImpl(){
+    const start = qs('rangeStart') && qs('rangeStart').value || today();
+    const end = qs('rangeEnd') && qs('rangeEnd').value || addDay(today(), 13);
+    const endExclusive = addDay(end,1);
+    const future = ownerRealBookings().filter(b => b.checkin < endExclusive && b.checkout > start);
+    const nights = future.reduce((sum,b) => sum + Math.max(0, Math.min(daysBetweenSafe(start,b.checkout), daysBetweenSafe(start,endExclusive)) - Math.max(0, daysBetweenSafe(start,b.checkin))), 0);
+    const cleanToday = scopedCleaningRows(today(),today()).filter(r => r.date === today()).length;
+    const notesToday = getNotes().filter(n => n.date === today() && targetMatches(n.target_id,n.target_type || 'room')).length + getRoomNotes().filter(n => n.date === today() && roomMatches(n.room_id)).length;
+    const el = qs('ownerMetrics');
+    if(el) el.innerHTML = `<div class="metric"><div class="small">未来订单</div><div class="num">${future.length}</div></div><div class="metric"><div class="small">未来占用晚数</div><div class="num">${nights}</div></div><div class="metric"><div class="small">今日实际保洁</div><div class="num">${cleanToday}</div></div><div class="metric"><div class="small">今日备注</div><div class="num">${notesToday}</div></div>`;
+  }
+
+  function setRangePresetImpl(n){
+    const days = Math.max(1, Math.min(90, Number(n) || 14));
+    const s = qs('rangeStart'), e = qs('rangeEnd');
+    if(s) s.value = today();
+    if(e) e.value = addDay(today(), days - 1);
+    refreshCalendarRangeViewsImpl();
+  }
+  function calendarRange(){
+    const s = qs('rangeStart'), e = qs('rangeEnd');
+    const start = (s && s.value) || today();
+    const end = (e && e.value) || addDay(start,13);
+    const dayCount = Math.max(1, Math.min(90, daysBetweenSafe(start, addDay(end,1))));
+    return {start, end, endExclusive:addDay(end,1), dayCount};
+  }
+  function weekendClass(day){
+    const d = parseDate(day).getDay();
+    return d === 0 ? 'weekend weekend-sun' : d === 6 ? 'weekend weekend-sat' : '';
+  }
+  function weekendLabel(day){
+    const d = parseDate(day).getDay();
+    return d === 0 ? '周日' : d === 6 ? '周六' : '';
+  }
+  function updateRangePresetButtons(){
+    const range = calendarRange();
+    document.querySelectorAll('[data-range-preset]').forEach(btn => {
+      const n = Number(btn.dataset.rangePreset || 0);
+      btn.classList.toggle('primary', range.start === today() && range.dayCount === n && range.end === addDay(today(), n - 1));
+    });
+  }
+  function selectedCalendarRooms(){
+    const id = qs('ownerRoomFilter') && qs('ownerRoomFilter').value;
+    const rows = ownerRooms();
+    return id ? rows.filter(r => String(r.id) === String(id)) : rows;
+  }
+  function renderOwnerCalendarImpl(){
+    const startInput = qs('rangeStart');
+    if(startInput && !startInput.value){ setRangePresetImpl(14); return; }
+    const range = calendarRange();
+    const days = Array.from({length: range.dayCount}, (_,i) => addDay(range.start,i));
+    const rows = selectedCalendarRooms();
+    const grid = qs('calendarGrid');
+    if(!grid) return;
+    if(!rows.length){
+      grid.style.gridTemplateColumns = '1fr';
+      grid.innerHTML = '<div class="cell head">当前房源没有房间</div>';
       updateRangePresetButtons();
-      renderSixMonthStats();
       return;
     }
-    const platformText=b=>bookingSourceLabels(b)[0]||String((b&&b.platform)||'订单');
-    const titleLine=(label,b)=>`${label}${platformText(b)} ${b.checkin} 到 ${b.checkout}`;
-    grid.style.gridTemplateColumns=`140px repeat(${days.length}, 1fr)`;
-    let html='<div class="cell head">房间 / 日期</div>'+days.map(d=>`<div class="cell head ${weekendClass(d)}">${esc(d.slice(5))}${weekendHeaderLabel(d)}</div>`).join('');
-    showRooms.forEach(room=>{
-      const real=dedupeBookingsByStay(ownerRealBookings()).filter(x=>x.room_id===room.id);
-      const locks=dedupeBookingsByStay(ownerLockBookings()).filter(x=>x.room_id===room.id);
-      html+=`<div class="cell room">${showPropColumn()?`${esc(propName(roomPropId(room.id)))}<br>`:''}${esc(objectDisplayName(room,'room'))}</div>`;
-      days.forEach(day=>{
-        const checkout=real.find(x=>x.checkout===day);
-        const checkin=real.find(x=>x.checkin===day);
-        const stay=real.find(x=>x.checkin<day&&x.checkout>day);
-        const lock=locks.find(x=>x.checkin<=day&&x.checkout>day);
-        const hasNote=ownerRoomDateNotes().some(n=>n.date===day&&n.room_id===room.id);
-        const classes=['cell'].concat(weekendClass(day).split(' ').filter(Boolean));
-        const titles=[];
-        let body='';
-        if(checkout&&checkin){
+    grid.style.gridTemplateColumns = `140px repeat(${days.length}, minmax(64px,1fr))`;
+    let html = `<div class="cell head">房间 / 日期</div>` + days.map(day => `<div class="cell head ${weekendClass(day)}">${esc(day.slice(5))}${weekendLabel(day)?`<span class="weekend-label">${weekendLabel(day)}</span>`:''}</div>`).join('');
+    rows.forEach(room => {
+      const real = dedupeBookings(bookingsForRoom(room, ownerRealBookings()));
+      const locks = dedupeBookings(bookingsForRoom(room, ownerLockBookings()));
+      html += `<div class="cell room">${ownerPropIds().length !== 1 ? `${esc(propName(roomPropId(room.id)))}<br>` : ''}${esc(roomName(room.id))}</div>`;
+      days.forEach(day => {
+        const checkout = real.find(x => x.checkout === day);
+        const checkin = real.find(x => x.checkin === day);
+        const stay = real.find(x => x.checkin < day && x.checkout > day);
+        const lock = locks.find(x => x.checkin <= day && x.checkout > day);
+        const hasNote = roomDateNoteFor(day, room.id).length > 0;
+        const classes = ['cell'].concat(weekendClass(day).split(' ').filter(Boolean));
+        const titles = [];
+        let body = '';
+        if(checkout && checkin){
           classes.push('calendar-booked','turnover');
-          titles.push(titleLine('退房：',checkout),titleLine('入住：',checkin));
+          titles.push(`退房：${bookingLabels(checkout).join('/')} ${checkout.checkin} 到 ${checkout.checkout}`, `入住：${bookingLabels(checkin).join('/')} ${checkin.checkin} 到 ${checkin.checkout}`);
         }else if(checkout){
           classes.push('calendar-booked','checkout-only');
-          titles.push(titleLine('退房：',checkout));
+          titles.push(`退房：${bookingLabels(checkout).join('/')} ${checkout.checkin} 到 ${checkout.checkout}`);
         }else if(checkin){
           classes.push('calendar-booked','checkin-only');
-          titles.push(titleLine('入住：',checkin));
+          titles.push(`入住：${bookingLabels(checkin).join('/')} ${checkin.checkin} 到 ${checkin.checkout}`);
         }else if(stay){
           classes.push('calendar-booked','stay-only');
-          body=`<span class="cell-platform">${esc(platformText(stay))}</span>`;
-          titles.push(titleLine('在住：',stay));
+          body = `<span class="cell-platform">${esc(bookingLabels(stay).join('/'))}</span>`;
+          titles.push(`在住：${bookingLabels(stay).join('/')} ${stay.checkin} 到 ${stay.checkout}`);
         }else if(lock){
           classes.push('locked');
-          body='<span class="cell-platform">不开放锁定</span>';
-          titles.push(`不开放锁定：${lock.checkin} 到 ${lock.checkout}，${lockReason(lock)}`);
+          body = '<span class="cell-platform">不开放锁定</span>';
+          titles.push(`不开放锁定：${lock.checkin} 到 ${lock.checkout}；${lockReason(lock)}`);
         }
         if(hasNote){
           classes.push('hasnote');
-          body+=`<span class="cell-note">备注</span>`;
+          body += '<span class="cell-note">备注</span>';
           titles.push('有房东日期备注');
         }
-        html+=`<div class="${classes.join(' ')}" title="${esc(titles.join('；'))}">${body}</div>`;
+        html += `<div class="${classes.join(' ')}" title="${esc(titles.join('；'))}">${body}</div>`;
       });
     });
-    grid.innerHTML=html;
+    grid.innerHTML = html;
     updateRangePresetButtons();
-    renderSixMonthStats();
-  };
-  window.renderOwnerCalendar=renderOwnerCalendar;
-  window.resolveCancellationReview=resolveCancellationReview;
-  const pmsBaseShowOwnerTab=typeof window.showOwnerTab==='function'?window.showOwnerTab:null;
-  function pmsActiveOwnerTabId(){const active=document.querySelector('#owner > .tab-content.active');return active&&active.id?active.id:'ownerDailyWork';}
-  function pmsRenderOwnerTab(id){const tab=id||pmsActiveOwnerTabId();try{if(tab==='ownerCalendar'){renderOwnerCalendar();renderSixMonthStats();renderOwnerBookings();}else if(tab==='ownerCleaning'){renderManualRecords();renderCleaningFinance();}else if(tab==='ownerRooms'){renderRoomSettings();}else if(tab==='ownerNotes'){renderOwnerNotes();}else if(tab==='ownerMail'){renderOwnerMail();}else{renderDailyWork();}}catch(e){console.warn('PMS tab render skipped',e);}}
-  function showOwnerTab(id,btn){if(pmsBaseShowOwnerTab&&pmsBaseShowOwnerTab!==showOwnerTab){pmsBaseShowOwnerTab(id,btn);}else{document.querySelectorAll('#owner > .tab-content').forEach(t=>t.classList.remove('active'));const tab=document.getElementById(id);if(tab)tab.classList.add('active');if(btn&&btn.parentElement){btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}}pmsRenderOwnerTab(id);ensureOwnerPropertyModuleVisible();}
-  refreshOwnerScopedViews=function(){initSelects();renderOwnerMetrics();ensureOwnerPropertyModuleVisible();pmsRenderOwnerTab();ensureOwnerPropertyModuleVisible();};
-  window.showOwnerTab=showOwnerTab;
-  window.refreshOwnerScopedViews=refreshOwnerScopedViews;
-  function install(){if(window.renderOwner!==renderOwner)S.baseRenderOwner=window.renderOwner;Object.assign(window,{applyServerState:applyStateObject,copyIcalUrl,importIcalFile,setOwnerPropertyFilter,setOwnerPropertyOnly,setOwnerPropertyAll,toggleOwnerPropertySelection,clearOwnerPropertyFilter,openPropertyRooms,backToPropertyList,editPropertyName,cancelPropertyNameEdit,savePropertyName,addProperty,deletePropertyUi,bindPropertyCleanerUi,unbindPropertyCleanerUi,editRoomBasics,cancelRoomBasics,saveRoomBasics,addRoom,deleteRoomUi,editCommonAreaBasics,cancelCommonAreaBasics,saveCommonAreaBasics,saveCommonAreas,addCommonArea,deleteCommonArea,editIcalField,cancelIcalField,saveIcalField,clearIcalField,toggleGeneratedFeed,syncPropertyIcal,saveRoomAndSync,addChannelListing,saveChannelListing,deleteChannelListing,copyChannelFeed,editChannelListing,cancelChannelEdit,clearRoomChannels,ensureIcalRuleModal,setRangePreset,refreshCalendarRangeViews,initSelects,refreshManualTargetOptions,refreshNoteTargetOptions,refreshManualFilterTargetOptions,updateManualAmount,refreshCleaningNoteDates,refreshCleaningNoteRooms,refreshCleaningNoteControls,resetCleaningNoteForm,setCleaningFinanceRange,renderOwnerMetrics,ensureOwnerPropertyModuleVisible,renderDailyWork,renderRoomDateNotesForWork,renderOwnerCalendar,renderSixMonthStats,renderOwnerBookings,addManualChange,addCleaningNote,addRoomDateNote,renderOwnerNotes,renderManualRecordsHTML,renderManualRecords,renderCleaningFinance,renderCleaner,setupPropertyRoomUi:setup,renderCommonSettings,renderRoomSettings,renderRoomCard,renderCleanerPanel,renderCommonAreaPanel,renderChannelListingsPanel,renderPropertyList,propertyMailDigestHtml,ensureOwnerMailTab,openPropertyMailTab,renderOwnerMail,renderPropertyDetail,renderAdminDashboard,applyAdminMode,renderOwner});window.__pmsInlineSetupPropertyRoomUi=setup;window.__pmsInlineSaveCommonAreas=saveCommonAreas;window.__pmsInlineRenderCommonSettings=renderCommonSettings;window.__pmsApplyAdminMode=applyAdminMode;}
-  function boot(){install();removeLegacyIntroCards();const owner=document.getElementById('owner'),cleaner=document.getElementById('cleaner');if(currentIsCleaner()||cleaner){if(!props().length&&typeof window.loadState==='function'&&!S.bootLoadStarted){S.bootLoadStarted=true;ensureDataGate('正在加载保洁数据...');window.loadState().then(()=>{if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());renderCleaner();S.bootRendered=true;clearDataGate();}).catch(()=>{clearDataGate();});return;}if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());if(!S.bootRendered){renderCleaner();S.bootRendered=true;}return;}if(owner){if(!props().length&&typeof window.loadState==='function'&&!S.bootLoadStarted){S.bootLoadStarted=true;ensureDataGate('正在加载房源数据...');window.loadState().then(()=>{if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());renderCleaner();renderOwner();S.bootRendered=true;clearDataGate();}).catch(()=>{clearDataGate();});return;}if(!S.bootRendered){renderCleaner();renderOwner();S.bootRendered=true;}}else if(document.getElementById('roomSettings')&&!S.bootRendered){renderRoomSettings();S.bootRendered=true;}}
-  function bootFallback(){install();if(!S.bootRendered)boot();ensureVersionBadge();ensureOwnerPropertyModuleVisible();}
-  boot();
-  setTimeout(bootFallback,120);
+  }
+  function renderSixMonthStatsImpl(){
+    const range = calendarRange();
+    const rooms = selectedCalendarRooms();
+    const showProp = ownerPropIds().length !== 1;
+    const el = qs('sixMonthStats');
+    if(!el) return;
+    const rows = rooms.map(room => {
+      const real = dedupeBookings(bookingsForRoom(room, ownerRealBookings())).filter(b => b.checkin < range.endExclusive && b.checkout > range.start);
+      const locks = dedupeBookings(bookingsForRoom(room, ownerLockBookings())).filter(b => b.checkin < range.endExclusive && b.checkout > range.start);
+      const orderDays = new Set();
+      const lockDays = new Set();
+      real.forEach(b => dateRange(b.checkin, addDay(b.checkout,-1)).forEach(d => { if(d >= range.start && d < range.endExclusive) orderDays.add(d); }));
+      locks.forEach(b => dateRange(b.checkin, addDay(b.checkout,-1)).forEach(d => { if(d >= range.start && d < range.endExclusive) lockDays.add(d); }));
+      const available = Math.max(0, range.dayCount - lockDays.size);
+      const rate = available ? Math.round(orderDays.size / available * 1000) / 10 + '%' : '-';
+      return `<tr>${showProp?`<td>${esc(propName(roomPropId(room.id)))}</td>`:''}<td>${esc(roomName(room.id))}</td><td>${real.length}</td><td>${orderDays.size}</td><td>${lockDays.size}</td><td>${available}</td><td>${rate}</td><td>${money(targetFee(room.id,'room'))}</td></tr>`;
+    }).join('');
+    el.innerHTML = `<table><tr>${showProp?'<th>房源</th>':''}<th>房间</th><th>订单数</th><th>订单晚数</th><th>不开放锁定晚数</th><th>可订晚数</th><th>预订率</th><th>单次保洁费</th></tr>${rows || `<tr><td colspan="${showProp?8:7}">当前筛选没有房间</td></tr>`}</table>`;
+  }
+  function renderOwnerBookingsImpl(){
+    const range = calendarRange();
+    const pf = qs('platformFilter') && qs('platformFilter').value || '';
+    const rf = qs('bookingRoomFilter') && qs('bookingRoomFilter').value || '';
+    let rows = dedupeBookings(ownerBookingsAll()).filter(b => b.checkin < range.endExclusive && b.checkout > range.start);
+    if(pf) rows = rows.filter(b => bookingLabels(b).includes(pf) || b.platform === pf);
+    if(rf) rows = rows.filter(b => roomEntityId(b.room_id) === roomEntityId(rf));
+    rows.sort((a,b) => String(a.checkin).localeCompare(String(b.checkin)) || roomName(a.room_id).localeCompare(roomName(b.room_id),'zh-Hans-CN'));
+    const showProp = ownerPropIds().length !== 1;
+    const el = qs('ownerBookings');
+    if(!el) return;
+    el.innerHTML = `<table><tr><th>入住/开始</th><th>退房/结束</th>${showProp?'<th>房源</th>':''}<th>房间</th><th>来源</th><th>客人</th><th>状态</th><th>日期备注</th></tr>${rows.length ? rows.map(b => {
+      const locked = isLockedBooking(b);
+      return `<tr class="${locked?'lock-row':''}"><td>${esc(b.checkin)}</td><td>${esc(b.checkout)}</td>${showProp?`<td>${esc(propName(roomPropId(b.room_id)))}</td>`:''}<td><span class="badge">${esc(roomName(b.room_id))}</span></td><td>${bookingSourceBadges(b)}</td><td>${locked?'':esc(b.guest || '')}</td><td>${locked?`<span class="badge red">不开放锁定</span> ${esc(lockReason(b))}`:esc(b.status || '')}</td><td>${getRoomNotes().filter(n => n.room_id === b.room_id && n.date >= b.checkin && n.date <= b.checkout).length}</td></tr>`;
+    }).join('') : `<tr><td colspan="${showProp?8:7}">当前日期范围没有预订</td></tr>`}</table>`;
+  }
+  function refreshCalendarRangeViewsImpl(){
+    renderOwnerMetricsImpl();
+    renderOwnerCalendarImpl();
+    renderSixMonthStatsImpl();
+    renderOwnerBookingsImpl();
+  }
+
+  function dailyEmptyRooms(date, real, locks){
+    return ownerRooms().filter(r => {
+      const entity = inventoryGroupId(r);
+      return !real.some(b => roomEntityId(b.room_id) === entity && b.checkin <= date && b.checkout > date) &&
+        !locks.some(b => roomEntityId(b.room_id) === entity && b.checkin <= date && b.checkout > date);
+    });
+  }
+  function renderDailyWorkImpl(){
+    const wd = qs('workDate');
+    if(wd && !wd.value) wd.value = today();
+    const d = (wd && wd.value) || today();
+    const real = ownerRealBookings();
+    const locks = ownerLockBookings().filter(b => b.checkin <= d && b.checkout > d).sort((a,b) => roomName(a.room_id).localeCompare(roomName(b.room_id),'zh-Hans-CN'));
+    const checkouts = real.filter(b => b.checkout === d).sort((a,b) => roomName(a.room_id).localeCompare(roomName(b.room_id),'zh-Hans-CN'));
+    const checkins = real.filter(b => b.checkin === d).sort((a,b) => roomName(a.room_id).localeCompare(roomName(b.room_id),'zh-Hans-CN'));
+    const stays = real.filter(b => b.checkin < d && b.checkout > d).sort((a,b) => roomName(a.room_id).localeCompare(roomName(b.room_id),'zh-Hans-CN'));
+    const empty = dailyEmptyRooms(d, real, locks);
+    const cleanRows = scopedCleaningRows(d,d).filter(r => r.date === d);
+    const notes = getNotes().filter(n => n.date === d && targetMatches(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === d && roomMatches(n.room_id)).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
+    const metrics = qs('dailyWorkMetrics');
+    if(metrics) metrics.innerHTML = `<div class="metric"><div class="small">退房</div><div class="num">${checkouts.length}</div></div><div class="metric"><div class="small">入住</div><div class="num">${checkins.length}</div></div><div class="metric"><div class="small">剩余在住</div><div class="num">${stays.length}</div></div><div class="metric"><div class="small">空房</div><div class="num">${empty.length}</div></div><div class="metric"><div class="small">不开放锁定</div><div class="num">${locks.length}</div></div><div class="metric"><div class="small">保洁任务</div><div class="num">${cleanRows.length}</div></div>`;
+    function bookingCards(title, rows, cls){
+      return `<div class="work-card ${cls}"><h3>${title}（${rows.length}）</h3>${rows.length ? rows.map(b => {
+        const left = Math.max(0, daysBetweenSafe(d,b.checkout));
+        const main = cls === 'checkout' ? `退房：${esc(b.checkout)} ｜ 入住：${esc(b.checkin)}` : `还剩 ${left} 天退房 ｜ 退房：${esc(b.checkout)}`;
+        return `<div class="note-card"><div class="note-title"><span class="badge">${esc(roomName(b.room_id))}</span> ${bookingSourceBadges(b)}</div><div>${main}</div><div class="small">订单：${esc(b.checkin)} → ${esc(b.checkout)}${b.guest?` ｜ 客人：${esc(b.guest)}`:''}</div>${inlineNotes(d,b.room_id,'room')}</div>`;
+      }).join('') : '<p class="small">暂无</p>'}</div>`;
+    }
+    const content = qs('dailyWorkContent');
+    if(content) content.innerHTML = `<div class="work-grid">${bookingCards('退房',checkouts,'checkout')}${bookingCards('入住',checkins,'checkin')}${bookingCards('剩余在住',stays,'stay')}<div class="work-card empty"><h3>空房（${empty.length}）</h3>${empty.length ? empty.map(r => `<div class="note-card"><div class="note-title"><span class="badge green">${esc(roomName(r.id))}</span></div><div class="small">当晚没有入住、在住或锁定记录。</div>${inlineNotes(d,r.id,'room')}</div>`).join('') : '<p class="small">暂无空房</p>'}</div><div class="work-card locked"><h3>不开放锁定（${locks.length}）</h3>${locks.length ? locks.map(b => `<div class="note-card"><div class="note-title"><span class="badge orange">${esc(roomName(b.room_id))}</span> <span class="badge red">不开放锁定</span></div><div>${esc(b.checkin)} → ${esc(b.checkout)}</div><div class="small">原因：${esc(lockReason(b))}</div></div>`).join('') : '<p class="small">暂无</p>'}</div></div><div class="card"><h2>当天保洁任务</h2>${cleaningTableScoped(cleanRows)}</div><div class="card"><h2>当天备注</h2>${notes.length ? notes.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('') : '<p class="small">暂无备注</p>'}</div>`;
+  }
+
+  function renderCleaningManagerShell(){
+    const root = qs('ownerCleaningShell');
+    if(!root) return;
+    root.innerHTML = `<div class="card"><h2>手动调整实际保洁</h2><div class="formgrid"><div><label>日期</label><input id="manualDate" type="date"></div><div><label>对象</label><select id="manualTarget"></select></div><div><label>调整类型</label><select id="manualType"><option value="add">额外增加保洁</option><option value="remove">取消系统保洁</option></select></div><div><label>调整金额</label><input id="manualAmount" type="number" step="0.01"></div><div><label>原因</label><input id="manualReason" placeholder="例如：临时加扫 / 实际没打扫"></div></div><br><button class="smallbtn primary" onclick="addManualChange()">添加调整记录</button></div><div class="card"><div class="toolbar"><h2 style="margin:0">手动调整记录</h2><input id="manualFilterStart" type="date" onchange="renderManualRecords()"><input id="manualFilterEnd" type="date" onchange="renderManualRecords()"><select id="manualFilterTarget" onchange="renderManualRecords()"></select><select id="manualFilterType" onchange="renderManualRecords()"><option value="">全部调整</option><option value="add">额外增加</option><option value="remove">取消保洁</option></select></div><div id="manualRecords"></div></div><div class="card"><div class="property-detail-head"><div><h2>保洁费用统计</h2><div class="small">按日期排序，再按房间排序；历史和将来分开显示。</div></div><div class="property-actions"><input id="cleanStart" type="date" onchange="renderCleaningFinance()"><input id="cleanEnd" type="date" onchange="renderCleaningFinance()"></div></div><div id="cleaningFinance"></div></div>`;
+    const md = qs('manualDate'); if(md && !md.value) md.value = today();
+    const cs = qs('cleanStart'); if(cs && !cs.value) cs.value = addDay(today(), -30);
+    const ce = qs('cleanEnd'); if(ce && !ce.value) ce.value = addDay(today(), 30);
+    initSelectsImpl();
+  }
+  function addManualChangeImpl(){
+    const target = parseTarget(qs('manualTarget') && qs('manualTarget').value);
+    if(!target.id) return alert('请选择对象');
+    getManual().unshift({id:'manual_'+Date.now(),date:(qs('manualDate') && qs('manualDate').value) || today(),target_id:target.id,target_type:target.type,type:(qs('manualType') && qs('manualType').value) || 'add',amount:Number((qs('manualAmount') && qs('manualAmount').value) || 0),reason:(qs('manualReason') && qs('manualReason').value) || '未填写原因',created_by:userName('房东'),created_at:nowIso()});
+    if(qs('manualReason')) qs('manualReason').value = '';
+    if(qs('manualAmount')) qs('manualAmount').value = '';
+    persistAll().then(renderAll).catch(e => alert('保存失败：' + e.message));
+  }
+  function renderManualRecordsImpl(){
+    const fs = qs('manualFilterStart') && qs('manualFilterStart').value;
+    const fe = qs('manualFilterEnd') && qs('manualFilterEnd').value;
+    const ft = qs('manualFilterType') && qs('manualFilterType').value;
+    const obj = qs('manualFilterTarget') && qs('manualFilterTarget').value;
+    let rows = getManual().filter(m => targetMatches(m.target_id,m.target_type || 'room'));
+    if(fs) rows = rows.filter(m => m.date >= fs);
+    if(fe) rows = rows.filter(m => m.date <= fe);
+    if(ft) rows = rows.filter(m => m.type === ft);
+    if(obj){const parsed = parseTarget(obj); rows = rows.filter(m => (m.target_type || 'room') === parsed.type && String(m.target_id) === String(parsed.id));}
+    rows.sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
+    const el = qs('manualRecords');
+    if(el) el.innerHTML = renderManualRecordsHTMLImpl(rows,false);
+  }
+  function renderManualRecordsHTMLImpl(rows, withCard=true){
+    const table = `<table><tr><th>日期</th><th>对象</th><th>类型</th><th>调整金额</th><th>原因</th><th>操作人</th></tr>${(rows || []).map(m => `<tr><td>${esc(m.date)}</td><td>${objectBadge(m.target_type)} ${esc(targetName(m.target_id,m.target_type))}</td><td>${changeBadge(m.type)}</td><td>${signedMoney(m.amount)}</td><td>${esc(m.reason || '')}</td><td>${esc(m.created_by || '')}</td></tr>`).join('') || '<tr><td colspan="6">暂无记录</td></tr>'}</table>`;
+    return withCard ? `<div class="card">${table}</div>` : table;
+  }
+  function renderCleaningFinanceImpl(){
+    const cs = qs('cleanStart'), ce = qs('cleanEnd');
+    if(cs && !cs.value) cs.value = addDay(today(), -30);
+    if(ce && !ce.value) ce.value = addDay(today(), 30);
+    const start = (cs && cs.value) || addDay(today(), -30);
+    const end = (ce && ce.value) || addDay(today(), 30);
+    const rows = scopedCleaningRows(start,end).filter(r => r.date >= start && r.date <= end).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
+    const history = rows.filter(r => r.date < today());
+    const future = rows.filter(r => r.date >= today());
+    const total = rows.reduce((s,r) => s + rowAmount(r), 0);
+    const roomTotal = rows.filter(r => (r.target_type || 'room') === 'room').reduce((s,r) => s + rowAmount(r), 0);
+    const commonTotal = rows.filter(r => r.target_type === 'common').reduce((s,r) => s + rowAmount(r), 0);
+    const el = qs('cleaningFinance');
+    if(!el) return;
+    const section = (title, list) => `<div class="finance-section"><h3>${title}（${list.length}）</h3>${cleaningTableScoped(list)}</div>`;
+    el.innerHTML = `<div class="grid"><div class="metric"><div class="small">保洁次数</div><div class="num">${rows.length}</div></div><div class="metric"><div class="small">房间费用</div><div class="num">${money(roomTotal)}</div></div><div class="metric"><div class="small">公区费用</div><div class="num">${money(commonTotal)}</div></div><div class="metric"><div class="small">合计费用</div><div class="num">${money(total)}</div></div></div>${section('历史保洁',history)}${section('将来保洁',future)}`;
+  }
+
+  function renderOwnerNotesShell(){
+    const root = qs('ownerNotesShell');
+    if(!root) return;
+    root.innerHTML = `<div class="card"><h2>保洁备注</h2><div class="formgrid"><div><label>日期</label><input id="noteDate" type="date"></div><div><label>对象</label><select id="noteTarget"></select></div><div><label>优先级</label><select id="notePriority"><option>普通</option><option>重要</option></select></div><div><label>调整金额</label><input id="noteAmount" type="number" step="0.01" placeholder="可不填"></div></div><label style="margin-top:12px">备注内容</label><textarea id="noteText" placeholder="写给保洁看的事项"></textarea><br><br><button class="smallbtn primary" onclick="addCleaningNote()">保存保洁备注</button></div><div class="card"><h2>指定房间日期备注</h2><div class="formgrid"><div><label>日期</label><input id="roomNoteDate" type="date"></div><div><label>房间</label><select id="roomNoteRoom"></select></div><div><label>优先级</label><select id="roomNotePriority"><option>普通</option><option>重要</option></select></div></div><label style="margin-top:12px">备注内容</label><textarea id="roomNoteText" placeholder="例如：纪念日布置、婴儿床、提前放红酒"></textarea><br><br><button class="smallbtn primary" onclick="addRoomDateNote()">添加房间日期备注</button></div><div class="card"><div class="toolbar"><h2 style="margin:0">备注记录</h2><input id="noteFilterDate" type="date" onchange="renderOwnerNotes()"><select id="noteFilterTargetType" onchange="renderOwnerNotes()"><option value="">全部</option><option value="room">房间</option><option value="common">公区</option><option value="roomDate">房间日期备注</option></select></div><div id="ownerNotesList"></div></div>`;
+    ['noteDate','roomNoteDate'].forEach(id => { const el = qs(id); if(el && !el.value) el.value = today(); });
+    initSelectsImpl();
+  }
+  function addCleaningNoteImpl(){
+    const target = parseTarget(qs('noteTarget') && qs('noteTarget').value);
+    const text = (qs('noteText') && qs('noteText').value || '').trim();
+    if(!target.id) return alert('请选择对象');
+    if(!text) return alert('请先填写备注内容');
+    const amountText = String(qs('noteAmount') && qs('noteAmount').value || '').trim();
+    getNotes().unshift({id:'note_'+Date.now(),date:(qs('noteDate') && qs('noteDate').value) || today(),target_id:target.id,target_type:target.type,note:text,priority:(qs('notePriority') && qs('notePriority').value) || '普通',amount:amountText === '' ? 0 : Number(amountText),amount_present:amountText !== '',created_by:userName('房东'),created_at:nowIso()});
+    if(qs('noteText')) qs('noteText').value = '';
+    if(qs('noteAmount')) qs('noteAmount').value = '';
+    persistAll().then(renderAll).catch(e => alert('保存失败：' + e.message));
+  }
+  function addRoomDateNoteImpl(){
+    const text = (qs('roomNoteText') && qs('roomNoteText').value || '').trim();
+    const roomId = qs('roomNoteRoom') && qs('roomNoteRoom').value;
+    if(!roomId) return alert('请选择房间');
+    if(!text) return alert('请先填写备注内容');
+    getRoomNotes().unshift({id:'roomnote_'+Date.now(),date:(qs('roomNoteDate') && qs('roomNoteDate').value) || today(),room_id:roomId,note:text,priority:(qs('roomNotePriority') && qs('roomNotePriority').value) || '普通',created_by:userName('房东'),created_at:nowIso()});
+    if(qs('roomNoteText')) qs('roomNoteText').value = '';
+    persistAll().then(renderAll).catch(e => alert('保存失败：' + e.message));
+  }
+  function renderOwnerNotesImpl(){
+    const fd = qs('noteFilterDate') && qs('noteFilterDate').value;
+    const ft = qs('noteFilterTargetType') && qs('noteFilterTargetType').value;
+    let rows = [];
+    if(!ft || ft === 'room' || ft === 'common') rows = rows.concat(getNotes().map(n => ({...n,kind:'cleaning'})));
+    if(!ft || ft === 'roomDate') rows = rows.concat(getRoomNotes().map(n => ({...n,date:n.date,target_id:n.room_id,target_type:'room',kind:'roomDate'})));
+    rows = rows.filter(n => n.kind === 'roomDate' ? roomMatches(n.target_id) : targetMatches(n.target_id,n.target_type || 'room'));
+    if(fd) rows = rows.filter(n => n.date === fd);
+    if(ft === 'room' || ft === 'common') rows = rows.filter(n => (n.target_type || 'room') === ft && n.kind === 'cleaning');
+    if(ft === 'roomDate') rows = rows.filter(n => n.kind === 'roomDate');
+    rows.sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
+    const el = qs('ownerNotesList');
+    if(el) el.innerHTML = rows.length ? `<table><tr><th>日期</th><th>对象</th><th>类型</th><th>备注</th><th>金额</th><th>操作人</th></tr>${rows.map(n => `<tr><td>${esc(n.date)}</td><td>${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))}</td><td>${n.kind === 'roomDate' ? '<span class="badge purple">房间日期备注</span>' : priorityBadge(n.priority)}</td><td>${esc(n.note)}</td><td>${n.amount_present ? signedMoney(n.amount) : ''}</td><td>${esc(n.created_by || '')}</td></tr>`).join('')}</table>` : '<p class="small">暂无备注</p>';
+  }
+
+  function channelRows(roomId){
+    return getChannels().filter(ch => String(ch.room_id) === String(roomId));
+  }
+  function feedUrlForRoom(room){
+    return `${location.origin}/feed/${encodeURIComponent(inventoryGroupId(room))}.ics`;
+  }
+  function channelInputId(id,field){return `channel_${safe(id)}_${field}`;}
+  function readChannelForm(id){
+    const list = getChannels();
+    const row = list.find(ch => String(ch.id) === String(id));
+    if(!row) return null;
+    row.platform = (qs(channelInputId(id,'platform')) && qs(channelInputId(id,'platform')).value) || row.platform || 'Airbnb';
+    row.ical_url = (qs(channelInputId(id,'ical')) && qs(channelInputId(id,'ical')).value || '').trim();
+    row.listing_url = (qs(channelInputId(id,'listing')) && qs(channelInputId(id,'listing')).value || '').trim();
+    row.channel_note = (qs(channelInputId(id,'note')) && qs(channelInputId(id,'note')).value || '').trim();
+    row.updated_at = nowIso();
+    return row;
+  }
+  function renderChannel(room,ch){
+    const status = ch.sync_error ? `<span class="sync-status error">同步失败：${esc(ch.sync_error)}</span>` : (ch.last_sync ? `<span class="sync-status ok">同步：${esc(ch.last_sync)} · ${Number(ch.synced_booking_count || 0)} 条</span>` : '<span class="sync-status warn">未同步</span>');
+    return `<div class="channel-card"><div class="channel-grid"><div><label>平台</label><select id="${channelInputId(ch.id,'platform')}"><option ${ch.platform==='Airbnb'?'selected':''}>Airbnb</option><option ${ch.platform==='Booking'?'selected':''}>Booking</option><option ${ch.platform==='Vrbo'?'selected':''}>Vrbo</option><option ${ch.platform==='Other'?'selected':''}>Other</option></select></div><div><label>平台导出 iCal</label><input id="${channelInputId(ch.id,'ical')}" value="${esc(ch.ical_url || '')}" placeholder="粘贴平台 Export iCal 链接"></div><div><label>公开房源链接</label><input id="${channelInputId(ch.id,'listing')}" value="${esc(ch.listing_url || '')}" placeholder="客人可见的公开页面"></div><div><label>备注</label><input id="${channelInputId(ch.id,'note')}" value="${esc(ch.channel_note || '')}" placeholder="账号/房源备注"></div><div class="property-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-row"><div>${status}</div><button class="smallbtn" onclick="copyText('${esc(feedUrlForRoom(room))}')">复制防超卖 iCal</button></div><div class="feed-line">${esc(feedUrlForRoom(room))}</div></div>`;
+  }
+  function renderRoomCard(room){
+    const editing = ui.editingRoom === room.id;
+    const channels = channelRows(room.id);
+    const roomHead = editing
+      ? `<div class="room-basics"><div><label>房间名称</label><input id="roomName_${safe(room.id)}" value="${esc(room.name || '')}"></div><div><label>单次保洁费</label><input id="roomFee_${safe(room.id)}" type="number" value="${esc(room.cleaning_fee || 0)}"></div><div class="property-actions"><button class="smallbtn primary" onclick="saveRoomBasics('${esc(room.id)}',this)">保存</button><button class="smallbtn" onclick="cancelRoomBasics()">取消</button></div></div>`
+      : `<div><strong>${esc(room.name || room.id)}</strong><div class="small">清洁费：${money(room.cleaning_fee || 0)} · ${channels.length} 个渠道</div></div><div class="property-actions"><button class="smallbtn" onclick="editRoomBasics('${esc(room.id)}')">修改</button><button class="smallbtn" onclick="deleteRoomUi('${esc(room.id)}',this)">删除</button></div>`;
+    return `<div class="room-setting-card"><div class="room-head">${roomHead}</div><div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">渠道 / iCal</h3><div class="small">同一个真实房间只建一次；多个 Airbnb 账号或平台都作为渠道挂在这里。</div></div><button class="smallbtn primary" onclick="addChannelListing('${esc(room.id)}')">添加渠道</button></div><div class="channel-list">${channels.length ? channels.map(ch => renderChannel(room,ch)).join('') : '<div class="empty-panel">还没有渠道。点击“添加渠道”后粘贴 Airbnb/平台导出的 iCal。</div>'}</div></div></div>`;
+  }
+  function renderCleanerPanel(prop){
+    const cleaners = propCleaners(prop.id);
+    return `<div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">保洁绑定</h3><div class="small">输入保洁编号后绑定到这个房源。</div></div></div><div class="channel-row"><input id="cleanerCode_${safe(prop.id)}" placeholder="例如 CLN-1091"><button class="smallbtn primary" onclick="bindPropertyCleanerUi('${esc(prop.id)}',this)">绑定保洁</button></div><div class="property-meta">${cleaners.length ? cleaners.map(c => `<span class="badge green">${esc(c.cleaner_code)} <button class="tiny-link" onclick="unbindPropertyCleanerUi('${esc(prop.id)}','${esc(c.cleaner_code)}',this)">删除</button></span>`).join('') : '<span class="small">还没有绑定保洁。</span>'}</div></div>`;
+  }
+  function renderCommonAreaPanel(prop){
+    const areas = propAreas(prop.id);
+    return `<div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">公区设置</h3><div class="small">公区默认每天保洁，费用计入保洁统计。</div></div><button class="smallbtn primary" onclick="addCommonArea('${esc(prop.id)}')">添加公区</button></div><div class="channel-list">${areas.length ? areas.map(a => `<div class="channel-card"><div class="channel-grid"><div><label>名称</label><input id="areaName_${safe(a.id)}" value="${esc(a.name || '')}"></div><div><label>每日费用</label><input id="areaFee_${safe(a.id)}" type="number" value="${esc(a.cleaning_fee || 0)}"></div><div><label>是否每日保洁</label><select id="areaDaily_${safe(a.id)}"><option value="true" ${a.daily_default!==false?'selected':''}>每天打扫</option><option value="false" ${a.daily_default===false?'selected':''}>不默认</option></select></div><div></div><div class="property-actions"><button class="smallbtn primary" onclick="saveCommonAreaBasics('${esc(a.id)}',this)">保存</button><button class="smallbtn" onclick="deleteCommonAreaUi('${esc(a.id)}',this)">删除</button></div></div></div>`).join('') : '<div class="empty-panel">还没有公区。</div>'}</div></div>`;
+  }
+  function renderRoomSettingsImpl(){
+    ensureOwnerPropertyModuleVisible();
+    const root = qs('roomSettings');
+    if(!root) return;
+    const prop = selectedProp();
+    if(!prop){
+      root.innerHTML = `<div class="empty-panel"><strong>从上方房源管理进入房间管理</strong><div class="small" style="margin-top:8px">房源模块可以添加、改名、删除；进入房源后这里显示房间、公区、iCal 和保洁绑定。</div></div>`;
+      return;
+    }
+    const rooms = propRooms(prop.id);
+    const sync = ui.syncResults[prop.id];
+    root.innerHTML = `<div class="property-detail-head"><div><h2 style="margin:0">${esc(prop.name || prop.id)} 房间管理</h2><div class="small">${rooms.length} 个房间 · ${propAreas(prop.id).length} 个公区 · ${propCleaners(prop.id).length} 个保洁绑定</div></div><div class="property-actions"><button class="smallbtn" onclick="backToPropertyList()">返回房源列表</button><button class="smallbtn primary" onclick="syncPropertyIcal('${esc(prop.id)}',this)">同步当前房源 iCal</button>${sync?`<span class="sync-status ${sync.kind || ''}">${esc(sync.text || '')}</span>`:''}</div></div>${renderCleanerPanel(prop)}${renderCommonAreaPanel(prop)}<div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">房间设置</h3><div class="small">每个真实房间只建一次；重复上架用“渠道”关联在房间下方。</div></div><button class="smallbtn primary" onclick="addRoom('${esc(prop.id)}')">添加房间</button></div><div class="room-setting-list">${rooms.length ? rooms.map(renderRoomCard).join('') : '<div class="empty-panel">这个房源还没有房间。</div>'}</div></div>`;
+  }
+
+  function renderOwnerImpl(){
+    ensureBaseShell();
+    ensureStyles();
+    removeLegacyIntroCards();
+    if(!currentDataCount() && ui.loading){ensureDataGate('正在加载房源数据...'); return;}
+    ensureOwnerPropertyModuleVisible();
+    initSelectsImpl();
+    renderOwnerMetricsImpl();
+    ensureOwnerMailTab();
+    renderOwnerTabImpl(activeOwnerTabId());
+    setHeader('owner');
+    ensureLogoutButton();
+    ensureVersionBadge();
+  }
+  function activeOwnerTabId(){const active = document.querySelector('#owner > .tab-content.active'); return active && active.id ? active.id : 'ownerDailyWork';}
+  function renderOwnerTabImpl(id){
+    const tab = id || activeOwnerTabId();
+    if(tab === 'ownerCalendar'){renderOwnerCalendarImpl(); renderSixMonthStatsImpl(); renderOwnerBookingsImpl();}
+    else if(tab === 'ownerCleaning'){renderCleaningManagerShell(); renderManualRecordsImpl(); renderCleaningFinanceImpl();}
+    else if(tab === 'ownerRooms'){renderRoomSettingsImpl();}
+    else if(tab === 'ownerNotes'){renderOwnerNotesShell(); renderOwnerNotesImpl();}
+    else if(tab === 'ownerMail'){renderOwnerMail();}
+    else renderDailyWorkImpl();
+  }
+  function showOwnerTabImpl(id,btn){
+    document.querySelectorAll('#owner > .tab-content').forEach(tab => tab.classList.remove('active'));
+    const pane = qs(id);
+    if(pane) pane.classList.add('active');
+    const bar = btn && btn.parentElement ? btn.parentElement : document.querySelector('#owner .tabbar');
+    if(bar) bar.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    if(btn) btn.classList.add('active');
+    renderOwnerTabImpl(id);
+    ensureOwnerPropertyModuleVisible();
+  }
+
+  function cleanerBoundPropertyIds(){
+    const u = getCurrentUser() || {};
+    const code = String(u.cleaner_code || '').trim().toUpperCase();
+    if(!code) return new Set();
+    return new Set(getPropertyCleaners().filter(x => String(x.cleaner_code || '').trim().toUpperCase() === code).map(x => x.property_id).filter(Boolean));
+  }
+  function cleanerCanSeeTarget(targetId,type){
+    if(!isActualCleaner()) return targetMatches(targetId,type);
+    const ids = cleanerBoundPropertyIds();
+    if(!ids.size) return false;
+    return ids.has(targetPropId(targetId,type));
+  }
+  function cleanerBoundProperties(){
+    if(!isActualCleaner()) return propList().filter(p => ownerPropIds().includes(p.id));
+    const ids = cleanerBoundPropertyIds();
+    return propList().filter(p => ids.has(p.id));
+  }
+  function cleanerSummaryHtml(){
+    const bound = cleanerBoundProperties();
+    const title = userName(isActualCleaner() ? '保洁' : '房东');
+    if(isActualCleaner()){
+      const code = (getCurrentUser() && getCurrentUser().cleaner_code) || '-';
+      return `<div class="card"><div class="property-detail-head"><div><h2>${esc(title)}</h2><div class="small">保洁编号：${esc(code)} · 已绑定房源：${esc(bound.map(p => p.name || p.id).join('、') || '还没有绑定房源')}</div></div><span class="badge green">${bound.length} 个房源</span></div></div>`;
+    }
+    return `<div class="card"><div class="property-detail-head"><div><h2>${esc(title)}</h2><div class="small">房东账号 · 可查看房源：${esc(bound.map(p => p.name || p.id).join('、') || '还没有房源')}</div></div><span class="badge green">${bound.length} 个房源</span></div></div>`;
+  }
+  function renderCleanerNotesToday(){
+    const rows = getNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.room_id,'room')).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
+    if(!rows.length) return '';
+    return `<div class="card"><h2>今日特别备注</h2>${rows.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('')}</div>`;
+  }
+  function renderCleanerImpl(){
+    ensureBaseShell();
+    ensureStyles();
+    const rows = actualCleaningRowsImpl(addDay(today(),-90), addDay(today(),180)).filter(r => cleanerCanSeeTarget(r.target_id,r.target_type));
+    const todayRows = rows.filter(r => r.date === today()).sort((a,b) => targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
+    const futureRows = rows.filter(r => r.date > today()).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN')).slice(0,120);
+    const historyRows = rows.filter(r => r.date < today()).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
+    const summary = qs('cleanerSummary'); if(summary) summary.innerHTML = cleanerSummaryHtml();
+    const metrics = qs('cleanerMetrics'); if(metrics) metrics.innerHTML = `<div class="metric"><div class="small">${isActualCleaner()?'已绑定房源':'可查看房源'}</div><div class="num">${cleanerBoundProperties().length}</div></div><div class="metric"><div class="small">可查看房间</div><div class="num">${getRooms().filter(r => cleanerCanSeeTarget(r.id,'room')).length}</div></div><div class="metric"><div class="small">今日保洁</div><div class="num">${todayRows.length}</div></div><div class="metric"><div class="small">今日备注</div><div class="num">${getNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.target_id,n.target_type || 'room')).length + getRoomNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.room_id,'room')).length}</div></div><div class="metric"><div class="small">未来保洁</div><div class="num">${futureRows.length}</div></div>`;
+    const notes = qs('cleanerTodayNotes'); if(notes) notes.innerHTML = renderCleanerNotesToday();
+    const todayBox = qs('cleanerToday'); if(todayBox) todayBox.innerHTML = cleaningTableScoped(todayRows);
+    const futureBox = qs('cleanerFuture'); if(futureBox) futureBox.innerHTML = cleaningTableScoped(futureRows);
+    const manualBox = qs('cleanerManual'); if(manualBox) manualBox.innerHTML = renderManualRecordsHTMLImpl(getManual().filter(m => cleanerCanSeeTarget(m.target_id,m.target_type || 'room')),false);
+    const groups = {};
+    historyRows.forEach(r => (groups[monthKey(r.date)] ||= []).push(r));
+    const historyBox = qs('cleanerHistory');
+    if(historyBox) historyBox.innerHTML = `<div class="card"><h2>历史保洁 | 按月统计</h2><div class="small">默认折叠，点月份展开。公区每日保洁也计入历史记录。</div></div>` + (Object.keys(groups).sort().reverse().map((month,index) => {
+      const total = groups[month].reduce((s,r) => s + rowAmount(r), 0);
+      return `<div class="month-block ${index===0?'open':''}"><div class="month-head" onclick="this.parentElement.classList.toggle('open')"><span>${esc(month)} 保洁 ${groups[month].length} 次</span><span>费用：${money(total)}</span></div><div class="month-body">${cleaningTableScoped(groups[month])}</div></div>`;
+    }).join('') || '<div class="card"><p class="small">暂无历史记录</p></div>');
+    setHeader('cleaner');
+    ensureLogoutButton();
+    ensureVersionBadge();
+  }
+
+  function mailSetting(propertyId){return ui.mail.propertyMailForwarding.find(x => String(x.property_id) === String(propertyId)) || null;}
+  function generatedMailAddress(propertyId){
+    const cfg = ui.mail.mailForwardingConfig[0] || {};
+    const inbox = cfg.inbox_email || '';
+    if(!inbox.includes('@')) return '';
+    const parts = inbox.split('@');
+    return `${parts[0]}+${cfg.alias_prefix || 'pms'}_${safe(propertyId)}@${parts.slice(1).join('@')}`;
+  }
+  function ensureOwnerMailTab(){
+    const owner = qs('owner');
+    if(!owner) return;
+    const tabbar = owner.querySelector('.tabbar');
+    if(tabbar && !tabbar.querySelector('[data-pms-mail-tab]')){
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.pmsMailTab = '1';
+      btn.textContent = '邮件提醒';
+      btn.onclick = function(){showOwnerTabImpl('ownerMail', this);};
+      tabbar.appendChild(btn);
+    }
+    if(!qs('ownerMail')){
+      const pane = document.createElement('div');
+      pane.id = 'ownerMail';
+      pane.className = 'tab-content';
+      owner.appendChild(pane);
+    }
+  }
+  function renderOwnerMail(){
+    ensureOwnerMailTab();
+    const root = qs('ownerMail');
+    if(!root) return;
+    const props = propList().filter(p => ownerPropIds().includes(p.id));
+    const eventCount = props.reduce((n,p) => n + ui.mail.mailEvents.filter(e => String(e.property_id) === String(p.id)).length, 0);
+    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>邮件提醒</h2><div class="small">按房源管理 Airbnb 通知邮箱、PMS 转发地址和提醒记录。</div></div><span class="badge ${eventCount?'orange':'blue'}">共 ${eventCount} 条</span></div><div class="channel-list">${props.map(p => renderPropertyMailPanel(p)).join('') || '<div class="empty-panel">请先添加房源。</div>'}</div></div>`;
+  }
+  function renderPropertyMailPanel(prop){
+    const row = mailSetting(prop.id) || {};
+    const events = ui.mail.mailEvents.filter(e => String(e.property_id) === String(prop.id)).sort((a,b) => String(b.received_at || b.created_at || '').localeCompare(String(a.received_at || a.created_at || ''))).slice(0,8);
+    const addr = row.pms_forward_address || generatedMailAddress(prop.id);
+    return `<div class="mail-panel"><div class="property-detail-head"><div><h3 style="margin:0">${esc(prop.name || prop.id)}</h3><div class="small">${events.length} 条邮件提醒</div></div><div class="mail-actions"><button class="smallbtn primary" onclick="savePropertyMail('${esc(prop.id)}',this)">保存邮箱</button><button class="smallbtn" onclick="syncMailEventsFromGmail('${esc(prop.id)}',this)">同步 Gmail</button></div></div><div class="formgrid"><div><label>Airbnb 通知邮箱</label><input id="mailSource_${safe(prop.id)}" value="${esc(row.source_email || '')}" placeholder="Airbnb 发信到哪个邮箱"></div><div><label>PMS 转发地址</label><input readonly value="${esc(addr || '后台未配置主 Gmail')}"></div><div><label>状态</label><select id="mailStatus_${safe(prop.id)}"><option value="not_set" ${row.forward_status==='not_set'?'selected':''}>未设置</option><option value="verification_pending" ${row.forward_status==='verification_pending'?'selected':''}>待验证</option><option value="active" ${row.forward_status==='active'?'selected':''}>启用</option><option value="paused" ${row.forward_status==='paused'?'selected':''}>暂停</option></select></div><div><label>备注</label><input id="mailNotes_${safe(prop.id)}" value="${esc(row.notes || '')}"></div></div>${events.length ? `<table><tr><th>收到</th><th>类型</th><th>房间</th><th>内容</th></tr>${events.map(e => `<tr><td>${esc((e.received_at || e.created_at || '').slice(0,16))}</td><td>${esc(e.event_type || 'notice')}</td><td>${esc(e.room_id ? roomName(e.room_id) : e.room_name || '')}</td><td>${esc(e.title || e.summary || e.raw_subject || '')}</td></tr>`).join('')}</table>` : '<div class="empty-panel">暂无邮件提醒。</div>'}</div>`;
+  }
+
+  function showSectionImpl(id,btn){
+    ensureBaseShell();
+    if(isActualCleaner()) id = 'cleaner';
+    document.querySelectorAll('.section').forEach(s => {s.classList.remove('active'); s.style.display = 'none';});
+    const section = qs(id);
+    if(section){section.classList.add('active'); section.style.display = '';}
+    document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+    if(btn) btn.classList.add('active');
+    if(id === 'cleaner') renderCleanerImpl(); else renderOwnerImpl();
+  }
+  function showTabImpl(id,btn){
+    const parent = btn && btn.closest ? btn.closest('.section') : qs('cleaner');
+    if(parent) parent.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    const pane = qs(id);
+    if(pane) pane.classList.add('active');
+    if(btn && btn.parentElement){
+      btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+  }
+  function applyRoleModeImpl(){
+    ensureBaseShell();
+    const nav = document.querySelector('.nav');
+    if(isActualCleaner() || (cleanerPath() && !isOwnerLike())){
+      if(nav) nav.querySelectorAll('button,a').forEach(el => {
+        if(el.id === 'logoutBtn') return;
+        const text = (el.textContent || '').trim();
+        el.style.display = text.includes('房东管理') || text.includes('房源管理') ? 'none' : '';
+      });
+      showSectionImpl('cleaner', nav && nav.querySelector('button'));
+    }else{
+      if(nav) nav.querySelectorAll('button,a').forEach(el => el.style.display = '');
+      const ownerBtn = nav && Array.from(nav.querySelectorAll('button')).find(b => (b.textContent || '').includes('房东'));
+      showSectionImpl('owner', ownerBtn || null);
+    }
+    ensureLogoutButton();
+  }
+  function renderAll(){
+    ensureBaseShell();
+    ensureStyles();
+    removeLegacyIntroCards();
+    if(isActualCleaner() || (cleanerPath() && !isOwnerLike())) renderCleanerImpl();
+    else {
+      renderCleanerImpl();
+      renderOwnerImpl();
+      const cleaner = qs('cleaner');
+      if(cleaner && !cleaner.classList.contains('active')) cleaner.style.display = 'none';
+    }
+    ensureVersionBadge();
+  }
+  async function initAppImpl(){
+    ensureBaseShell();
+    ensureStyles();
+    ensureLogoutButton();
+    try{
+      await loadStateImpl();
+      ['manualDate','noteDate','noteFilterDate','roomNoteDate','workDate'].forEach(id => { const el = qs(id); if(el && !el.value) el.value = today(); });
+      applyRoleModeImpl();
+      ui.booted = true;
+    }catch(e){
+      console.error(e);
+      clearDataGate();
+      alert('加载 PMS 数据失败：' + (e && e.message ? e.message : e));
+    }
+  }
+
+  async function syncPropertyIcalImpl(propertyId,btn){
+    const propId = propertyId || (selectedProp() && selectedProp().id);
+    if(!propId) return alert('请先进入一个房源');
+    const roomIds = new Set(propRooms(propId).map(r => r.id));
+    const rows = getChannels().filter(ch => roomIds.has(ch.room_id)).map(ch => readChannelForm(ch.id) || ch);
+    if(!rows.length){
+      ui.syncResults[propId] = {kind:'error', text:'同步失败：这个房源还没有渠道 iCal'};
+      renderRoomSettingsImpl();
+      return alert('请先在房间里添加渠道，并粘贴平台导出的 iCal。');
+    }
+    const importRows = rows.filter(r => String(r.ical_url || '').trim());
+    if(!importRows.length){
+      ui.syncResults[propId] = {kind:'error', text:'同步失败：没有填写平台导出的 iCal'};
+      renderRoomSettingsImpl();
+      return alert('这个房源没有填写可读取的平台 iCal。');
+    }
+    const old = btn && btn.textContent;
+    if(btn){btn.disabled = true; btn.textContent = '同步中...';}
+    ui.syncResults[propId] = {kind:'warn', text:'同步中：正在保存渠道并读取 iCal...'};
+    renderRoomSettingsImpl();
+    try{
+      await persistAll();
+      const started = Date.now();
+      const res = await fetch(apiUrl('/api/sync'), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id: propId, channelListings: rows})});
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || data.ok === false) throw new Error(data.error || 'iCal 同步失败');
+      applyStateFromServerImpl(data.state || data);
+      const seconds = Math.max(1, Math.round((Date.now() - started) / 1000));
+      const errs = getSyncErrors().filter(e => roomIds.has(e.room_id));
+      const imported = getChannels().filter(ch => roomIds.has(ch.room_id)).reduce((n,ch) => n + Number(ch.synced_booking_count || 0), 0);
+      ui.syncResults[propId] = errs.length ? {kind:'error', text:`同步完成 ${seconds} 秒，但 ${errs.length} 个渠道失败`} : {kind:'ok', text:`同步完成 ${seconds} 秒：导入 ${imported} 条`};
+      renderAll();
+      if(errs.length) alert(`iCal 同步完成，但有 ${errs.length} 个渠道失败。`);
+      return data;
+    }catch(e){
+      ui.syncResults[propId] = {kind:'error', text:'同步失败：' + (e && e.message ? e.message : e)};
+      renderRoomSettingsImpl();
+      alert('同步失败：' + (e && e.message ? e.message : e));
+      return null;
+    }finally{
+      if(btn){btn.disabled = false; btn.textContent = old || '同步当前房源 iCal';}
+    }
+  }
+
+  function copyText(text){
+    navigator.clipboard && navigator.clipboard.writeText(text).then(() => alert('已复制')).catch(() => prompt('复制下面内容', text));
+  }
+  function setOwnerPropertyFilterImpl(id,checked){
+    let ids = ownerPropIds();
+    ids = checked ? ids.concat([id]) : ids.filter(x => x !== id);
+    setOwnerPropertyIds(ids);
+    renderAll();
+  }
+  function setOwnerPropertyAllImpl(){setOwnerPropertyIds(validPropIds()); renderAll();}
+  function refreshPropertyHub(){loadStateImpl().then(renderAll).catch(e => alert('刷新失败：' + e.message));}
+  function editPropertyName(id){ui.editingProperty = id; ensureOwnerPropertyModuleVisible();}
+  function cancelPropertyNameEdit(){ui.editingProperty = ''; ensureOwnerPropertyModuleVisible();}
+  async function savePropertyName(id,btn){
+    const prop = propList().find(p => String(p.id) === String(id));
+    const input = qs('propertyName_' + safe(id));
+    if(prop && input) prop.name = input.value.trim() || prop.name || prop.id;
+    ui.editingProperty = '';
+    await persistAll(btn);
+    renderAll();
+  }
+  async function addProperty(){
+    const id = 'property_' + Date.now();
+    propList().push({id, group_id: groupId(), name: '新房源', created_at: nowIso()});
+    setOwnerPropertyIds(validPropIds().concat([id]));
+    ui.selectedPropertyId = id;
+    await persistAll().catch(e => alert('保存失败：' + e.message));
+    renderAll();
+  }
+  async function deletePropertyUi(id,btn){
+    if(!confirm('确定删除这个房源？会同时删除这个房源下的房间、公区、渠道和保洁绑定。')) return;
+    setProperties(propList().filter(p => String(p.id) !== String(id)));
+    const roomIds = new Set(getRooms().filter(r => String(roomPropId(r.id)) === String(id)).map(r => r.id));
+    setRooms(getRooms().filter(r => String(roomPropId(r.id)) !== String(id)));
+    setAreas(getAreas().filter(a => String(areaPropId(a.id)) !== String(id)));
+    setPropertyCleaners(getPropertyCleaners().filter(x => String(x.property_id) !== String(id)));
+    setChannels(getChannels().filter(ch => !roomIds.has(ch.room_id)));
+    if(ui.selectedPropertyId === id) ui.selectedPropertyId = '';
+    setOwnerPropertyIds(validPropIds());
+    await persistAll(btn);
+    renderAll();
+  }
+  function openPropertyRooms(id){
+    ui.selectedPropertyId = id;
+    const btn = Array.from(document.querySelectorAll('#owner .tabbar button')).find(b => (b.textContent || '').includes('房间'));
+    showOwnerTabImpl('ownerRooms', btn || null);
+    setTimeout(() => qs('roomSettings') && qs('roomSettings').scrollIntoView({block:'start',behavior:'smooth'}), 0);
+  }
+  function backToPropertyList(){ui.selectedPropertyId = ''; renderRoomSettingsImpl(); ensureOwnerPropertyModuleVisible();}
+  function editRoomBasics(id){ui.editingRoom = id; renderRoomSettingsImpl();}
+  function cancelRoomBasics(){ui.editingRoom = ''; renderRoomSettingsImpl();}
+  async function saveRoomBasics(id,btn){
+    const room = getRooms().find(r => String(r.id) === String(id));
+    if(room){
+      room.name = (qs('roomName_' + safe(id)) && qs('roomName_' + safe(id)).value.trim()) || room.name || id;
+      room.cleaning_fee = Number((qs('roomFee_' + safe(id)) && qs('roomFee_' + safe(id)).value) || 0);
+    }
+    ui.editingRoom = '';
+    await persistAll(btn);
+    renderAll();
+  }
+  async function addRoomImpl(propId){
+    const id = 'room_' + Date.now();
+    getRooms().push({id, property_id: propId || (selectedProp() && selectedProp().id) || (propList()[0] && propList()[0].id) || 'property_default', name: '新房间', cleaning_fee: 30, type:'room', created_at:nowIso()});
+    await persistAll();
+    renderAll();
+  }
+  async function deleteRoomUi(id,btn){
+    if(!confirm('确定删除这个房间？')) return;
+    setRooms(getRooms().filter(r => String(r.id) !== String(id)));
+    setChannels(getChannels().filter(ch => String(ch.room_id) !== String(id)));
+    await persistAll(btn);
+    renderAll();
+  }
+  async function addCommonAreaImpl(propId){
+    const id = 'common_' + Date.now();
+    getAreas().push({id, property_id: propId || (selectedProp() && selectedProp().id) || (propList()[0] && propList()[0].id) || 'property_default', name:'新公区', cleaning_fee:20, daily_default:true, type:'common'});
+    await persistAll();
+    renderAll();
+  }
+  async function saveCommonAreaBasics(id,btn){
+    const area = getAreas().find(a => String(a.id) === String(id));
+    if(area){
+      area.name = (qs('areaName_' + safe(id)) && qs('areaName_' + safe(id)).value.trim()) || area.name || id;
+      area.cleaning_fee = Number((qs('areaFee_' + safe(id)) && qs('areaFee_' + safe(id)).value) || 0);
+      area.daily_default = (qs('areaDaily_' + safe(id)) && qs('areaDaily_' + safe(id)).value) !== 'false';
+    }
+    await persistAll(btn);
+    renderAll();
+  }
+  async function deleteCommonAreaUi(id,btn){
+    if(!confirm('确定删除这个公区？')) return;
+    setAreas(getAreas().filter(a => String(a.id) !== String(id)));
+    await persistAll(btn);
+    renderAll();
+  }
+  function addChannelListing(roomId){
+    getChannels().push({id:'channel_' + safe(roomId) + '_' + Date.now(), room_id:roomId, platform:'Airbnb', ical_url:'', listing_url:'', channel_note:'', is_new_listing:false, created_at:nowIso(), updated_at:nowIso()});
+    renderRoomSettingsImpl();
+  }
+  async function saveChannelListing(id,btn){
+    readChannelForm(id);
+    await persistAll(btn);
+    renderAll();
+  }
+  async function deleteChannelListing(id,btn){
+    if(!confirm('确定删除这个渠道？')) return;
+    setChannels(getChannels().filter(ch => String(ch.id) !== String(id)));
+    await persistAll(btn);
+    renderAll();
+  }
+  async function bindPropertyCleanerUi(propId,btn){
+    const code = (qs('cleanerCode_' + safe(propId)) && qs('cleanerCode_' + safe(propId)).value || '').trim().toUpperCase();
+    if(!code) return alert('请填写保洁编号');
+    if(!getPropertyCleaners().some(x => String(x.property_id) === String(propId) && String(x.cleaner_code).toUpperCase() === code)){
+      getPropertyCleaners().push({property_id:propId, cleaner_code:code, created_at:nowIso()});
+    }
+    await persistAll(btn);
+    renderAll();
+  }
+  async function unbindPropertyCleanerUi(propId,code,btn){
+    setPropertyCleaners(getPropertyCleaners().filter(x => !(String(x.property_id) === String(propId) && String(x.cleaner_code).toUpperCase() === String(code).toUpperCase())));
+    await persistAll(btn);
+    renderAll();
+  }
+  async function savePropertyMail(propId,btn){
+    const existing = mailSetting(propId) || {};
+    const row = {...existing, id: existing.id || 'mail_property_' + safe(propId), property_id: propId, source_email: (qs('mailSource_' + safe(propId)) && qs('mailSource_' + safe(propId)).value || '').trim(), forward_status: (qs('mailStatus_' + safe(propId)) && qs('mailStatus_' + safe(propId)).value) || 'not_set', notes: (qs('mailNotes_' + safe(propId)) && qs('mailNotes_' + safe(propId)).value || '').trim(), updated_at: nowIso()};
+    if(!row.source_email) return alert('请先填写 Airbnb 通知邮箱。');
+    const res = await fetch(apiUrl('/api/property-mail'), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(row)});
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || data.ok === false) return alert('保存邮箱失败：' + (data.error || res.status));
+    applyStateFromServerImpl(data.state || data);
+    renderOwnerMail();
+  }
+  async function syncMailEventsFromGmail(propId,btn){
+    const old = btn && btn.textContent;
+    if(btn){btn.disabled = true; btn.textContent = '同步中...';}
+    try{
+      const res = await fetch(apiUrl('/api/mail-events/sync'), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:propId,days:3,max_results:25})});
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || data.ok === false) throw new Error(data.error || '同步 Gmail 失败');
+      applyStateFromServerImpl(data.state || data);
+      renderOwnerMail();
+      alert('Gmail 同步完成');
+    }catch(e){alert('Gmail 同步失败：' + (e && e.message ? e.message : e));}
+    finally{if(btn){btn.disabled = false; btn.textContent = old || '同步 Gmail';}}
+  }
+  async function resolveCancellationReview(key,action,btn){
+    const decoded = decodeURIComponent(key || '');
+    const parts = decoded.split('|');
+    const row = {date:parts[0], target_type:parts[1] || 'room', target_id:parts[2]};
+    const note = reviewNoteForRow(row);
+    if(!note) return alert('找不到对应的房东确认提醒。');
+    const now = nowIso();
+    note.owner_review_action = action;
+    note.owner_reviewed_by = userName('房东');
+    note.owner_reviewed_at = now;
+    note.updated_at = now;
+    if(action === 'keep'){
+      note.owner_review_status = 'clean_needed';
+    }else if(action === 'move_next_day'){
+      note.owner_review_status = 'moved_next_day';
+      note.inactive = true;
+      getManual().unshift({id:'manual_review_remove_'+safe(key),date:row.date,target_id:row.target_id,target_type:row.target_type,type:'remove',amount:0,reason:'房东确认改到第二天保洁',source:'房东复核',created_by:userName('房东'),created_at:now});
+      getNotes().unshift({id:'note_review_next_'+safe(key),date:addDay(row.date,1),target_id:row.target_id,target_type:row.target_type,note:'房东确认改到第二天保洁：' + (note.note || ''),priority:'重要',amount:targetFee(row.target_id,row.target_type),amount_present:true,created_by:userName('房东'),created_at:now,owner_review_status:'clean_needed'});
+    }else{
+      note.owner_review_status = 'no_cleaning';
+      note.inactive = true;
+      getManual().unshift({id:'manual_review_cancel_'+safe(key),date:row.date,target_id:row.target_id,target_type:row.target_type,type:'remove',amount:0,reason:'房东确认不需要保洁',source:'房东复核',created_by:userName('房东'),created_at:now});
+    }
+    await persistAll(btn);
+    renderAll();
+  }
+
+  Object.assign(window, {
+    applyServerState: applyStateFromServerImpl,
+    applyStateFromServer: applyStateFromServerImpl,
+    loadState: loadStateImpl,
+    saveState: persistAll,
+    scheduleSave: scheduleSaveImpl,
+    logout: logoutImpl,
+    pmsForceLogout: logoutImpl,
+    showSection: showSectionImpl,
+    showTab: showTabImpl,
+    showOwnerTab: showOwnerTabImpl,
+    applyRoleMode: applyRoleModeImpl,
+    initApp: initAppImpl,
+    refreshAll: function(){renderAll(); scheduleSaveImpl();},
+    renderCleaner: renderCleanerImpl,
+    renderOwner: renderOwnerImpl,
+    renderOwnerTab: renderOwnerTabImpl,
+    renderOwnerMetrics: renderOwnerMetricsImpl,
+    renderDailyWork: renderDailyWorkImpl,
+    renderOwnerCalendar: renderOwnerCalendarImpl,
+    renderSixMonthStats: renderSixMonthStatsImpl,
+    renderOwnerBookings: renderOwnerBookingsImpl,
+    renderRoomSettings: renderRoomSettingsImpl,
+    renderManualRecords: renderManualRecordsImpl,
+    renderManualRecordsHTML: renderManualRecordsHTMLImpl,
+    renderCleaningFinance: renderCleaningFinanceImpl,
+    renderOwnerNotes: renderOwnerNotesImpl,
+    renderOwnerMail,
+    ensureOwnerPropertyModuleVisible,
+    refreshCalendarRangeViews: refreshCalendarRangeViewsImpl,
+    setRangePreset: setRangePresetImpl,
+    setOwnerPropertyFilter: setOwnerPropertyFilterImpl,
+    setOwnerPropertyAll: setOwnerPropertyAllImpl,
+    refreshPropertyHub,
+    editPropertyName,
+    cancelPropertyNameEdit,
+    savePropertyName,
+    addProperty,
+    deletePropertyUi,
+    openPropertyRooms,
+    backToPropertyList,
+    editRoomBasics,
+    cancelRoomBasics,
+    saveRoomBasics,
+    addRoom: addRoomImpl,
+    deleteRoomUi,
+    deleteRoom: deleteRoomUi,
+    addCommonArea: addCommonAreaImpl,
+    saveCommonAreaBasics,
+    deleteCommonAreaUi,
+    deleteCommonArea: deleteCommonAreaUi,
+    addChannelListing,
+    saveChannelListing,
+    deleteChannelListing,
+    syncPropertyIcal: syncPropertyIcalImpl,
+    syncIcal: syncPropertyIcalImpl,
+    bindPropertyCleanerUi,
+    unbindPropertyCleanerUi,
+    refreshManualTargetOptions: refreshManualTargetOptionsImpl,
+    refreshNoteTargetOptions: refreshNoteTargetOptionsImpl,
+    addManualChange: addManualChangeImpl,
+    addCleaningNote: addCleaningNoteImpl,
+    addRoomDateNote: addRoomDateNoteImpl,
+    savePropertyMail,
+    syncMailEventsFromGmail,
+    resolveCancellationReview,
+    copyText,
+    realBookings: realBookingsImpl,
+    lockBookings: lockBookingsImpl,
+    isLockedBooking,
+    lockReason,
+    dedupeBookingsByStay: dedupeBookings,
+    dedupeCleaningRows: dedupeCleaningRowsImpl,
+    systemCleaningRows: systemCleaningRowsImpl,
+    commonAreaRows: commonAreaRowsImpl,
+    actualCleaningRows: actualCleaningRowsImpl,
+    cleaningTable: cleaningTableScoped,
+    cleaningTableScoped,
+    addDays: addDay,
+    daysBetween: daysBetweenSafe,
+    targetName,
+    targetFee,
+    moneyText: money,
+    signedMoneyText: signedMoney,
+    platformBadge,
+    objectBadge,
+    priorityBadge,
+    changeBadge
+  });
+
+  [
+    ['applyStateFromServer', applyStateFromServerImpl],
+    ['loadState', loadStateImpl],
+    ['saveState', persistAll],
+    ['scheduleSave', scheduleSaveImpl],
+    ['logout', logoutImpl],
+    ['showSection', showSectionImpl],
+    ['showTab', showTabImpl],
+    ['showOwnerTab', showOwnerTabImpl],
+    ['applyRoleMode', applyRoleModeImpl],
+    ['initApp', initAppImpl],
+    ['refreshAll', function(){renderAll(); scheduleSaveImpl();}],
+    ['renderCleaner', renderCleanerImpl],
+    ['renderOwner', renderOwnerImpl],
+    ['renderDailyWork', renderDailyWorkImpl],
+    ['renderOwnerCalendar', renderOwnerCalendarImpl],
+    ['renderSixMonthStats', renderSixMonthStatsImpl],
+    ['renderOwnerBookings', renderOwnerBookingsImpl],
+    ['renderRoomSettings', renderRoomSettingsImpl],
+    ['addRoom', addRoomImpl],
+    ['addCommonArea', addCommonAreaImpl],
+    ['syncIcal', syncPropertyIcalImpl],
+    ['realBookings', realBookingsImpl],
+    ['lockBookings', lockBookingsImpl],
+    ['systemCleaningRows', systemCleaningRowsImpl],
+    ['commonAreaRows', commonAreaRowsImpl],
+    ['actualCleaningRows', actualCleaningRowsImpl]
+  ].forEach(function(pair){
+    try{ window[pair[0]] = pair[1]; }catch(e){}
+  });
 })();
-function setupPropertyRoomUi(){if(window.__pmsInlineSetupPropertyRoomUi)return window.__pmsInlineSetupPropertyRoomUi();}
-async function saveCommonAreas(){if(window.__pmsInlineSaveCommonAreas)return window.__pmsInlineSaveCommonAreas.apply(this,arguments);return true;}
-function renderCommonSettings(){if(window.__pmsInlineRenderCommonSettings)return window.__pmsInlineRenderCommonSettings.apply(this,arguments);}
