@@ -1,11 +1,40 @@
 (function(){
   const S=window.__pmsInlineState||(window.__pmsInlineState={rooms:{},areas:{},ical:{},feed:{},propertyNames:{}});
-  window.__PMS_PATCH_VERSION='2026-06-30-calendar-history-v1';
+  window.__PMS_PATCH_VERSION='2026-06-30-property-recovery-v1';
+  const PMS_INLINE_VERSION=window.__PMS_PATCH_VERSION;
   S.channelEdits=S.channelEdits||{};
   S.syncResults=S.syncResults||{};
   S.icalDiagnostics=S.icalDiagnostics||{};
   function esc(v){return String(v||'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
   function safe(v){return String(v||'').replace(/[^a-zA-Z0-9_-]/g,'_');}
+  function ensureVersionBadge(){
+    let style=document.getElementById('pmsVersionBadgeStyles');
+    if(!style){
+      style=document.createElement('style');
+      style.id='pmsVersionBadgeStyles';
+      style.textContent='.pms-version-badge{display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:900;line-height:1;white-space:nowrap}.pms-version-badge.fixed{position:fixed;right:12px;top:12px;z-index:10000;box-shadow:0 8px 20px rgba(15,23,42,.12)}';
+      document.head.appendChild(style);
+    }
+    let badge=document.getElementById('pmsVersionBadge');
+    if(!badge){
+      badge=document.createElement('span');
+      badge.id='pmsVersionBadge';
+      badge.className='pms-version-badge';
+    }
+    badge.textContent='PMS v'+PMS_INLINE_VERSION;
+    const nav=document.querySelector('header .nav')||document.querySelector('.nav')||null;
+    if(nav){
+      badge.classList.remove('fixed');
+      const logout=document.getElementById('logoutBtn');
+      if(badge.parentElement!==nav){
+        if(logout&&logout.parentElement===nav)nav.insertBefore(badge,logout);
+        else nav.appendChild(badge);
+      }
+    }else{
+      badge.classList.add('fixed');
+      if(badge.parentElement!==document.body)document.body.appendChild(badge);
+    }
+  }
   function key(id,field){return String(id)+':'+String(field||'');}
   function props(){try{return properties||[]}catch(e){return window.properties||[];}}
   function setProps(v){try{properties=v;}catch(e){window.properties=v;}}
@@ -62,7 +91,7 @@
   function forceLogout(){try{Object.keys(localStorage||{}).forEach(k=>{if(/^pms/i.test(k)||k.includes('last-good-state'))localStorage.removeItem(k);});sessionStorage.clear();document.cookie.split(';').forEach(c=>{const n=c.split('=')[0].trim();if(n)document.cookie=n+'=; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';});}catch(e){}fetch('/api/logout',{method:'POST',keepalive:true}).catch(()=>{});location.replace('/logout?ts='+Date.now());}
   window.logout=forceLogout;window.pmsForceLogout=forceLogout;
   function ensureLogoutButton(container){let btn=document.getElementById('logoutBtn');if(!btn){btn=document.createElement('button');btn.id='logoutBtn';btn.type='button';btn.textContent='退出登录';btn.className='smallbtn';(container||document.querySelector('.nav')||document.querySelector('.tabbar')||document.body).appendChild(btn);}btn.style.display='';btn.onclick=forceLogout;btn.textContent='退出登录';return btn;}
-  function polishAccountBar(){const u=current();if(!u)return;applyHeaderIdentity();const nav=document.querySelector('.nav')||document.querySelector('header')||document.querySelector('.topbar')||document.querySelector('.tabbar');if(nav){const label=Array.from(nav.querySelectorAll('.small')).find(el=>!el.dataset.pmsKeepText);if(label){label.textContent=u.role==='cleaner'?`${u.name||u.username||'保洁'} · ${u.cleaner_code||''}`:(u.role==='owner'?`${u.name||u.username||'房东'}`:(u.name||u.username||u.role||''));}ensureLogoutButton(nav);if(u.role==='cleaner'){nav.querySelectorAll('button,a').forEach(el=>{if(el.id==='logoutBtn')return;const t=String(el.textContent||'').trim();if(t.includes('房东管理')||t.includes('房源管理'))el.style.display='none';});}}else{const btn=ensureLogoutButton(document.body);Object.assign(btn.style,{position:'fixed',right:'18px',top:'18px',zIndex:'9999'});}}
+  function polishAccountBar(){ensureVersionBadge();const u=current();if(!u)return;applyHeaderIdentity();const nav=document.querySelector('.nav')||document.querySelector('header')||document.querySelector('.topbar')||document.querySelector('.tabbar');if(nav){const label=Array.from(nav.querySelectorAll('.small')).find(el=>!el.dataset.pmsKeepText);if(label){label.textContent=u.role==='cleaner'?`${u.name||u.username||'保洁'} · ${u.cleaner_code||''}`:(u.role==='owner'?`${u.name||u.username||'房东'}`:(u.name||u.username||u.role||''));}ensureLogoutButton(nav);ensureVersionBadge();if(u.role==='cleaner'){nav.querySelectorAll('button,a').forEach(el=>{if(el.id==='logoutBtn'||el.id==='pmsVersionBadge')return;const t=String(el.textContent||'').trim();if(t.includes('房东管理')||t.includes('房源管理'))el.style.display='none';});}}else{const btn=ensureLogoutButton(document.body);Object.assign(btn.style,{position:'fixed',right:'18px',top:'18px',zIndex:'9999'});ensureVersionBadge();}}
   function activeProp(){const id=S.selectedPropertyId||window.selectedPropertyId||'';return id?(props().find(p=>p.id===id)||null):null;}
   function setActive(id){S.selectedPropertyId=String(id||'');window.selectedPropertyId=S.selectedPropertyId;try{selectedPropertyId=S.selectedPropertyId;}catch(e){}}
   function manualList(){try{return manualChanges||[]}catch(e){return window.manualChanges||[];}}
@@ -819,7 +848,7 @@
   window.refreshOwnerScopedViews=refreshOwnerScopedViews;
   function install(){if(window.renderOwner!==renderOwner)S.baseRenderOwner=window.renderOwner;Object.assign(window,{applyServerState:applyStateObject,copyIcalUrl,importIcalFile,setOwnerPropertyFilter,setOwnerPropertyOnly,setOwnerPropertyAll,toggleOwnerPropertySelection,clearOwnerPropertyFilter,openPropertyRooms,backToPropertyList,editPropertyName,cancelPropertyNameEdit,savePropertyName,addProperty,deletePropertyUi,bindPropertyCleanerUi,unbindPropertyCleanerUi,editRoomBasics,cancelRoomBasics,saveRoomBasics,addRoom,deleteRoomUi,editCommonAreaBasics,cancelCommonAreaBasics,saveCommonAreaBasics,saveCommonAreas,addCommonArea,deleteCommonArea,editIcalField,cancelIcalField,saveIcalField,clearIcalField,toggleGeneratedFeed,syncPropertyIcal,saveRoomAndSync,addChannelListing,saveChannelListing,deleteChannelListing,copyChannelFeed,editChannelListing,cancelChannelEdit,clearRoomChannels,ensureIcalRuleModal,setRangePreset,refreshCalendarRangeViews,initSelects,refreshManualTargetOptions,refreshNoteTargetOptions,refreshManualFilterTargetOptions,updateManualAmount,refreshCleaningNoteDates,refreshCleaningNoteRooms,refreshCleaningNoteControls,resetCleaningNoteForm,setCleaningFinanceRange,renderOwnerMetrics,ensureOwnerPropertyModuleVisible,renderDailyWork,renderRoomDateNotesForWork,renderOwnerCalendar,renderSixMonthStats,renderOwnerBookings,addManualChange,addCleaningNote,addRoomDateNote,renderOwnerNotes,renderManualRecordsHTML,renderManualRecords,renderCleaningFinance,renderCleaner,setupPropertyRoomUi:setup,renderCommonSettings,renderRoomSettings,renderRoomCard,renderCleanerPanel,renderCommonAreaPanel,renderChannelListingsPanel,renderPropertyList,propertyMailDigestHtml,ensureOwnerMailTab,openPropertyMailTab,renderOwnerMail,renderPropertyDetail,renderAdminDashboard,applyAdminMode,renderOwner});window.__pmsInlineSetupPropertyRoomUi=setup;window.__pmsInlineSaveCommonAreas=saveCommonAreas;window.__pmsInlineRenderCommonSettings=renderCommonSettings;window.__pmsApplyAdminMode=applyAdminMode;}
   function boot(){install();removeLegacyIntroCards();const owner=document.getElementById('owner'),cleaner=document.getElementById('cleaner');if(currentIsCleaner()||cleaner){if(!props().length&&typeof window.loadState==='function'&&!S.bootLoadStarted){S.bootLoadStarted=true;ensureDataGate('正在加载保洁数据...');window.loadState().then(()=>{if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());renderCleaner();S.bootRendered=true;clearDataGate();}).catch(()=>{clearDataGate();});return;}if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());if(!S.bootRendered){renderCleaner();S.bootRendered=true;}return;}if(owner){if(!props().length&&typeof window.loadState==='function'&&!S.bootLoadStarted){S.bootLoadStarted=true;ensureDataGate('正在加载房源数据...');window.loadState().then(()=>{if(!Array.isArray(S.ownerPropertyIds)||!S.ownerPropertyIds.length)saveOwnerPropIds(validPropIds());renderCleaner();renderOwner();S.bootRendered=true;clearDataGate();}).catch(()=>{clearDataGate();});return;}if(!S.bootRendered){renderCleaner();renderOwner();S.bootRendered=true;}}else if(document.getElementById('roomSettings')&&!S.bootRendered){renderRoomSettings();S.bootRendered=true;}}
-  function bootFallback(){install();if(!S.bootRendered)boot();ensureOwnerPropertyModuleVisible();}
+  function bootFallback(){install();if(!S.bootRendered)boot();ensureVersionBadge();ensureOwnerPropertyModuleVisible();}
   boot();
   setTimeout(bootFallback,120);
 })();

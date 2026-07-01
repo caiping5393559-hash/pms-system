@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-06-30-calendar-history-v1"
+PMS_PATCH_VERSION = "2026-06-30-property-recovery-v1"
 legacy_owner_intro = """    <div class="card">
       <h2>房东管理页面</h2>
       <div class="small">房东可查看指定日期工作表、设置备注、设置房间和公区、查看未来预订、调整实际保洁。</div>
@@ -480,7 +480,7 @@ admin_ui_patch = r'''
 ui_patch += admin_ui_patch
 final_ui_override = r'''
 (function(){
-  const VERSION='2026-06-30-calendar-history-v1';
+  const VERSION='2026-06-30-property-recovery-v1';
   window.__PMS_PATCH_VERSION=VERSION;
   const S=window.__pmsInlineState||(window.__pmsInlineState={});
   S.mailEdits=S.mailEdits||{};
@@ -498,7 +498,7 @@ final_ui_override = r'''
   function mailConfigs(){return list('mailForwardingConfig');}
   function mailEvents(){return list('mailEvents');}
   function current(){try{return currentUser||window.currentUser||{}}catch(e){return window.currentUser||{};}}
-  function groupId(){const p=props()[0]||{};return p.group_id||'group_default';}
+  function groupId(){const p=props()[0]||{},u=current()||{},gids=Array.isArray(u.group_ids)?u.group_ids:[];return p.group_id||gids[0]||u.group_id||'group_default';}
   function firstPropId(){const p=props()[0]||{};return p.id||'property_default';}
   function activeProp(){const id=S.selectedPropertyId||window.selectedPropertyId||'';return props().find(p=>String(p.id)===String(id))||null;}
   function setActiveProp(id){S.selectedPropertyId=String(id||'');window.selectedPropertyId=S.selectedPropertyId;try{selectedPropertyId=S.selectedPropertyId}catch(e){}}
@@ -510,6 +510,34 @@ final_ui_override = r'''
   function objectRoomName(r){return String((r&&r.name)||'房间').trim()||'房间';}
   function url(path){return typeof window.withKey==='function'?window.withKey(path):path;}
   function nowIso(){return new Date().toISOString().slice(0,19);}
+  function ensureVersionBadge(){
+    let style=document.getElementById('pmsVersionBadgeStyles');
+    if(!style){
+      style=document.createElement('style');
+      style.id='pmsVersionBadgeStyles';
+      style.textContent='.pms-version-badge{display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:900;line-height:1;white-space:nowrap}.pms-version-badge.fixed{position:fixed;right:12px;top:12px;z-index:10000;box-shadow:0 8px 20px rgba(15,23,42,.12)}';
+      document.head.appendChild(style);
+    }
+    let badge=document.getElementById('pmsVersionBadge');
+    if(!badge){
+      badge=document.createElement('span');
+      badge.id='pmsVersionBadge';
+      badge.className='pms-version-badge';
+    }
+    badge.textContent='PMS v'+VERSION;
+    const nav=document.querySelector('header .nav')||document.querySelector('.nav')||null;
+    if(nav){
+      badge.classList.remove('fixed');
+      const logout=document.getElementById('logoutBtn');
+      if(badge.parentElement!==nav){
+        if(logout&&logout.parentElement===nav)nav.insertBefore(badge,logout);
+        else nav.appendChild(badge);
+      }
+    }else{
+      badge.classList.add('fixed');
+      if(badge.parentElement!==document.body)document.body.appendChild(badge);
+    }
+  }
 
   function pmsGuardListCount(name){try{const value=window[name]||eval(name)||[];return Array.isArray(value)?value.length:0;}catch(e){const value=window[name]||[];return Array.isArray(value)?value.length:0;}}
   function pmsGuardStateCount(state,name){const value=state&&state[name];return Array.isArray(value)?value.length:-1;}
@@ -908,36 +936,153 @@ final_ui_override = r'''
     const btn=document.querySelector('button[onclick*="ownerRooms"]');
     if(typeof showOwnerTab==='function')showOwnerTab('ownerRooms',btn||null);
     ensurePropertyModuleVisible();
+    ensureRecoveredPropertyModule();
     renderRoomSettings();
   }
-  function backToPropertyList(){setActiveProp('');renderRoomSettings();}
+  function backToPropertyList(){setActiveProp('');renderRoomSettings();ensureRecoveredPropertyModule();}
   function ensurePropertyModuleVisible(){try{if(typeof window.ensureOwnerPropertyModuleVisible==='function')window.ensureOwnerPropertyModuleVisible();else if(typeof window.renderOwnerMetrics==='function')window.renderOwnerMetrics();}catch(e){console.warn('PMS final property module guard skipped',e);}}
+  function ensureRecoveredPropertyCss(){
+    let s=document.getElementById('pmsRecoveredPropertyStyles');
+    if(!s){s=document.createElement('style');s.id='pmsRecoveredPropertyStyles';document.head.appendChild(s);}
+    s.textContent=`.pms-recovered-property-module{display:grid;gap:12px;margin:12px 0 16px!important;border:2px solid #99f6e4!important;border-left:6px solid #0f766e!important;background:#fbfffe!important}.pms-recovered-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.pms-recovered-title{font-size:20px;font-weight:900;color:#0f172a}.pms-recovered-sub{font-size:13px;color:#64748b;margin-top:3px}.pms-recovered-actions{display:flex;gap:8px;flex-wrap:wrap}.pms-recovered-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}.pms-recovered-card{border:1px solid #bfdbfe;border-radius:8px;background:#fff;padding:12px;display:grid;gap:8px}.pms-recovered-name{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.pms-recovered-name strong{font-size:18px}.pms-recovered-meta{display:flex;gap:6px;flex-wrap:wrap;color:#475569;font-size:13px}.pms-recovered-chip{display:inline-flex;border:1px solid #dbeafe;background:#f8fafc;border-radius:999px;padding:4px 8px;font-weight:800}.pms-recovered-edit{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.pms-recovered-buttons{display:flex;gap:8px;flex-wrap:wrap}.pms-recovered-empty{border:1px dashed #93c5fd;border-radius:8px;background:#f8fbff;padding:14px;text-align:center;color:#475569}@media(max-width:760px){.pms-recovered-edit{grid-template-columns:1fr}.pms-recovered-buttons .smallbtn{flex:1 1 auto}}`;
+  }
+  function recoveredPropertyName(p){return String((p&&p.name)||'').trim()||String((p&&p.id)||'未命名房源');}
+  function recoveredPropertyHost(){
+    const owner=document.getElementById('owner');
+    if(!owner)return null;
+    let host=document.getElementById('pmsRecoveredPropertyModule');
+    if(host)return host;
+    host=document.createElement('div');
+    host.id='pmsRecoveredPropertyModule';
+    host.className='card pms-recovered-property-module';
+    const firstCard=owner.querySelector(':scope > .card');
+    if(firstCard)firstCard.insertAdjacentElement('beforebegin',host);else owner.prepend(host);
+    return host;
+  }
+  function recoveredPropertyCard(p){
+    const id=String(p.id||''),name=recoveredPropertyName(p),roomsCount=propRooms(id).length,areasCount=propAreas(id).length,cleanerCount=propCleaners(id).length;
+    return `<div class="pms-recovered-card"><div class="pms-recovered-name"><strong>${esc(name)}</strong>${activeProp()&&activeProp().id===id?'<span class="pms-recovered-chip">当前房源</span>':''}</div><div class="pms-recovered-meta"><span class="pms-recovered-chip">${roomsCount} 个房间</span><span class="pms-recovered-chip">${areasCount} 个公区</span><span class="pms-recovered-chip">${cleanerCount} 个保洁绑定</span></div><div class="pms-recovered-edit"><input id="pmsRecoveredPropertyName_${safe(id)}" value="${esc(name)}"><button class="smallbtn" onclick="saveRecoveredPropertyName('${esc(id)}',this)">保存名字</button></div><div class="pms-recovered-buttons"><button class="smallbtn primary" onclick="openRecoveredPropertyRooms('${esc(id)}')">进入房间管理</button><button class="smallbtn" onclick="deleteRecoveredProperty('${esc(id)}',this)">删除房源</button></div></div>`;
+  }
+  function renderRecoveredPropertyModule(){
+    ensureRecoveredPropertyCss();
+    const host=recoveredPropertyHost();
+    if(!host)return;
+    const user=current()||{};
+    if(user.role==='cleaner'){host.remove();return;}
+    const rows=props();
+    host.innerHTML=`<div class="pms-recovered-head"><div><div class="pms-recovered-title">房源管理</div><div class="pms-recovered-sub">这里直接读取和写入后台房源数据；可以添加房源、改名、删除空房源、进入房间管理。</div></div><div class="pms-recovered-actions"><button class="smallbtn primary" onclick="addRecoveredProperty(this)">添加房源</button><button class="smallbtn" onclick="renderRecoveredPropertyModule()">刷新模块</button></div></div>${rows.length?`<div class="pms-recovered-grid">${rows.map(recoveredPropertyCard).join('')}</div>`:`<div class="pms-recovered-empty"><strong>还没有房源</strong><div class="small" style="margin-top:6px">点击“添加房源”，然后进入房间管理添加房间和 iCal。</div></div>`}`;
+  }
+  async function postRecoveredProperty(p,btn){
+    const old=btn&&btn.textContent;
+    if(btn){btn.disabled=true;btn.textContent='保存中...';}
+    try{
+      const res=await fetch(url('/api/property/'+encodeURIComponent(p.id)),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok||data.ok===false)throw new Error(data.error||'保存房源失败');
+      applyState(data);
+      renderRecoveredPropertyModule();
+      if(typeof window.renderOwnerMetrics==='function')window.renderOwnerMetrics();
+      return data;
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent=old||'保存';}
+    }
+  }
+  async function addRecoveredProperty(btn){
+    const base='新房源';
+    let name=base,i=2;
+    while(props().some(p=>String(p.name||'').trim()===name)){name=base+' '+i;i++;}
+    const p={id:'property_'+Date.now(),group_id:groupId(),name,created_at:nowIso()};
+    setList('properties',props().concat([p]));
+    renderRecoveredPropertyModule();
+    try{
+      await postRecoveredProperty(p,btn);
+      setActiveProp(p.id);
+      renderRoomSettings();
+      renderRecoveredPropertyModule();
+    }catch(e){
+      setList('properties',props().filter(x=>String(x.id)!==String(p.id)));
+      renderRecoveredPropertyModule();
+      alert('添加房源失败：'+(e&&e.message?e.message:e));
+    }
+  }
+  async function saveRecoveredPropertyName(id,btn){
+    const p=props().find(x=>String(x.id)===String(id));
+    if(!p)return alert('找不到这个房源');
+    const input=document.getElementById('pmsRecoveredPropertyName_'+safe(id));
+    const name=String(input&&input.value||'').trim();
+    if(!name)return alert('房源名字不能为空');
+    if(props().some(x=>String(x.id)!==String(id)&&String(x.group_id||groupId())===String(p.group_id||groupId())&&String(x.name||'').trim()===name))return alert('房源名字不能重复');
+    p.name=name;
+    try{
+      await postRecoveredProperty(p,btn);
+      renderRoomSettings();
+    }catch(e){
+      alert('保存房源名字失败：'+(e&&e.message?e.message:e));
+    }
+  }
+  function openRecoveredPropertyRooms(id){
+    setActiveProp(id);
+    openPropertyRooms(id);
+    const root=document.getElementById('roomSettings');
+    if(root)root.scrollIntoView({block:'start',behavior:'smooth'});
+  }
+  async function deleteRecoveredProperty(id,btn){
+    const p=props().find(x=>String(x.id)===String(id));
+    if(!p)return alert('找不到这个房源');
+    const roomsCount=propRooms(id).length;
+    if(roomsCount)return alert(`这个房源下面还有 ${roomsCount} 个房间，不能删除。请先进入房间管理处理房间。`);
+    if(props().length<=1)return alert('不能删除最后一个房源');
+    if(!confirm(`确定删除 ${recoveredPropertyName(p)}？`))return;
+    const nextProps=props().filter(x=>String(x.id)!==String(id));
+    const nextAreas=areas().filter(x=>String(x.property_id||'')!==String(id));
+    const nextCleaners=list('propertyCleaners').filter(x=>String(x.property_id||'')!==String(id));
+    const old=btn&&btn.textContent;
+    if(btn){btn.disabled=true;btn.textContent='删除中...';}
+    try{
+      const res=await fetch(url('/api/state'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({properties:nextProps,commonAreas:nextAreas,propertyCleaners:nextCleaners})});
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok||data.ok===false)throw new Error(data.error||'删除房源失败');
+      applyState(data);
+      if(activeProp()&&activeProp().id===id)setActiveProp('');
+      renderRecoveredPropertyModule();
+      renderRoomSettings();
+    }catch(e){
+      alert('删除房源失败：'+(e&&e.message?e.message:e));
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent=old||'删除房源';}
+    }
+  }
 
   const pmsFinalBaseShowOwnerTab=typeof window.showOwnerTab==='function'?window.showOwnerTab:null;
   function pmsFinalActiveOwnerTabId(){const active=document.querySelector('#owner > .tab-content.active');return active&&active.id?active.id:'ownerDailyWork';}
   function pmsFinalRenderOwnerTab(id){const tab=id||pmsFinalActiveOwnerTabId();try{if(tab==='ownerCalendar'){if(typeof window.renderOwnerCalendar==='function')window.renderOwnerCalendar();if(typeof window.renderSixMonthStats==='function')window.renderSixMonthStats();if(typeof window.renderOwnerBookings==='function')window.renderOwnerBookings();}else if(tab==='ownerCleaning'){if(typeof window.renderManualRecords==='function')window.renderManualRecords();if(typeof window.renderCleaningFinance==='function')window.renderCleaningFinance();}else if(tab==='ownerRooms'){renderRoomSettings();}else if(tab==='ownerNotes'){if(typeof window.renderOwnerNotes==='function')window.renderOwnerNotes();}else if(tab==='ownerMail'){renderOwnerMail();}else if(typeof window.renderDailyWork==='function'){window.renderDailyWork();}}catch(e){console.warn('PMS final tab render skipped',e);}}
-  function showOwnerTab(id,btn){if(pmsFinalBaseShowOwnerTab&&pmsFinalBaseShowOwnerTab!==showOwnerTab){pmsFinalBaseShowOwnerTab(id,btn);}else{document.querySelectorAll('#owner > .tab-content').forEach(t=>t.classList.remove('active'));const tab=document.getElementById(id);if(tab)tab.classList.add('active');if(btn&&btn.parentElement){btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}}pmsFinalRenderOwnerTab(id);ensurePropertyModuleVisible();}
-  function refreshOwnerScopedViews(){if(typeof window.initSelects==='function')window.initSelects();if(typeof window.renderOwnerMetrics==='function')window.renderOwnerMetrics();ensurePropertyModuleVisible();pmsFinalRenderOwnerTab();ensurePropertyModuleVisible();}
+  function showOwnerTab(id,btn){if(pmsFinalBaseShowOwnerTab&&pmsFinalBaseShowOwnerTab!==showOwnerTab){pmsFinalBaseShowOwnerTab(id,btn);}else{document.querySelectorAll('#owner > .tab-content').forEach(t=>t.classList.remove('active'));const tab=document.getElementById(id);if(tab)tab.classList.add('active');if(btn&&btn.parentElement){btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}}pmsFinalRenderOwnerTab(id);ensureVersionBadge();ensurePropertyModuleVisible();renderRecoveredPropertyModule();}
+  function refreshOwnerScopedViews(){ensureVersionBadge();if(typeof window.initSelects==='function')window.initSelects();if(typeof window.renderOwnerMetrics==='function')window.renderOwnerMetrics();ensurePropertyModuleVisible();renderRecoveredPropertyModule();pmsFinalRenderOwnerTab();ensurePropertyModuleVisible();renderRecoveredPropertyModule();ensureVersionBadge();}
   const baseRenderOwner=window.__pmsFinalBaseRenderOwner||window.renderOwner;
   window.__pmsFinalBaseRenderOwner=baseRenderOwner;
   function renderOwner(){
     const user=current();
     if(user&&user.role==='admin'&&typeof baseRenderOwner==='function')return baseRenderOwner();
     if(typeof baseRenderOwner==='function')baseRenderOwner();
+    ensureVersionBadge();
     ensurePropertyModuleVisible();
+    renderRecoveredPropertyModule();
     ensureOwnerMailTab();
     pmsFinalRenderOwnerTab();
     ensurePropertyModuleVisible();
+    renderRecoveredPropertyModule();
   }
   function install(){
-    Object.assign(window,{savePropertyMail,clearPropertyMail,copyMailAddress,editPropertyMail,cancelPropertyMailEdit,renderPropertyMailPanel,ensureOwnerMailTab,openPropertyMailTab,renderOwnerMail,syncPropertyIcal,renderChannelListingsPanel,renderRoomCard,renderPropertyDetail,renderRoomSettings,openPropertyRooms,backToPropertyList,showOwnerTab,refreshOwnerScopedViews,renderOwner});
+    Object.assign(window,{savePropertyMail,clearPropertyMail,copyMailAddress,editPropertyMail,cancelPropertyMailEdit,renderPropertyMailPanel,ensureOwnerMailTab,openPropertyMailTab,renderOwnerMail,syncPropertyIcal,renderChannelListingsPanel,renderRoomCard,renderPropertyDetail,renderRoomSettings,openPropertyRooms,backToPropertyList,showOwnerTab,refreshOwnerScopedViews,renderOwner,renderRecoveredPropertyModule,addRecoveredProperty,saveRecoveredPropertyName,openRecoveredPropertyRooms,deleteRecoveredProperty});
     try{savePropertyMail=window.savePropertyMail;clearPropertyMail=window.clearPropertyMail;syncPropertyIcal=window.syncPropertyIcal;renderRoomSettings=window.renderRoomSettings;renderOwner=window.renderOwner}catch(e){}
     ensureFinalCss();
+    ensureVersionBadge();
     ensureOwnerMailTab();
     ensurePropertyModuleVisible();
+    renderRecoveredPropertyModule();
   }
   install();
-  [0,120,500,1500,3000].forEach(t=>setTimeout(()=>{install();ensurePropertyModuleVisible();},t));
+  [0,120,500,1500,3000].forEach(t=>setTimeout(()=>{install();ensureVersionBadge();ensurePropertyModuleVisible();renderRecoveredPropertyModule();},t));
   function pmsForceLogout(){try{Object.keys(localStorage||{}).forEach(function(k){if(/^pms/i.test(k)||k.indexOf('last-good-state')>=0)localStorage.removeItem(k);});sessionStorage.clear();document.cookie.split(';').forEach(function(c){var n=c.split('=')[0].trim();if(n)document.cookie=n+'=; Max-Age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';});}catch(e){}try{fetch('/api/logout',{method:'POST',keepalive:true});}catch(e){}location.replace('/logout?ts='+Date.now());}
   window.logout=pmsForceLogout;
   if(!document.__pmsLogoutClickGuard){document.__pmsLogoutClickGuard=true;document.addEventListener('click',function(ev){const btn=ev.target&&ev.target.closest?ev.target.closest('button,a'):null;if(!btn)return;const text=String(btn.textContent||'').trim();const id=String(btn.id||'');const href=String(btn.getAttribute&&btn.getAttribute('href')||'');if(id==='logoutBtn'||text==='\u9000\u51fa\u767b\u5f55'||href==='/logout'){ev.preventDefault();ev.stopImmediatePropagation();pmsForceLogout();}},true);}
