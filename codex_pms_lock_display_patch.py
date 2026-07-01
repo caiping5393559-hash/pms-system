@@ -1,6 +1,6 @@
 from pathlib import Path
 
-VERSION_NEW = "2026-07-01-version-body-bottom-v6"
+VERSION_NEW = "2026-07-01-calendar-cleaning-dedupe-v7"
 
 
 def replace_version(text, token):

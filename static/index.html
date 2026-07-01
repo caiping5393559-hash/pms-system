@@ -460,6 +460,42 @@ function commonAreaRows(start=null,end=null){
   });
   return rows;
 }
+function cleaningTargetKey(row){
+  const type=row && row.target_type==='common' ? 'common' : 'room';
+  let name='';
+  try{name=targetName(row.target_id,type)||'';}catch(e){name=String(row.target_id||'');}
+  return [String(row && row.date || ''),type,String(name).trim().toLowerCase()].join('|');
+}
+function isGeneratedCleaningRow(row){
+  if(!row || row.type==='manual_add' || row.note_task || row.finance_adjustment) return false;
+  if((row.target_type||'room')==='common') return true;
+  if(row.booking) return true;
+  const text=[row.source,row.reason,row.platform].map(v=>String(v||'')).join(' ');
+  return /Airbnb|Booking|Vrbo|iCal|system/i.test(text);
+}
+function mergeCleaningRow(base,row){
+  const sources=new Set(String(base.source||'').split(' + ').filter(Boolean));
+  const reasons=new Set(String(base.reason||'').split('；').filter(Boolean));
+  if(row.source) sources.add(row.source);
+  if(row.reason) reasons.add(row.reason);
+  if(sources.size) base.source=Array.from(sources).join(' + ');
+  if(reasons.size) base.reason=Array.from(reasons).join('；');
+  if(!base.booking && row.booking) base.booking=row.booking;
+  return base;
+}
+function dedupeCleaningRows(rows){
+  const by=new Map();
+  (rows||[]).forEach(row=>{
+    if(!row || row.actual===false || !row.date) return;
+    const generated=isGeneratedCleaningRow(row);
+    const key=generated
+      ? ['generated',cleaningTargetKey(row)].join('|')
+      : ['manual',row.id||row.change_id||row.note_id||'',cleaningTargetKey(row),row.source||'',row.reason||'',row.amount||'',row.type||''].join('|');
+    if(by.has(key)) mergeCleaningRow(by.get(key),row);
+    else by.set(key,{...row,target_type:row.target_type||'room'});
+  });
+  return Array.from(by.values());
+}
 function actualCleaningRows(start=null,end=null){
   let rows = [...systemCleaningRows(), ...commonAreaRows(start,end)];
   manualChanges.forEach(m=>{
@@ -469,7 +505,7 @@ function actualCleaningRows(start=null,end=null){
       rows.forEach(r=>{ if(r.date===m.date && r.target_id===m.target_id && r.target_type===m.target_type){ r.actual=false; r.reason='房东取消：'+m.reason; }});
     }
   });
-  return rows.filter(r=>r.actual);
+  return dedupeCleaningRows(rows.filter(r=>r.actual));
 }
 function noteFor(date,target_id,target_type){
   return cleaningNotes.filter(n=>n.date===date && n.target_id===target_id && n.target_type===target_type);
@@ -485,6 +521,7 @@ function renderInlineNotes(date,target_id,target_type){
   return all.map(n=>`<div class="note-card ${n.priority==='重要'?'important':''}"><div class="note-title">${priorityBadge(n.priority)} ${targetName(n.target_id,n.target_type)} ${n.roomDate?'日期备注':'备注'}</div><div>${n.note}</div></div>`).join('');
 }
 function cleaningTable(items, showSource=true){
+  items = dedupeCleaningRows(items||[]);
   if(!items.length) return `<div class="card"><p class="small">暂无记录</p></div>`;
   return `<div class="card"><table><tr><th>日期</th><th>类型</th><th>对象</th>${showSource?'<th>来源</th>':''}<th>费用</th><th>备注/任务</th></tr>`+
     items.map(r=>`<tr class="${r.date===TODAY?'today-row':''}"><td>${r.date}</td><td>${objectBadge(r.target_type)}</td><td><span class="badge ${r.target_type==='common'?'orange':''}">${targetName(r.target_id,r.target_type)}</span></td>${showSource?`<td>${r.source||''}</td>`:''}<td>${rowFeeText(r)}</td><td>${r.reason||''}${renderInlineNotes(r.date,r.target_id,r.target_type)}</td></tr>`).join('')+
@@ -723,9 +760,9 @@ function renderOwnerCalendar(){
       const hasNote = roomDateNoteFor(day, room.id).length > 0;
       const classes=['cell', ...weekendClass(day).split(' ').filter(Boolean)];
       let body='';
-      if(checkout&&checkin){classes.push('calendar-booked','turnover');body='<span class="cell-corner cell-out">退房</span><span class="cell-corner cell-in">入住</span>';}
-      else if(checkout){classes.push('calendar-booked','checkout-only');body='<span class="cell-corner cell-out">退房</span>';}
-      else if(checkin){classes.push('calendar-booked','checkin-only');body='<span class="cell-corner cell-in">入住</span>';}
+      if(checkout&&checkin){classes.push('calendar-booked','turnover');body='';}
+      else if(checkout){classes.push('calendar-booked','checkout-only');body='';}
+      else if(checkin){classes.push('calendar-booked','checkin-only');body='';}
       else if(stay){classes.push('calendar-booked','stay-only');body=`<span class="cell-platform">${stay.platform||'订单'}</span>`;}
       else if(lock){classes.push('locked');body='<span class="cell-platform">不开放锁定</span>';}
       if(hasNote){classes.push('hasnote');body+='<span class="cell-note">备注</span>';}

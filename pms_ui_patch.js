@@ -1,6 +1,6 @@
 (function(){
   const S=window.__pmsInlineState||(window.__pmsInlineState={rooms:{},areas:{},ical:{},feed:{},propertyNames:{}});
-  window.__PMS_PATCH_VERSION='2026-07-01-version-body-bottom-v6';
+  window.__PMS_PATCH_VERSION='2026-07-01-calendar-cleaning-dedupe-v7';
   const PMS_INLINE_VERSION=window.__PMS_PATCH_VERSION;
   S.channelEdits=S.channelEdits||{};
   S.syncResults=S.syncResults||{};
@@ -834,6 +834,118 @@
     const review=cancellationReviewControls(row);
     return review?`<div class="clean-task-with-review">${review}${base}</div>`:base;
   };
+  function pmsCleanTaskPropKey(row){
+    const type=row&&row.target_type==='common'?'common':'room';
+    const id=row&&row.target_id;
+    let pid='';
+    try{pid=targetPropId(id,type)||'';}catch(e){}
+    let name='';
+    try{name=cleanTargetName(id,type)||'';}catch(e){}
+    return [String(row&&row.date||''),type,String(pid),String(name).trim().toLowerCase()].join('|');
+  }
+  function pmsCleanTaskIsGenerated(row){
+    if(!row||row.finance_adjustment||row.note_task)return false;
+    const source=cleaningSourceText(row);
+    const reason=cleaningReasonText(row);
+    if((row.target_type||'room')==='common')return true;
+    if(row.booking)return true;
+    return /Airbnb|Booking|Vrbo|iCal|system/i.test(source)||/system/i.test(reason)||String(reason||'').includes('自动生成');
+  }
+  function pmsMergeCleanTask(base,row){
+    const sources=new Set(String(base.source||'').split(' + ').filter(Boolean));
+    const reasons=new Set(String(base.reason||'').split('；').filter(Boolean));
+    if(row&&row.source)sources.add(row.source);
+    if(row&&row.reason)reasons.add(row.reason);
+    if(sources.size)base.source=Array.from(sources).join(' + ');
+    if(reasons.size)base.reason=Array.from(reasons).join('；');
+    if(!base.booking&&row&&row.booking)base.booking=row.booking;
+    if(!base.id&&row&&row.id)base.id=row.id;
+    return base;
+  }
+  dedupeCleaningRows=function(rows){
+    const by=new Map();
+    (rows||[]).forEach(row=>{
+      if(!row||row.actual===false||!row.date)return;
+      const type=row.target_type||'room';
+      const generated=pmsCleanTaskIsGenerated(row);
+      const key=generated
+        ? ['generated',pmsCleanTaskPropKey({...row,target_type:type})].join('|')
+        : ['manual',row.id||row.change_id||row.note_id||'',pmsCleanTaskPropKey({...row,target_type:type}),cleaningSourceText(row),row.amount,cleaningReasonText(row),row.created_at||''].join('|');
+      if(by.has(key)){
+        pmsMergeCleanTask(by.get(key),row);
+      }else{
+        by.set(key,{...row,target_type:type});
+      }
+    });
+    return Array.from(by.values());
+  };
+  scopedCleaningRows=function(start,end){
+    const rows=(typeof actualCleaningRows==='function'?actualCleaningRows(start,end):[]).filter(r=>targetMatches(r.target_id,r.target_type));
+    return dedupeCleaningRows(rows);
+  };
+  renderOwnerCalendar=function(){
+    const startInput=document.getElementById('rangeStart');
+    if(startInput&&!startInput.value){setRangePreset(14);return;}
+    const r=calendarRange();
+    const days=Array.from({length:r.dayCount},(_,i)=>addDays(r.start,i));
+    const showRooms=selectedCalendarRooms();
+    const grid=document.getElementById('calendarGrid');
+    if(!grid)return;
+    if(!showRooms.length){
+      grid.style.gridTemplateColumns='1fr';
+      grid.innerHTML='<div class="cell head">当前房源没有房间</div>';
+      updateRangePresetButtons();
+      renderSixMonthStats();
+      return;
+    }
+    const platformText=b=>bookingSourceLabels(b)[0]||String((b&&b.platform)||'订单');
+    const titleLine=(label,b)=>`${label}${platformText(b)} ${b.checkin} 到 ${b.checkout}`;
+    grid.style.gridTemplateColumns=`140px repeat(${days.length}, 1fr)`;
+    let html='<div class="cell head">房间 / 日期</div>'+days.map(d=>`<div class="cell head ${weekendClass(d)}">${esc(d.slice(5))}${weekendHeaderLabel(d)}</div>`).join('');
+    showRooms.forEach(room=>{
+      const real=dedupeBookingsByStay(ownerRealBookings()).filter(x=>x.room_id===room.id);
+      const locks=dedupeBookingsByStay(ownerLockBookings()).filter(x=>x.room_id===room.id);
+      html+=`<div class="cell room">${showPropColumn()?`${esc(propName(roomPropId(room.id)))}<br>`:''}${esc(objectDisplayName(room,'room'))}</div>`;
+      days.forEach(day=>{
+        const checkout=real.find(x=>x.checkout===day);
+        const checkin=real.find(x=>x.checkin===day);
+        const stay=real.find(x=>x.checkin<day&&x.checkout>day);
+        const lock=locks.find(x=>x.checkin<=day&&x.checkout>day);
+        const hasNote=ownerRoomDateNotes().some(n=>n.date===day&&n.room_id===room.id);
+        const classes=['cell'].concat(weekendClass(day).split(' ').filter(Boolean));
+        const titles=[];
+        let body='';
+        if(checkout&&checkin){
+          classes.push('calendar-booked','turnover');
+          titles.push(titleLine('退房：',checkout),titleLine('入住：',checkin));
+        }else if(checkout){
+          classes.push('calendar-booked','checkout-only');
+          titles.push(titleLine('退房：',checkout));
+        }else if(checkin){
+          classes.push('calendar-booked','checkin-only');
+          titles.push(titleLine('入住：',checkin));
+        }else if(stay){
+          classes.push('calendar-booked','stay-only');
+          body=`<span class="cell-platform">${esc(platformText(stay))}</span>`;
+          titles.push(titleLine('在住：',stay));
+        }else if(lock){
+          classes.push('locked');
+          body='<span class="cell-platform">不开放锁定</span>';
+          titles.push(`不开放锁定：${lock.checkin} 到 ${lock.checkout}，${lockReason(lock)}`);
+        }
+        if(hasNote){
+          classes.push('hasnote');
+          body+=`<span class="cell-note">备注</span>`;
+          titles.push('有房东日期备注');
+        }
+        html+=`<div class="${classes.join(' ')}" title="${esc(titles.join('；'))}">${body}</div>`;
+      });
+    });
+    grid.innerHTML=html;
+    updateRangePresetButtons();
+    renderSixMonthStats();
+  };
+  window.renderOwnerCalendar=renderOwnerCalendar;
   window.resolveCancellationReview=resolveCancellationReview;
   const pmsBaseShowOwnerTab=typeof window.showOwnerTab==='function'?window.showOwnerTab:null;
   function pmsActiveOwnerTabId(){const active=document.querySelector('#owner > .tab-content.active');return active&&active.id?active.id:'ownerDailyWork';}

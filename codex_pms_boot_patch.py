@@ -31,7 +31,7 @@ VERSION_CLEANING_HISTORY_FUTURE = "2026-06-29-cleaning-history-future-v1"
 VERSION_OWNER_REVIEW = "2026-06-30-owner-review-v1"
 VERSION_OWNER_PROPERTY_SYNC = "2026-06-30-owner-property-sync-v1"
 VERSION_CALENDAR_HISTORY = "2026-06-30-calendar-history-v1"
-VERSION_NEW = "2026-07-01-version-body-bottom-v6"
+VERSION_NEW = "2026-07-01-calendar-cleaning-dedupe-v7"
 
 
 def replace_any_once(path, replacements, label):
