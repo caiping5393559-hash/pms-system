@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-01-single-frontend-v10';
+  const VERSION = '2026-07-01-property-controls-v12';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -523,6 +523,7 @@
       .property-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}
       .property-card,.property-subcard,.room-setting-card{border:1px solid var(--line);background:#fff;padding:14px}
       .property-card{display:grid;gap:10px;align-content:space-between;min-height:145px}
+      .property-card-top{display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
       .property-title{font-size:18px;font-weight:900;color:#0f172a}
       .property-card input,.room-setting-card input,.room-setting-card select,.mail-panel input,.mail-panel textarea{width:100%;min-width:0}
       .property-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
@@ -554,7 +555,7 @@
       .work-card h3{white-space:normal!important}
       .finance-section{margin-top:12px}.finance-section h3{margin:0;padding:10px 12px;background:#f8fafc;border:1px solid var(--line);border-radius:8px 8px 0 0}
       .mail-panel{border:1px solid #bae6fd;background:#f8fcff;border-radius:8px;padding:12px;display:grid;gap:10px}
-      @media(max-width:900px){.room-basics,.channel-grid{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions{align-items:stretch}.property-actions>*{width:100%}}
+      @media(max-width:900px){.room-basics,.channel-grid{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}}
     `;
     document.head.appendChild(style);
   }
@@ -754,23 +755,23 @@
     return `<button type="button" class="smallbtn" onclick="openPropertyMailTab('${esc(propertyId)}')">邮件提醒 ${count}</button>`;
   }
   function propertyCard(prop){
-    const checked = ownerPropIds().includes(prop.id);
     const rooms = propRooms(prop.id);
     const areas = propAreas(prop.id);
     const cleaners = propCleaners(prop.id);
     const editing = ui.editingProperty === prop.id;
     const nameBlock = editing
       ? `<div class="channel-row"><input id="propertyName_${safe(prop.id)}" value="${esc(prop.name || '')}"><button class="smallbtn primary" onclick="savePropertyName('${esc(prop.id)}',this)">保存名字</button><button class="smallbtn" onclick="cancelPropertyNameEdit()">取消</button></div>`
-      : `<div class="property-title">${esc(prop.name || prop.id)}</div>`;
-    return `<div class="property-card"><div><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" ${checked?'checked':''} onchange="setOwnerPropertyFilter('${esc(prop.id)}',this.checked)"><span>显示这个房源</span></label>${nameBlock}<div class="property-meta"><span class="badge blue">${rooms.length} 个房间</span><span class="badge orange">${areas.length} 个公区</span><span class="badge green">${cleaners.length} 个保洁绑定</span></div></div><div class="property-actions">${editing?'':`<button class="smallbtn" onclick="editPropertyName('${esc(prop.id)}')">修改名字</button>`}<button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">进入房间管理</button><button class="smallbtn" onclick="deletePropertyUi('${esc(prop.id)}',this)">删除房源</button>${propertyMailDigest(prop.id)}</div></div>`;
+      : `<div class="property-title">房源:${esc(prop.name || prop.id)}</div>`;
+    return `<div class="property-card"><div><div class="property-card-top"><div>${nameBlock}<div class="property-meta"><span class="badge blue">${rooms.length} 个房间</span><span class="badge orange">${areas.length} 个公区</span><span class="badge green">${cleaners.length} 个保洁绑定</span></div></div></div></div><div class="property-actions">${editing?'':`<button class="smallbtn" onclick="editPropertyName('${esc(prop.id)}')">修改名字</button>`}<button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">进入房间管理</button><button class="smallbtn" onclick="deletePropertyUi('${esc(prop.id)}',this)">删除房源</button>${propertyMailDigest(prop.id)}</div></div>`;
   }
   function ensureOwnerPropertyModuleVisible(){
     if(visibleAsCleaner()) return;
     const host = ensureOwnerPropertyHost();
     if(!host) return;
     const props = propList();
-    const label = ownerScopeAll() ? '全部房源' : `${ownerPropIds().length} 个房源`;
-    host.innerHTML = `<div class="property-module-head"><div><h2 style="margin:0">房源管理</h2><div class="small">直接读取后台房源数据；可以添加房源、改名，并进入对应房源的房间/iCal 设置。</div></div><div class="property-actions"><span class="badge green">${esc(label)}</span><button class="smallbtn primary" onclick="addProperty()">添加房源</button><button class="smallbtn" onclick="setOwnerPropertyAll()">全部房源</button><button class="smallbtn" onclick="refreshPropertyHub()">刷新房源</button></div></div><div class="property-cards">${props.length ? props.map(propertyCard).join('') : '<div class="empty-panel">还没有房源。点“添加房源”开始配置。</div>'}</div>`;
+    setOwnerPropertyIds(validPropIds());
+    const label = `共 ${props.length} 个房源`;
+    host.innerHTML = `<div class="property-module-head"><div><h2 style="margin:0">房源管理</h2><div class="small">直接读取后台房源数据；可以添加房源、改名，并进入对应房源的房间/iCal 设置。</div></div><div class="property-actions"><span class="badge green">${esc(label)}</span><button class="smallbtn primary" onclick="addProperty()">添加房源</button></div></div><div class="property-cards">${props.length ? props.map(propertyCard).join('') : '<div class="empty-panel">还没有房源。点“添加房源”开始配置。</div>'}</div>`;
   }
 
   function initSelectsImpl(){
@@ -1370,6 +1371,11 @@
   function setOwnerPropertyFilterImpl(id,checked){
     let ids = ownerPropIds();
     ids = checked ? ids.concat([id]) : ids.filter(x => x !== id);
+    if(!checked && !ids.length){
+      alert('至少保留一个房源。');
+      renderAll();
+      return;
+    }
     setOwnerPropertyIds(ids);
     renderAll();
   }
