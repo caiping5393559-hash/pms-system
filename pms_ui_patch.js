@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-01-property-controls-v12';
+  const VERSION = '2026-07-01-ical-save-v13';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -331,30 +331,36 @@
     ensureRealDefaultProperty();
     const old = btn && btn.textContent;
     if(btn){btn.disabled = true; btn.textContent = '保存中...';}
-    const payload = {
-      properties: getProperties(),
-      propertyCleaners: getPropertyCleaners(),
-      rooms: getRooms(),
-      commonAreas: getAreas(),
-      channelListings: getChannels(),
-      manualChanges: getManual(),
-      cleaningNotes: getNotes(),
-      roomDateNotes: getRoomNotes(),
-      cleaningTaskConfirmations: getConfirmations(),
-      sync_errors: getSyncErrors(),
-      last_sync: getLastSync(),
-      propertyMailForwarding: ui.mail.propertyMailForwarding
-    };
-    const res = await fetch(apiUrl('/api/state'), {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json().catch(() => ({}));
-    if(!res.ok || data.ok === false) throw new Error(data.error || '保存失败');
-    applyStateFromServerImpl(data.state || data);
-    if(btn){btn.disabled = false; btn.textContent = old || '保存';}
-    return data;
+    try{
+      const payload = {
+        properties: getProperties(),
+        propertyCleaners: getPropertyCleaners(),
+        rooms: getRooms(),
+        commonAreas: getAreas(),
+        channelListings: getChannels(),
+        manualChanges: getManual(),
+        cleaningNotes: getNotes(),
+        roomDateNotes: getRoomNotes(),
+        cleaningTaskConfirmations: getConfirmations(),
+        sync_errors: getSyncErrors(),
+        last_sync: getLastSync(),
+        propertyMailForwarding: ui.mail.propertyMailForwarding
+      };
+      const res = await fetch(apiUrl('/api/state'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || data.ok === false) throw new Error(data.error || '保存失败');
+      applyStateFromServerImpl(data.state || data);
+      return data;
+    }catch(err){
+      alert('保存失败：' + (err && err.message ? err.message : err));
+      throw err;
+    }finally{
+      if(btn){btn.disabled = false; btn.textContent = old || '保存';}
+    }
   }
   function scheduleSaveImpl(){
     try{clearTimeout(saveTimer);}catch(e){}
@@ -1077,6 +1083,41 @@
     return `${location.origin}/feed/${encodeURIComponent(inventoryGroupId(room))}.ics`;
   }
   function channelInputId(id,field){return `channel_${safe(id)}_${field}`;}
+  function looksLikePublicListingUrl(url){
+    const text = String(url || '').trim().toLowerCase();
+    if(!/^https?:\/\//.test(text)) return false;
+    return /airbnb\.[^/]+\/rooms\//.test(text) || /\/rooms\/[0-9a-z_-]+/.test(text) || /booking\.[^/]+\/hotel\//.test(text) || /vrbo\.[^/]+\//.test(text);
+  }
+  function looksLikeIcalUrl(url){
+    const text = String(url || '').trim();
+    if(!text) return true;
+    if(!/^https?:\/\//i.test(text)) return false;
+    try{
+      const parsed = new URL(text);
+      const combined = (parsed.pathname + '?' + parsed.search).toLowerCase();
+      return combined.includes('.ics') || combined.includes('/ical') || combined.includes('ical') || combined.includes('calendar') || combined.includes('export');
+    }catch(e){
+      return false;
+    }
+  }
+  function cleanChannelUrls(row, updateInputs){
+    if(!row) return {ok:false, message:'没有找到这个渠道。'};
+    const icalInput = qs(channelInputId(row.id,'ical'));
+    const listingInput = qs(channelInputId(row.id,'listing'));
+    if(looksLikePublicListingUrl(row.ical_url)){
+      if(!row.listing_url) row.listing_url = row.ical_url;
+      row.ical_url = '';
+      if(updateInputs){
+        if(icalInput) icalInput.value = '';
+        if(listingInput) listingInput.value = row.listing_url || '';
+      }
+      return {ok:true, moved:true, message:'你填的是公开房源页面链接，已移到“公开房源链接”。订单同步还需要粘贴平台导出的 .ics iCal。'};
+    }
+    if(row.ical_url && !looksLikeIcalUrl(row.ical_url)){
+      return {ok:false, message:'“平台导出 iCal”必须填写平台日历导出的 .ics/iCal 链接，不能填写普通网页链接。'};
+    }
+    return {ok:true, message:''};
+  }
   function readChannelForm(id){
     const list = getChannels();
     const row = list.find(ch => String(ch.id) === String(id));
@@ -1089,8 +1130,9 @@
     return row;
   }
   function renderChannel(room,ch){
-    const status = ch.sync_error ? `<span class="sync-status error">同步失败：${esc(ch.sync_error)}</span>` : (ch.last_sync ? `<span class="sync-status ok">同步：${esc(ch.last_sync)} · ${Number(ch.synced_booking_count || 0)} 条</span>` : '<span class="sync-status warn">未同步</span>');
-    return `<div class="channel-card"><div class="channel-grid"><div><label>平台</label><select id="${channelInputId(ch.id,'platform')}"><option ${ch.platform==='Airbnb'?'selected':''}>Airbnb</option><option ${ch.platform==='Booking'?'selected':''}>Booking</option><option ${ch.platform==='Vrbo'?'selected':''}>Vrbo</option><option ${ch.platform==='Other'?'selected':''}>Other</option></select></div><div><label>平台导出 iCal</label><input id="${channelInputId(ch.id,'ical')}" value="${esc(ch.ical_url || '')}" placeholder="粘贴平台 Export iCal 链接"></div><div><label>公开房源链接</label><input id="${channelInputId(ch.id,'listing')}" value="${esc(ch.listing_url || '')}" placeholder="客人可见的公开页面"></div><div><label>备注</label><input id="${channelInputId(ch.id,'note')}" value="${esc(ch.channel_note || '')}" placeholder="账号/房源备注"></div><div class="property-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-row"><div>${status}</div><button class="smallbtn" onclick="copyText('${esc(feedUrlForRoom(room))}')">复制防超卖 iCal</button></div><div class="feed-line">${esc(feedUrlForRoom(room))}</div></div>`;
+    const urlIssue = cleanChannelUrls({...ch}, false);
+    const status = urlIssue.moved ? `<span class="sync-status warn">${esc(urlIssue.message)}</span>` : (!urlIssue.ok ? `<span class="sync-status warn">${esc(urlIssue.message)}</span>` : (ch.sync_error ? `<span class="sync-status error">同步失败：${esc(ch.sync_error)}</span>` : (ch.last_sync ? `<span class="sync-status ok">同步：${esc(ch.last_sync)} · ${Number(ch.synced_booking_count || 0)} 条</span>` : '<span class="sync-status warn">未同步</span>')));
+    return `<div class="channel-card"><div class="channel-grid"><div><label>平台</label><select id="${channelInputId(ch.id,'platform')}"><option ${ch.platform==='Airbnb'?'selected':''}>Airbnb</option><option ${ch.platform==='Booking'?'selected':''}>Booking</option><option ${ch.platform==='Vrbo'?'selected':''}>Vrbo</option><option ${ch.platform==='Other'?'selected':''}>Other</option></select></div><div><label>平台导出 iCal</label><input id="${channelInputId(ch.id,'ical')}" value="${esc(ch.ical_url || '')}" placeholder="粘贴平台导出的 .ics/iCal，不是房源页面"></div><div><label>公开房源链接</label><input id="${channelInputId(ch.id,'listing')}" value="${esc(ch.listing_url || '')}" placeholder="粘贴客人可见的公开房源页面"></div><div><label>备注</label><input id="${channelInputId(ch.id,'note')}" value="${esc(ch.channel_note || '')}" placeholder="账号/房源备注"></div><div class="property-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-row"><div>${status}</div><button class="smallbtn" onclick="copyText('${esc(feedUrlForRoom(room))}')">复制防超卖 iCal</button></div><div class="feed-line">${esc(feedUrlForRoom(room))}</div></div>`;
   }
   function renderRoomCard(room){
     const editing = ui.editingRoom === room.id;
@@ -1326,6 +1368,16 @@
     if(!propId) return alert('请先进入一个房源');
     const roomIds = new Set(propRooms(propId).map(r => r.id));
     const rows = getChannels().filter(ch => roomIds.has(ch.room_id)).map(ch => readChannelForm(ch.id) || ch);
+    let movedListingUrl = false;
+    for(const row of rows){
+      const check = cleanChannelUrls(row, true);
+      if(check.moved) movedListingUrl = true;
+      if(!check.ok){
+        ui.syncResults[propId] = {kind:'error', text:'同步失败：iCal 链接填写错误'};
+        renderRoomSettingsImpl();
+        return alert(check.message);
+      }
+    }
     if(!rows.length){
       ui.syncResults[propId] = {kind:'error', text:'同步失败：这个房源还没有渠道 iCal'};
       renderRoomSettingsImpl();
@@ -1334,8 +1386,9 @@
     const importRows = rows.filter(r => String(r.ical_url || '').trim());
     if(!importRows.length){
       ui.syncResults[propId] = {kind:'error', text:'同步失败：没有填写平台导出的 iCal'};
+      if(movedListingUrl) await persistAll();
       renderRoomSettingsImpl();
-      return alert('这个房源没有填写可读取的平台 iCal。');
+      return alert('已保存公开房源链接，但还没有填写平台导出的 .ics/iCal，所以不能同步订单。');
     }
     const old = btn && btn.textContent;
     if(btn){btn.disabled = true; btn.textContent = '同步中...';}
@@ -1471,9 +1524,12 @@
     renderRoomSettingsImpl();
   }
   async function saveChannelListing(id,btn){
-    readChannelForm(id);
+    const row = readChannelForm(id);
+    const check = cleanChannelUrls(row, true);
+    if(!check.ok) return alert(check.message);
     await persistAll(btn);
     renderAll();
+    if(check.moved) alert('已保存：房源页面链接已放到“公开房源链接”，iCal 输入框已清空。订单同步还需要粘贴平台导出的 .ics/iCal。');
   }
   async function deleteChannelListing(id,btn){
     if(!confirm('确定删除这个渠道？')) return;
