@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-02-property-room-filter-v26';
+  const VERSION = '2026-07-02-mail-reminder-v27';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -16,6 +16,11 @@
     booted: false,
     loading: false
   });
+  ui.mail = ui.mail || {mailForwardingConfig: [], propertyMailForwarding: [], mailEvents: []};
+  ui.mail.mailForwardingConfig = Array.isArray(ui.mail.mailForwardingConfig) ? ui.mail.mailForwardingConfig : [];
+  ui.mail.propertyMailForwarding = Array.isArray(ui.mail.propertyMailForwarding) ? ui.mail.propertyMailForwarding : [];
+  ui.mail.mailEvents = Array.isArray(ui.mail.mailEvents) ? ui.mail.mailEvents : [];
+  ui.mail.statusByProperty = ui.mail.statusByProperty || {};
 
   function esc(value){
     return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
@@ -1685,11 +1690,46 @@
     const eventCount = props.reduce((n,p) => n + ui.mail.mailEvents.filter(e => String(e.property_id) === String(p.id)).length, 0);
     root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>邮件提醒</h2><div class="small">按房源管理 Airbnb 通知邮箱、PMS 转发地址和提醒记录。</div></div><span class="badge ${eventCount?'orange':'blue'}">共 ${eventCount} 条</span></div><div class="channel-list">${props.map(p => renderPropertyMailPanel(p)).join('') || '<div class="empty-panel">请先添加房源。</div>'}</div></div>`;
   }
+  function setMailPanelStatus(propId,kind,text){
+    ui.mail.statusByProperty = ui.mail.statusByProperty || {};
+    const key = String(propId || '');
+    if(text) ui.mail.statusByProperty[key] = {kind: kind || '', text};
+    else delete ui.mail.statusByProperty[key];
+    const el = qs('mailSyncStatus_' + safe(propId));
+    if(el){
+      const msg = ui.mail.statusByProperty[key] || {};
+      el.className = 'sync-status ' + (msg.kind || '');
+      el.textContent = msg.text || '';
+      el.style.display = msg.text ? 'inline-flex' : 'none';
+    }
+  }
+  function mailPanelStatusHtml(propId){
+    const msg = (ui.mail.statusByProperty || {})[String(propId || '')] || {};
+    return `<span id="mailSyncStatus_${safe(propId)}" class="sync-status ${esc(msg.kind || '')}" style="${msg.text ? '' : 'display:none'}">${esc(msg.text || '')}</span>`;
+  }
   function renderPropertyMailPanel(prop){
     const row = mailSetting(prop.id) || {};
     const events = ui.mail.mailEvents.filter(e => String(e.property_id) === String(prop.id)).sort((a,b) => String(b.received_at || b.created_at || '').localeCompare(String(a.received_at || a.created_at || ''))).slice(0,8);
     const addr = row.pms_forward_address || generatedMailAddress(prop.id);
-    return `<div class="mail-panel"><div class="property-detail-head"><div><h3 style="margin:0">${esc(prop.name || prop.id)}</h3><div class="small">${events.length} 条邮件提醒</div></div><div class="mail-actions"><button class="smallbtn primary" onclick="savePropertyMail('${esc(prop.id)}',this)">保存邮箱</button><button class="smallbtn" onclick="syncMailEventsFromGmail('${esc(prop.id)}',this)">同步 Gmail</button></div></div><div class="formgrid"><div><label>Airbnb 通知邮箱</label><input id="mailSource_${safe(prop.id)}" value="${esc(row.source_email || '')}" placeholder="Airbnb 发信到哪个邮箱"></div><div><label>PMS 转发地址</label><input readonly value="${esc(addr || '后台未配置主 Gmail')}"></div><div><label>状态</label><select id="mailStatus_${safe(prop.id)}"><option value="not_set" ${row.forward_status==='not_set'?'selected':''}>未设置</option><option value="verification_pending" ${row.forward_status==='verification_pending'?'selected':''}>待验证</option><option value="active" ${row.forward_status==='active'?'selected':''}>启用</option><option value="paused" ${row.forward_status==='paused'?'selected':''}>暂停</option></select></div><div><label>备注</label><input id="mailNotes_${safe(prop.id)}" value="${esc(row.notes || '')}"></div></div>${events.length ? `<table><tr><th>收到</th><th>类型</th><th>房间</th><th>内容</th></tr>${events.map(e => `<tr><td>${esc((e.received_at || e.created_at || '').slice(0,16))}</td><td>${esc(e.event_type || 'notice')}</td><td>${esc(e.room_id ? roomName(e.room_id) : e.room_name || '')}</td><td>${esc(e.title || e.summary || e.raw_subject || '')}</td></tr>`).join('')}</table>` : '<div class="empty-panel">暂无邮件提醒。</div>'}</div>`;
+    return `<div class="mail-panel" id="mailPanel_${safe(prop.id)}"><div class="property-detail-head"><div><h3 style="margin:0">${esc(prop.name || prop.id)}</h3><div class="small">${events.length} 条邮件提醒</div></div><div class="mail-actions">${mailPanelStatusHtml(prop.id)}<button class="smallbtn primary" onclick="savePropertyMail('${esc(prop.id)}',this)">保存邮箱</button><button class="smallbtn" onclick="syncMailEventsFromGmail('${esc(prop.id)}',this)">同步 Gmail</button></div></div><div class="formgrid"><div><label>Airbnb 通知邮箱</label><input id="mailSource_${safe(prop.id)}" value="${esc(row.source_email || '')}" placeholder="Airbnb 发信到哪个邮箱"></div><div><label>PMS 转发地址</label><input readonly value="${esc(addr || '后台未配置主 Gmail')}"></div><div><label>状态</label><select id="mailStatus_${safe(prop.id)}"><option value="not_set" ${row.forward_status==='not_set'?'selected':''}>未设置</option><option value="verification_pending" ${row.forward_status==='verification_pending'?'selected':''}>待验证</option><option value="active" ${row.forward_status==='active'?'selected':''}>启用</option><option value="paused" ${row.forward_status==='paused'?'selected':''}>暂停</option></select></div><div><label>备注</label><input id="mailNotes_${safe(prop.id)}" value="${esc(row.notes || '')}"></div></div>${events.length ? `<table><tr><th>收到</th><th>类型</th><th>房间</th><th>内容</th></tr>${events.map(e => `<tr><td>${esc((e.received_at || e.created_at || '').slice(0,16))}</td><td>${esc(e.event_type || 'notice')}</td><td>${esc(e.room_id ? roomName(e.room_id) : e.room_name || '')}</td><td>${esc(e.title || e.summary || e.raw_subject || '')}</td></tr>`).join('')}</table>` : '<div class="empty-panel">暂无邮件提醒。</div>'}</div>`;
+  }
+  function openPropertyMailTab(propertyId){
+    ensureOwnerMailTab();
+    const id = String(propertyId || '');
+    if(id && !ownerPropIds().includes(id)){
+      setOwnerPropertyIds(ownerPropIds().concat([id]));
+      setOwnerRoomIds(validOwnerRoomIds());
+    }
+    const owner = qs('owner');
+    const btn = owner && Array.from(owner.querySelectorAll('.tabbar button')).find(b => b.dataset.pmsMailTab || (b.textContent || '').includes('邮件提醒'));
+    showOwnerTabImpl('ownerMail', btn || null);
+    renderOwnerMail();
+    setTimeout(() => {
+      const panel = qs('mailPanel_' + safe(id));
+      if(panel) panel.scrollIntoView({block:'start', behavior:'smooth'});
+      const input = qs('mailSource_' + safe(id));
+      if(input) input.focus();
+    }, 0);
   }
 
   function showSectionImpl(id,btn){
@@ -1977,24 +2017,47 @@
   async function savePropertyMail(propId,btn){
     const existing = mailSetting(propId) || {};
     const row = {...existing, id: existing.id || 'mail_property_' + safe(propId), property_id: propId, source_email: (qs('mailSource_' + safe(propId)) && qs('mailSource_' + safe(propId)).value || '').trim(), forward_status: (qs('mailStatus_' + safe(propId)) && qs('mailStatus_' + safe(propId)).value) || 'not_set', notes: (qs('mailNotes_' + safe(propId)) && qs('mailNotes_' + safe(propId)).value || '').trim(), updated_at: nowIso()};
-    if(!row.source_email) return alert('请先填写 Airbnb 通知邮箱。');
-    const res = await fetch(apiUrl('/api/property-mail'), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(row)});
-    const data = await res.json().catch(() => ({}));
-    if(!res.ok || data.ok === false) return alert('保存邮箱失败：' + (data.error || res.status));
-    applyStateFromServerImpl(data.state || data);
-    renderOwnerMail();
+    if(!row.source_email){
+      setMailPanelStatus(propId,'error','请先填写 Airbnb 通知邮箱');
+      return alert('请先填写 Airbnb 通知邮箱。');
+    }
+    const old = btn && btn.textContent;
+    if(btn){btn.disabled = true; btn.textContent = '保存中...';}
+    setMailPanelStatus(propId,'warn','正在保存邮箱设置...');
+    try{
+      const res = await fetch(apiUrl('/api/property-mail'), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(row)});
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || data.ok === false) throw new Error(data.error || ('HTTP ' + res.status));
+      applyStateFromServerImpl(data.state || data);
+      setMailPanelStatus(propId,'ok','邮箱设置已保存');
+      renderOwnerMail();
+      setMailPanelStatus(propId,'ok','邮箱设置已保存');
+    }catch(e){
+      setMailPanelStatus(propId,'error','保存失败：' + (e && e.message ? e.message : e));
+      alert('保存邮箱失败：' + (e && e.message ? e.message : e));
+    }finally{
+      if(btn){btn.disabled = false; btn.textContent = old || '保存邮箱';}
+    }
   }
   async function syncMailEventsFromGmail(propId,btn){
     const old = btn && btn.textContent;
     if(btn){btn.disabled = true; btn.textContent = '同步中...';}
+    setMailPanelStatus(propId,'warn','正在同步 Gmail...');
     try{
       const res = await fetch(apiUrl('/api/mail-events/sync'), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:propId,days:3,max_results:25})});
       const data = await res.json().catch(() => ({}));
       if(!res.ok || data.ok === false) throw new Error(data.error || '同步 Gmail 失败');
       applyStateFromServerImpl(data.state || data);
+      const details = Array.isArray(data.details) ? data.details : [];
+      const detail = details.find(d => String(d.property_id) === String(propId)) || details[0] || {};
+      const text = `Gmail 同步完成：读取 ${Number(detail.emails || 0)} 封，生成 ${Number(detail.events || 0)} 条提醒`;
+      setMailPanelStatus(propId,'ok',text);
       renderOwnerMail();
-      alert('Gmail 同步完成');
-    }catch(e){alert('Gmail 同步失败：' + (e && e.message ? e.message : e));}
+      setMailPanelStatus(propId,'ok',text);
+    }catch(e){
+      setMailPanelStatus(propId,'error','Gmail 同步失败：' + (e && e.message ? e.message : e));
+      alert('Gmail 同步失败：' + (e && e.message ? e.message : e));
+    }
     finally{if(btn){btn.disabled = false; btn.textContent = old || '同步 Gmail';}}
   }
   async function resolveCancellationReview(key,action,btn){
@@ -2053,6 +2116,7 @@
     renderCleaningFinance: renderCleaningFinanceImpl,
     renderOwnerNotes: renderOwnerNotesImpl,
     renderOwnerMail,
+    openPropertyMailTab,
     renderUserProfile: renderUserProfileImpl,
     saveUserProfile,
     ensureOwnerPropertyModuleVisible,
@@ -2142,6 +2206,7 @@
     ['renderSixMonthStats', renderSixMonthStatsImpl],
     ['renderOwnerBookings', renderOwnerBookingsImpl],
     ['renderRoomSettings', renderRoomSettingsImpl],
+    ['openPropertyMailTab', openPropertyMailTab],
     ['setOwnerPropertyFilter', setOwnerPropertyFilterImpl],
     ['setOwnerPropertyAll', setOwnerPropertyAllImpl],
     ['setOnlyOwnerProperty', setOnlyOwnerPropertyImpl],
