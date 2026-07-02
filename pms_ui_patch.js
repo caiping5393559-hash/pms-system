@@ -712,7 +712,7 @@
     return [row && row.date, type, entity].map(x => String(x || '')).join('|');
   }
   function isGeneratedCleaning(row){
-    if(!row || row.finance_adjustment || row.note_task || row.type === 'manual_add') return false;
+    if(!row || row.finance_adjustment || row.note_task || row.type === 'manual_add' || row.cancel_review_task || row.type === 'cancel_review_task') return false;
     if((row.target_type || 'room') === 'common') return true;
     if(row.booking) return true;
     const text = [row.source,row.reason,row.platform].map(v => String(v || '')).join(' ');
