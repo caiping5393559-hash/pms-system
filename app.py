@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-02-mail-reminder-v27"
+PMS_PATCH_VERSION = "2026-07-02-vacancy-mail-diagnostics-v28"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -2842,6 +2842,35 @@ def _pms_mail_property_targets(state, actor, property_id=""):
     return targets
 
 
+def _pms_gmail_target_addresses(state, property_id, source_email):
+    addresses = []
+    for value in (source_email,):
+        text = str(value or "").strip()
+        if text and text not in addresses:
+            addresses.append(text)
+    row = next(
+        (item for item in normalize_state(state).get("propertyMailForwarding", []) if isinstance(item, dict) and item.get("property_id") == property_id),
+        {},
+    )
+    for value in (row.get("pms_forward_address"), _pms_mail_forward_address(property_id, state) if "_pms_mail_forward_address" in globals() else ""):
+        text = str(value or "").strip()
+        if text and text not in addresses:
+            addresses.append(text)
+    return addresses
+
+
+def _pms_gmail_target_query(addresses):
+    terms = []
+    for address in addresses:
+        text = str(address or "").strip().replace('"', "")
+        if not text:
+            continue
+        terms.extend([f"to:{text}", f"deliveredto:{text}", f'"{text}"'])
+    if not terms:
+        return ""
+    return "(" + " OR ".join(terms) + ")"
+
+
 def sync_gmail_mail_events(payload, actor=None):
     if not _pms_gmail_enabled():
         raise RuntimeError("后台 Gmail OAuth 未配置，暂时只能用页面的“导入/解析邮件”手动导入")
@@ -2857,11 +2886,13 @@ def sync_gmail_mail_events(payload, actor=None):
     details = []
     for pid, source_email in targets:
         base_query = _pms_gmail_setting("GMAIL_SYNC_QUERY") or "(airbnb OR 爱彼迎 OR from:airbnb.com OR from:airbnbmail.com OR from:supportmessaging.airbnb.com OR from:automated@airbnb.com) -in:spam -in:trash"
-        query = f"newer_than:{days}d to:{source_email} {base_query}"
+        target_addresses = _pms_gmail_target_addresses(state, pid, source_email)
+        target_query = _pms_gmail_target_query(target_addresses)
+        query = f"newer_than:{days}d {target_query} {base_query}".strip()
         raw_rows = _pms_gmail_search(query, max_results=max_results)
         parsed = [_pms_mail_event_from_raw(raw, pid, state) for raw in raw_rows]
         all_events.extend(parsed)
-        details.append({"property_id": pid, "source_email": source_email, "query": query, "emails": len(raw_rows), "events": len(parsed)})
+        details.append({"property_id": pid, "source_email": source_email, "target_addresses": target_addresses, "query": query, "emails": len(raw_rows), "events": len(parsed)})
     saved, rows = save_mail_events({"mailEvents": all_events}, actor)
     return saved, rows, details
 '''
@@ -2870,6 +2901,77 @@ if "_pms_gmail_sync_v1" not in source_text:
         source_text = source_text.replace(auto_sync_marker, gmail_sync_backend + "\n" + auto_sync_marker, 1)
     else:
         source_text += "\n" + gmail_sync_backend + "\n"
+
+mail_diagnostics_backend = r'''
+_pms_gmail_diagnostics_v1 = True
+
+
+def _pms_mail_mask_email(value):
+    text = str(value or "").strip()
+    if "@" not in text:
+        return text[:3] + "***" if text else ""
+    local, domain = text.rsplit("@", 1)
+    if len(local) <= 2:
+        masked = local[:1] + "***"
+    else:
+        masked = local[:2] + "***" + local[-1:]
+    return masked + "@" + domain
+
+
+def _pms_mail_diagnostic_bool_env(name):
+    return bool(str(os.environ.get(name) or "").strip())
+
+
+def _pms_mail_property_name(state, property_id):
+    for prop in normalize_state(state).get("properties", []):
+        if isinstance(prop, dict) and prop.get("id") == property_id:
+            return str(prop.get("name") or property_id)
+    return str(property_id or "")
+
+
+def inspect_mail_sync_diagnostics(payload, actor=None):
+    payload = payload if isinstance(payload, dict) else {}
+    state = normalize_state(load_state())
+    property_id = _pms_mail_event_text(payload.get("property_id") or payload.get("propertyId"), 120)
+    check_token = str(payload.get("check_token") or payload.get("checkToken") or "").strip().lower() in {"1", "true", "yes", "on"}
+    targets = _pms_mail_property_targets(state, actor, property_id)
+    target_rows = []
+    for pid, source_email in targets:
+        addresses = _pms_gmail_target_addresses(state, pid, source_email) if "_pms_gmail_target_addresses" in globals() else [source_email]
+        target_rows.append({
+            "property_id": pid,
+            "property_name": _pms_mail_property_name(state, pid),
+            "source_email": _pms_mail_mask_email(source_email),
+            "target_addresses": [_pms_mail_mask_email(item) for item in addresses],
+        })
+    diagnostics = {
+        "gmail_oauth_configured": _pms_gmail_enabled(),
+        "has_client_id": _pms_mail_diagnostic_bool_env("GMAIL_CLIENT_ID"),
+        "has_client_secret": _pms_mail_diagnostic_bool_env("GMAIL_CLIENT_SECRET"),
+        "has_refresh_token": _pms_mail_diagnostic_bool_env("GMAIL_REFRESH_TOKEN"),
+        "has_inbox_email": _pms_mail_diagnostic_bool_env("GMAIL_INBOX_EMAIL") or _pms_mail_diagnostic_bool_env("PMS_GMAIL_INBOX"),
+        "auto_sync_enabled": str(os.environ.get("PMS_MAIL_AUTO_SYNC_ENABLED", "1")).strip().lower() in ("1", "true", "yes", "on"),
+        "auto_sync_interval_seconds": int(os.environ.get("PMS_MAIL_SYNC_INTERVAL_SECONDS", "7200") or "7200"),
+        "sync_days": int(os.environ.get("PMS_MAIL_SYNC_DAYS", "3") or "3"),
+        "sync_max_results": int(os.environ.get("PMS_MAIL_SYNC_MAX_RESULTS", "25") or "25"),
+        "property_id": property_id,
+        "target_count": len(target_rows),
+        "targets": target_rows,
+    }
+    if check_token and diagnostics["gmail_oauth_configured"]:
+        try:
+            _pms_gmail_auth_headers()
+            diagnostics["gmail_token_ok"] = True
+        except Exception as exc:
+            diagnostics["gmail_token_ok"] = False
+            diagnostics["gmail_error"] = str(exc)[:500]
+    return diagnostics
+'''
+if "_pms_gmail_diagnostics_v1" not in source_text:
+    if auto_sync_marker in source_text:
+        source_text = source_text.replace(auto_sync_marker, mail_diagnostics_backend + "\n" + auto_sync_marker, 1)
+    else:
+        source_text += "\n" + mail_diagnostics_backend + "\n"
 
 cleaning_confirm_backend = r'''
 _pms_cleaning_confirm_v1 = True
@@ -4018,6 +4120,14 @@ if "_pms_property_mail_http_v1" not in source_text:
                 payload = json.loads(raw.decode("utf-8") or "{}")
                 saved, rows = parse_mail_events(payload, user)
                 json_response(self, {"ok": True, "mailEvents": rows, "state": filter_state_for_user(saved, user)})
+                return
+            if path == "/api/mail-diagnostics":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                diagnostics = inspect_mail_sync_diagnostics(payload, user)
+                json_response(self, {"ok": True, "diagnostics": diagnostics})
                 return
             if path == "/api/mail-events/sync":
                 user = require_user(self, ("admin", "owner"))
