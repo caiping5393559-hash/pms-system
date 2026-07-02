@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-02-v31"
+PMS_PATCH_VERSION = "2026-07-02-v32"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -2872,9 +2872,23 @@ def _pms_gmail_target_query(addresses):
 
 
 def sync_gmail_mail_events(payload, actor=None):
-    if not _pms_gmail_enabled():
-        raise RuntimeError("后台 Gmail OAuth 未配置，暂时只能用页面的“导入/解析邮件”手动导入")
     payload = payload if isinstance(payload, dict) else {}
+    if not _pms_gmail_enabled():
+        if _pms_gmail_setting("PMS_MAIL_BRIDGE_TOKEN"):
+            state = normalize_state(load_state())
+            property_id = _pms_mail_event_text(payload.get("property_id") or payload.get("propertyId"), 120)
+            targets = _pms_mail_property_targets(state, actor, property_id)
+            allowed = {pid for pid, _source in targets}
+            rows = [
+                row for row in state.get("mailEvents", [])
+                if not allowed or str(row.get("property_id") or "") in allowed
+            ]
+            details = [
+                {"property_id": pid, "source_email": source_email, "emails": 0, "events": 0, "bridge_enabled": True}
+                for pid, source_email in targets
+            ] or [{"property_id": property_id, "emails": 0, "events": 0, "bridge_enabled": True}]
+            return state, rows, details
+        raise RuntimeError("后台 Gmail OAuth 未配置，暂时只能用页面的“导入/解析邮件”手动导入")
     state = normalize_state(load_state())
     property_id = _pms_mail_event_text(payload.get("property_id") or payload.get("propertyId"), 120)
     days = max(1, min(int(payload.get("days") or 3), 30))
@@ -2946,6 +2960,7 @@ def inspect_mail_sync_diagnostics(payload, actor=None):
         })
     diagnostics = {
         "gmail_oauth_configured": _pms_gmail_enabled(),
+        "gmail_bridge_configured": bool(_pms_gmail_setting("PMS_MAIL_BRIDGE_TOKEN")),
         "has_client_id": _pms_mail_diagnostic_bool_env("GMAIL_CLIENT_ID"),
         "has_client_secret": _pms_mail_diagnostic_bool_env("GMAIL_CLIENT_SECRET"),
         "has_refresh_token": _pms_mail_diagnostic_bool_env("GMAIL_REFRESH_TOKEN"),
@@ -2965,6 +2980,9 @@ def inspect_mail_sync_diagnostics(payload, actor=None):
         except Exception as exc:
             diagnostics["gmail_token_ok"] = False
             diagnostics["gmail_error"] = str(exc)[:500]
+    if diagnostics["gmail_bridge_configured"] and not diagnostics["gmail_oauth_configured"]:
+        diagnostics["gmail_token_ok"] = True
+        diagnostics["gmail_bridge_mode"] = True
     return diagnostics
 '''
 if "_pms_gmail_diagnostics_v1" not in source_text:
@@ -2972,6 +2990,32 @@ if "_pms_gmail_diagnostics_v1" not in source_text:
         source_text = source_text.replace(auto_sync_marker, mail_diagnostics_backend + "\n" + auto_sync_marker, 1)
     else:
         source_text += "\n" + mail_diagnostics_backend + "\n"
+
+if "_pms_mail_bridge_http_v1" not in source_text:
+    mail_bridge_route_hook = '''            if path.startswith("/api/property/"):'''
+    mail_bridge_routes = '''            # _pms_mail_bridge_http_v1
+            if path == "/api/mail-events/bridge":
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                expected = _pms_gmail_setting("PMS_MAIL_BRIDGE_TOKEN")
+                provided = str(
+                    self.headers.get("X-PMS-Mail-Bridge-Token")
+                    or payload.get("token")
+                    or payload.get("bridge_token")
+                    or ""
+                ).strip()
+                if not expected or not provided or not secrets.compare_digest(str(expected), provided):
+                    json_response(self, {"ok": False, "error": "mail bridge unauthorized"}, status=403)
+                    return
+                payload.pop("token", None)
+                payload.pop("bridge_token", None)
+                bridge_actor = {"id": "mail_bridge", "role": "admin", "username": "mail_bridge", "group_ids": []}
+                saved, rows = parse_mail_events(payload, bridge_actor)
+                json_response(self, {"ok": True, "mailEvents": rows, "count": len(rows), "state": filter_state_for_user(saved, bridge_actor)})
+                return
+'''
+    if mail_bridge_route_hook not in source_text:
+        raise RuntimeError("mail bridge route hook not found")
+    source_text = source_text.replace(mail_bridge_route_hook, mail_bridge_routes + mail_bridge_route_hook, 1)
 
 cleaning_confirm_backend = r'''
 _pms_cleaning_confirm_v1 = True

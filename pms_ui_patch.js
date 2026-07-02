@@ -2223,7 +2223,7 @@
       applyStateFromServerImpl(data.state || data);
       const details = Array.isArray(data.details) ? data.details : [];
       const detail = details.find(d => String(d.property_id) === String(propId)) || details[0] || {};
-      const text = `Gmail 同步完成：读取 ${Number(detail.emails || 0)} 封，生成 ${Number(detail.events || 0)} 条提醒`;
+      const text = detail.bridge_enabled ? 'Gmail 桥接已启用：邮件由后台自动同步任务写入 PMS' : `Gmail 同步完成：读取 ${Number(detail.emails || 0)} 封，生成 ${Number(detail.events || 0)} 条提醒`;
       setMailPanelStatus(propId,'ok',text);
       renderRoomSettingsImpl();
       setMailPanelStatus(propId,'ok',text);
@@ -2250,6 +2250,11 @@
   }
   function mailDiagnosticText(d){
     if(!d) return {kind:'error', text:'Gmail 检查失败：没有返回诊断结果'};
+    if(d.gmail_bridge_configured && !d.gmail_oauth_configured){
+      if(!Number(d.target_count || 0)) return {kind:'error', text:'当前房源没有可同步邮箱：先保存 Airbnb 通知邮箱'};
+      const hours = Math.round(Number(d.auto_sync_interval_seconds || 7200) / 36) / 100;
+      return {kind:'ok', text:`Gmail 桥接已启用；自动同步每 ${hours || 2} 小时；可同步邮箱 ${d.target_count} 个`};
+    }
     if(!d.gmail_oauth_configured) return {kind:'error', text:'Gmail OAuth 未配置：Render 需要 GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN'};
     if(d.gmail_token_ok === false) return {kind:'error', text:'Gmail 授权失败：' + (d.gmail_error || 'refresh token 无法换取访问令牌')};
     if(!Number(d.target_count || 0)) return {kind:'error', text:'当前房源没有可同步邮箱：先保存 Airbnb 通知邮箱'};
