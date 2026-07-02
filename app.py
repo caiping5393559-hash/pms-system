@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-02-vacancy-mail-diagnostics-v28"
+PMS_PATCH_VERSION = "2026-07-02-mail-oauth-guard-v29"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -4134,8 +4134,21 @@ if "_pms_property_mail_http_v1" not in source_text:
                 if not user:
                     return
                 payload = json.loads(raw.decode("utf-8") or "{}")
-                saved, rows, details = sync_gmail_mail_events(payload, user)
-                json_response(self, {"ok": True, "mailEvents": rows, "details": details, "state": filter_state_for_user(saved, user)})
+                try:
+                    saved, rows, details = sync_gmail_mail_events(payload, user)
+                    json_response(self, {"ok": True, "mailEvents": rows, "details": details, "state": filter_state_for_user(saved, user)})
+                except Exception as exc:
+                    message = str(exc) or exc.__class__.__name__
+                    if "GMAIL_CLIENT_ID" in message or "GMAIL_CLIENT_SECRET" in message or "GMAIL_REFRESH_TOKEN" in message or "OAuth 未配置" in message:
+                        public_error = "后台 Gmail OAuth 未配置：Render 需要 GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN"
+                    elif "没有可同步的房源邮箱设置" in message:
+                        public_error = "当前房源没有可同步邮箱：先保存 Airbnb 通知邮箱"
+                    elif "Gmail API" in message or "access_token" in message:
+                        public_error = "Gmail 授权失败：请检查 Render 里的 Gmail refresh token 是否有效"
+                    else:
+                        public_error = "Gmail 同步失败，请点“检查 Gmail”查看配置状态"
+                    traceback.print_exc()
+                    json_response(self, {"ok": False, "error": public_error, "detail": message[:500]}, status=500)
                 return
 '''
     if property_mail_route_hook not in source_text:

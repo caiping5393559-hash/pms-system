@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-02-vacancy-mail-diagnostics-v28';
+  const VERSION = '2026-07-02-mail-oauth-guard-v29';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -2082,11 +2082,18 @@
   async function syncMailEventsFromGmail(propId,btn){
     const old = btn && btn.textContent;
     if(btn){btn.disabled = true; btn.textContent = '同步中...';}
-    setMailPanelStatus(propId,'warn','正在同步 Gmail...');
     try{
+      const diagnostics = await checkMailDiagnostics(propId, null, true).catch(() => null);
+      const diagnosticMessage = mailDiagnosticText(diagnostics);
+      if(diagnosticMessage.kind === 'error'){
+        setMailPanelStatus(propId, diagnosticMessage.kind, diagnosticMessage.text);
+        alert(diagnosticMessage.text);
+        return null;
+      }
+      setMailPanelStatus(propId,'warn','正在同步 Gmail...');
       const res = await fetch(apiUrl('/api/mail-events/sync'), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:propId,days:3,max_results:25})});
       const data = await res.json().catch(() => ({}));
-      if(!res.ok || data.ok === false) throw new Error(data.error || '同步 Gmail 失败');
+      if(!res.ok || data.ok === false) throw new Error(cleanMailError(data.error || data.detail || '同步 Gmail 失败'));
       applyStateFromServerImpl(data.state || data);
       const details = Array.isArray(data.details) ? data.details : [];
       const detail = details.find(d => String(d.property_id) === String(propId)) || details[0] || {};
@@ -2095,11 +2102,25 @@
       renderOwnerMail();
       setMailPanelStatus(propId,'ok',text);
     }catch(e){
-      setMailPanelStatus(propId,'error','Gmail 同步失败：' + (e && e.message ? e.message : e));
-      try{ await checkMailDiagnostics(propId, null, true); }catch(_ignored){}
-      alert('Gmail 同步失败：' + (e && e.message ? e.message : e));
+      let text = 'Gmail 同步失败：' + cleanMailError(e && e.message ? e.message : e);
+      try{
+        const diagnostics = await checkMailDiagnostics(propId, null, true);
+        const msg = mailDiagnosticText(diagnostics);
+        if(msg.kind === 'error') text = msg.text;
+      }catch(_ignored){}
+      setMailPanelStatus(propId,'error',text);
+      alert(text);
     }
     finally{if(btn){btn.disabled = false; btn.textContent = old || '同步 Gmail';}}
+  }
+  function cleanMailError(value){
+    const text = String(value || '').replace(/\s+/g,' ').trim();
+    if(!text) return '未知错误';
+    if(text.includes('后台 Gmail OAuth 未配置') || text.includes('GMAIL_CLIENT_ID') || text.includes('GMAIL_CLIENT_SECRET') || text.includes('GMAIL_REFRESH_TOKEN')) return '后台 Gmail OAuth 未配置：Render 需要 GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN';
+    if(text.includes('没有可同步的房源邮箱设置')) return '当前房源没有可同步邮箱：先保存 Airbnb 通知邮箱';
+    if(text.includes('Gmail API')) return 'Gmail API 请求失败：请检查 Gmail 授权是否过期';
+    if(text.includes('Traceback')) return '后台 Gmail 同步失败，请先点“检查 Gmail”查看配置状态';
+    return text.slice(0,240);
   }
   function mailDiagnosticText(d){
     if(!d) return {kind:'error', text:'Gmail 检查失败：没有返回诊断结果'};
