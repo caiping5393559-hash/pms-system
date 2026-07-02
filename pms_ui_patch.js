@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-02-mail-oauth-guard-v29';
+  const VERSION = '2026-07-02-room-index-v30';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -9,6 +9,7 @@
     editingProperty: '',
     editingRoom: '',
     editingArea: '',
+    roomSettingsPanel: 'summary',
     syncResults: {},
     pendingChannels: {},
     calendarVacancyOnly: false,
@@ -23,6 +24,7 @@
   ui.mail.mailEvents = Array.isArray(ui.mail.mailEvents) ? ui.mail.mailEvents : [];
   ui.mail.statusByProperty = ui.mail.statusByProperty || {};
   ui.calendarVacancyOnly = !!ui.calendarVacancyOnly;
+  ui.roomSettingsPanel = ui.roomSettingsPanel || 'summary';
 
   function esc(value){
     return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
@@ -681,6 +683,19 @@
       .room-setting-card .property-subcard{border:0;background:transparent;padding:12px 0 0;margin-top:12px;border-top:1px dashed var(--line)}
       .room-setting-card .property-subcard .property-detail-head{padding:0;border:0;margin:0}
       .room-basics{display:grid;grid-template-columns:minmax(180px,1fr) minmax(120px,.45fr) auto;gap:8px;align-items:end;width:100%}
+      .room-index-section{display:grid;gap:12px;border:1px solid var(--line);background:#fff;border-radius:8px;padding:14px}
+      .room-index-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+      .room-index-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+      .room-index-item{border:1px solid #d8e1ef;background:#fff;border-radius:8px;padding:10px;display:grid;gap:8px;text-align:left;color:#0f172a;cursor:pointer;min-height:96px}
+      .room-index-item:hover{border-color:#5eead4;background:#f8fffd}
+      .room-index-item.active{border-color:#0f766e;background:#ecfdf5;box-shadow:inset 4px 0 0 #0f766e}
+      .room-index-title{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;font-weight:900}
+      .room-index-title span:first-child{font-size:16px}
+      .room-index-desc{font-size:12px;color:#64748b;line-height:1.45}
+      .room-index-meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+      .mini-status{display:inline-flex;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:900;border:1px solid #d8e1ef;background:#f8fafc;color:#475569;max-width:100%}
+      .mini-status.ok{border-color:#86efac;background:#f0fdf4;color:#166534}.mini-status.error{border-color:#fb7185;background:#fff1f2;color:#be123c}.mini-status.warn{border-color:#fbbf24;background:#fffbeb;color:#92400e}
+      .room-settings-detail{display:grid;gap:12px;margin-top:12px}
       .channel-list{display:grid;gap:10px;margin-top:10px}
       .channel-card{border:1px solid #bae6fd;background:#f8fcff;border-radius:8px;padding:10px;display:grid;gap:8px}
       .channel-grid{display:grid;grid-template-columns:130px minmax(190px,1fr) minmax(190px,1fr) minmax(140px,.8fr) auto;gap:8px;align-items:end}
@@ -1519,6 +1534,83 @@
     const areas = propAreas(prop.id);
     return `<div class="settings-section"><div class="property-detail-head"><div><h3 style="margin:0">公区设置</h3><div class="small">公区默认每天保洁，费用计入保洁统计。</div></div><button class="smallbtn primary" onclick="addCommonArea('${esc(prop.id)}')">添加公区</button></div><div class="channel-list">${areas.length ? areas.map(a => `<div class="channel-card"><div class="channel-grid"><div><label>名称</label><input id="areaName_${safe(a.id)}" value="${esc(a.name || '')}"></div><div><label>每日费用</label><input id="areaFee_${safe(a.id)}" type="number" value="${esc(a.cleaning_fee || 0)}"></div><div><label>是否每日保洁</label><select id="areaDaily_${safe(a.id)}"><option value="true" ${a.daily_default!==false?'selected':''}>每天打扫</option><option value="false" ${a.daily_default===false?'selected':''}>不默认</option></select></div><div></div><div class="property-actions"><button class="smallbtn primary" onclick="saveCommonAreaBasics('${esc(a.id)}',this)">保存</button><button class="smallbtn" onclick="deleteCommonAreaUi('${esc(a.id)}',this)">删除</button></div></div></div>`).join('') : '<div class="empty-panel">还没有公区。</div>'}</div></div>`;
   }
+  function roomSettingsPanelKey(kind,id){
+    return id ? `${kind}:${id}` : String(kind || 'summary');
+  }
+  function activeRoomSettingsPanel(rooms){
+    let key = ui.roomSettingsPanel || 'summary';
+    const fixed = new Set(['summary','cleaners','mail','areas']);
+    if(key.startsWith('room:')){
+      const roomId = key.slice(5);
+      if((rooms || []).some(r => String(r.id) === roomId)) return key;
+      key = 'summary';
+    }
+    if(!fixed.has(key)) key = 'summary';
+    ui.roomSettingsPanel = key;
+    return key;
+  }
+  function setRoomSettingsPanel(kind,id){
+    ui.roomSettingsPanel = roomSettingsPanelKey(kind,id);
+    renderRoomSettingsImpl();
+    setTimeout(() => {
+      const detail = qs('roomSettingsDetail');
+      if(detail && ui.roomSettingsPanel !== 'summary') detail.scrollIntoView({block:'nearest', behavior:'smooth'});
+    }, 0);
+  }
+  function cleanerDisplay(code){
+    const key = String(code || '').trim().toUpperCase();
+    const user = getUsers().find(u => String(u.cleaner_code || '').trim().toUpperCase() === key);
+    const name = user && (user.display_name || user.name || user.username || '');
+    return name && String(name).toUpperCase() !== key ? `${key} · ${name}` : key;
+  }
+  function channelSummaryStatus(ch){
+    if(!ch) return {kind:'warn', text:'未建渠道'};
+    const issue = cleanChannelUrls({...ch}, false);
+    const platform = ch.platform || '渠道';
+    if(issue.moved) return {kind:'warn', text:`${platform} 房源链接填错位置`};
+    if(!issue.ok) return {kind:'error', text:`${platform} iCal 错误`};
+    if(ch.sync_error) return {kind:'error', text:`${platform} 同步失败`};
+    if(ch.last_sync) return {kind:'ok', text:`${platform} 已同步 ${Number(ch.synced_booking_count || 0)} 条`};
+    if(ch.ical_url) return {kind:'warn', text:`${platform} 已填未同步`};
+    return {kind:'warn', text:`${platform} 缺 iCal`};
+  }
+  function roomChannelBadges(room){
+    const rows = channelRows(room.id);
+    if(!rows.length) return '<span class="mini-status warn">未建渠道</span>';
+    return rows.map(ch => {
+      const status = channelSummaryStatus(ch);
+      return `<span class="mini-status ${esc(status.kind)}">${esc(status.text)}</span>`;
+    }).join('');
+  }
+  function renderPropertyRoomIndex(prop, rooms){
+    const active = activeRoomSettingsPanel(rooms);
+    const cleaners = propCleaners(prop.id);
+    const areas = propAreas(prop.id);
+    const mailRow = mailSetting(prop.id) || {};
+    const mailEvents = ui.mail.mailEvents.filter(e => String(e.property_id) === String(prop.id));
+    const mailStatus = mailRow.source_email ? `${mailRow.source_email} · ${mailRow.forward_status || '未设置状态'}` : '未设置通知邮箱';
+    const itemClass = key => `room-index-item ${active === key ? 'active' : ''}`;
+    return `<div class="room-index-section"><div class="room-index-head"><div><h3 style="margin:0">房源索引</h3><div class="small">先看状态；点保洁、邮件、公区或某个房间后，下面只展开对应设置。</div></div><div class="property-actions"><button class="smallbtn" onclick="setRoomSettingsPanel('summary')">收起详情</button><button class="smallbtn primary" onclick="addRoom('${esc(prop.id)}')">添加房间</button></div></div><div class="room-index-grid"><button type="button" class="${itemClass('cleaners')}" onclick="setRoomSettingsPanel('cleaners')"><div class="room-index-title"><span>保洁绑定</span><span class="badge green">${cleaners.length} 个</span></div><div class="room-index-desc">${cleaners.length ? cleaners.map(c => esc(cleanerDisplay(c.cleaner_code))).join('、') : '还没有绑定保洁'}</div></button><button type="button" class="${itemClass('mail')}" onclick="setRoomSettingsPanel('mail')"><div class="room-index-title"><span>邮件提醒</span><span class="badge ${mailEvents.length ? 'orange' : 'blue'}">${mailEvents.length} 条</span></div><div class="room-index-desc">${esc(mailStatus)}</div></button><button type="button" class="${itemClass('areas')}" onclick="setRoomSettingsPanel('areas')"><div class="room-index-title"><span>公区</span><span class="badge orange">${areas.length} 个</span></div><div class="room-index-desc">${areas.length ? areas.map(a => esc(a.name || a.id)).join('、') : '还没有公区'}</div></button>${rooms.length ? rooms.map(room => { const key = roomSettingsPanelKey('room', room.id); return `<button type="button" class="${itemClass(key)}" onclick="setRoomSettingsPanel('room','${esc(room.id)}')"><div class="room-index-title"><span>${esc(room.name || room.id)}</span><span class="badge blue">${channelRows(room.id).length} 渠道</span></div><div class="room-index-meta">${roomChannelBadges(room)}</div></button>`; }).join('') : '<div class="empty-panel">这个房源还没有房间。</div>'}</div></div>`;
+  }
+  function renderPropertyMailSummaryPanel(prop){
+    const row = mailSetting(prop.id) || {};
+    const events = ui.mail.mailEvents.filter(e => String(e.property_id) === String(prop.id)).sort((a,b) => String(b.received_at || b.created_at || '').localeCompare(String(a.received_at || a.created_at || ''))).slice(0,8);
+    const addr = row.pms_forward_address || generatedMailAddress(prop.id) || '后台未配置主 Gmail';
+    return `<div class="settings-section"><div class="property-detail-head"><div><h3 style="margin:0">邮件提醒</h3><div class="small">这里先看当前房源的邮箱和提醒记录；需要修改邮箱时进入完整邮件设置。</div></div><div class="property-actions"><button class="smallbtn" onclick="openPropertyMailTab('${esc(prop.id)}')">打开邮件设置</button><button class="smallbtn" onclick="syncMailEventsFromGmail('${esc(prop.id)}',this)">同步 Gmail</button><button class="smallbtn" onclick="checkMailDiagnostics('${esc(prop.id)}',this)">检查 Gmail</button></div></div><div class="formgrid"><div><label>Airbnb 通知邮箱</label><div class="readonly-line">${esc(row.source_email || '未设置')}</div></div><div><label>PMS 转发地址</label><div class="readonly-line">${esc(addr)}</div></div><div><label>状态</label><div class="readonly-line">${esc(row.forward_status || '未设置')}</div></div><div><label>备注</label><div class="readonly-line">${esc(row.notes || '无')}</div></div></div>${events.length ? `<table><tr><th>收到</th><th>类型</th><th>房间</th><th>内容</th></tr>${events.map(e => `<tr><td>${esc((e.received_at || e.created_at || '').slice(0,16))}</td><td>${esc(e.event_type || 'notice')}</td><td>${esc(e.room_id ? roomName(e.room_id) : e.room_name || '')}</td><td>${esc(e.title || e.summary || e.raw_subject || '')}</td></tr>`).join('')}</table>` : '<div class="empty-panel">暂无邮件提醒。</div>'}</div>`;
+  }
+  function renderRoomSettingsDetail(prop, rooms){
+    const active = activeRoomSettingsPanel(rooms);
+    if(active === 'summary') return '';
+    if(active === 'cleaners') return renderCleanerPanel(prop);
+    if(active === 'mail') return renderPropertyMailSummaryPanel(prop);
+    if(active === 'areas') return renderCommonAreaPanel(prop);
+    if(active.startsWith('room:')){
+      const roomId = active.slice(5);
+      const room = rooms.find(r => String(r.id) === roomId);
+      return room ? renderRoomCard(room) : '<div class="empty-panel">这个房间已经不存在。</div>';
+    }
+    return '';
+  }
   function renderRoomSettingsImpl(){
     ensureOwnerPropertyModuleVisible();
     const root = ensureRoomSettingsShell();
@@ -1530,7 +1622,8 @@
     }
     const rooms = propRooms(prop.id);
     const sync = ui.syncResults[prop.id];
-    root.innerHTML = `<div class="property-detail-head"><div><h2 style="margin:0">${esc(prop.name || prop.id)} 房间管理</h2><div class="small">${rooms.length} 个房间 · ${propAreas(prop.id).length} 个公区 · ${propCleaners(prop.id).length} 个保洁绑定</div></div><div class="property-actions"><button class="smallbtn" onclick="backToPropertyList()">返回房源列表</button><button class="smallbtn primary" onclick="syncPropertyIcal('${esc(prop.id)}',this)">同步当前房源 iCal</button>${sync?`<span class="sync-status ${sync.kind || ''}">${esc(sync.text || '')}</span>`:''}</div></div>${renderCleanerPanel(prop)}${renderCommonAreaPanel(prop)}<div class="settings-section"><div class="property-detail-head"><div><h3 style="margin:0">房间设置</h3><div class="small">每个真实房间只建一次；重复上架用“渠道”关联在房间下方。</div></div><button class="smallbtn primary" onclick="addRoom('${esc(prop.id)}')">添加房间</button></div><div class="room-setting-list">${rooms.length ? rooms.map(renderRoomCard).join('') : '<div class="empty-panel">这个房源还没有房间。</div>'}</div></div>`;
+    activeRoomSettingsPanel(rooms);
+    root.innerHTML = `<div class="property-detail-head"><div><h2 style="margin:0">${esc(prop.name || prop.id)} 房间管理</h2><div class="small">${rooms.length} 个房间 · ${propAreas(prop.id).length} 个公区 · ${propCleaners(prop.id).length} 个保洁绑定</div></div><div class="property-actions"><button class="smallbtn" onclick="backToPropertyList()">返回房源列表</button><button class="smallbtn" onclick="setRoomSettingsPanel('summary')">房源索引</button><button class="smallbtn primary" onclick="syncPropertyIcal('${esc(prop.id)}',this)">同步当前房源 iCal</button>${sync?`<span class="sync-status ${sync.kind || ''}">${esc(sync.text || '')}</span>`:''}</div></div>${renderPropertyRoomIndex(prop, rooms)}<div id="roomSettingsDetail" class="room-settings-detail">${renderRoomSettingsDetail(prop, rooms)}</div>`;
   }
 
   function renderOwnerImpl(){
@@ -1964,12 +2057,13 @@
   }
   function openPropertyRooms(id){
     ui.selectedPropertyId = id;
+    ui.roomSettingsPanel = 'summary';
     const btn = Array.from(document.querySelectorAll('#owner .tabbar button')).find(b => (b.textContent || '').includes('房间'));
     showOwnerTabImpl('ownerRooms', btn || null);
     setTimeout(() => qs('roomSettings') && qs('roomSettings').scrollIntoView({block:'start',behavior:'smooth'}), 0);
   }
-  function backToPropertyList(){ui.selectedPropertyId = ''; renderRoomSettingsImpl(); ensureOwnerPropertyModuleVisible();}
-  function editRoomBasics(id){ui.editingRoom = id; renderRoomSettingsImpl();}
+  function backToPropertyList(){ui.selectedPropertyId = ''; ui.roomSettingsPanel = 'summary'; renderRoomSettingsImpl(); ensureOwnerPropertyModuleVisible();}
+  function editRoomBasics(id){ui.editingRoom = id; ui.roomSettingsPanel = roomSettingsPanelKey('room', id); renderRoomSettingsImpl();}
   function cancelRoomBasics(){ui.editingRoom = ''; renderRoomSettingsImpl();}
   async function saveRoomBasics(id,btn){
     const room = getRooms().find(r => String(r.id) === String(id));
@@ -1990,6 +2084,8 @@
     getRooms().push({id, property_id: propertyId, name: nextRoomName(propertyId), cleaning_fee: 30, type:'room', created_at:nowIso()});
     setOwnerPropertyIds([propertyId]);
     setOwnerRoomIds(validOwnerRoomIds());
+    ui.selectedPropertyId = propertyId;
+    ui.roomSettingsPanel = roomSettingsPanelKey('room', id);
     await persistAll();
     renderAll();
   }
@@ -1997,6 +2093,7 @@
     if(!confirm('确定删除这个房间？')) return;
     setRooms(getRooms().filter(r => String(r.id) !== String(id)));
     setChannels(getChannels().filter(ch => String(ch.room_id) !== String(id)));
+    if(ui.roomSettingsPanel === roomSettingsPanelKey('room', id)) ui.roomSettingsPanel = 'summary';
     await persistAll(btn);
     renderAll();
   }
@@ -2024,6 +2121,7 @@
   }
   function addChannelListing(roomId){
     getChannels().push({id:'channel_' + safe(roomId) + '_' + Date.now(), room_id:roomId, platform:'Airbnb', ical_url:'', listing_url:'', channel_note:'', is_new_listing:false, created_at:nowIso(), updated_at:nowIso()});
+    ui.roomSettingsPanel = roomSettingsPanelKey('room', roomId);
     renderRoomSettingsImpl();
   }
   async function saveChannelListing(id,btn){
@@ -2222,6 +2320,7 @@
     setOwnerRoomAll: setOwnerRoomAllImpl,
     setOnlyOwnerRoom: setOnlyOwnerRoomImpl,
     refreshPropertyHub,
+    setRoomSettingsPanel,
     editPropertyName,
     cancelPropertyNameEdit,
     savePropertyName,
@@ -2308,6 +2407,7 @@
     ['setOwnerRoomFilter', setOwnerRoomFilterImpl],
     ['setOwnerRoomAll', setOwnerRoomAllImpl],
     ['setOnlyOwnerRoom', setOnlyOwnerRoomImpl],
+    ['setRoomSettingsPanel', setRoomSettingsPanel],
     ['addRoom', addRoomImpl],
     ['addCommonArea', addCommonAreaImpl],
     ['syncIcal', syncPropertyIcalImpl],
