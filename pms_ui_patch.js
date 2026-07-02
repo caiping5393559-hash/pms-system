@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-01-cleaning-photo-upload-v23';
+  const VERSION = '2026-07-02-single-frontend-v25';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -472,17 +472,9 @@
       main = document.createElement('main');
       document.body.appendChild(main);
     }
-    if(!qs('owner')){
-      const owner = document.createElement('section');
-      owner.id = 'owner';
-      owner.className = 'section';
-      main.appendChild(owner);
-    }
-    if(!qs('cleaner')){
-      const cleaner = document.createElement('section');
-      cleaner.id = 'cleaner';
-      cleaner.className = 'section';
-      main.appendChild(cleaner);
+    if(main.dataset.pmsUnifiedShell !== '1'){
+      main.innerHTML = '<section id="owner" class="section"></section><section id="cleaner" class="section"></section>';
+      main.dataset.pmsUnifiedShell = '1';
     }
     ensureOwnerContainers();
     ensureCleanerContainers();
@@ -521,7 +513,7 @@
       owner.appendChild(div);
     };
     pane('ownerDailyWork', `<div class="card"><h2>指定日期工作表</h2><div class="toolbar"><span class="small">日期：</span><input id="workDate" type="date" onchange="renderDailyWork()"><button class="smallbtn primary" onclick="document.getElementById('workDate').value=TODAY;renderDailyWork()">今天</button><button class="smallbtn" onclick="document.getElementById('workDate').value=addDays(document.getElementById('workDate').value||TODAY,1);renderDailyWork()">下一天</button><button class="smallbtn" onclick="document.getElementById('workDate').value=addDays(document.getElementById('workDate').value||TODAY,-1);renderDailyWork()">上一天</button></div><div id="dailyWorkMetrics" class="grid"></div></div><div id="dailyWorkContent"></div>`);
-    pane('ownerCalendar', `<div class="card"><h2>未来房态总览</h2><div class="toolbar"><span class="small">默认未来 14 天，可切换 28 天，也可指定日期范围：</span><button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">未来14天</button><button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">未来28天</button><input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()"><input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()"><select id="ownerRoomFilter" onchange="refreshCalendarRangeViews()"></select></div><div class="scroll"><div id="calendarGrid" class="timeline"></div></div></div><div class="card"><h2>未来区间统计</h2><div id="sixMonthStats"></div></div><div class="card"><div class="toolbar"><strong>未来预订列表</strong><select id="platformFilter" onchange="renderOwnerBookings()"><option value="">全部平台</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>Other</option><option>微信直订</option></select><select id="bookingRoomFilter" onchange="renderOwnerBookings()"></select></div><div id="ownerBookings"></div></div>`);
+    pane('ownerCalendar', `<div class="card"><h2>未来房态总览</h2><div class="toolbar"><span class="small">默认未来 14 天，可切换 28 天，也可指定日期范围：</span><button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">未来14天</button><button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">未来28天</button><input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()"><input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()"><select id="ownerRoomFilter" onchange="refreshCalendarRangeViews()"></select></div><div class="scroll"><div id="calendarGrid" class="timeline"></div></div></div><div class="card"><h2 id="futureStatsTitle">当前区间每个房间预订统计</h2><div id="sixMonthStats"></div></div><div class="card"><div class="toolbar"><strong id="futureBookingsTitle">当前区间预订列表</strong><select id="platformFilter" onchange="renderOwnerBookings()"><option value="">全部平台</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>Other</option><option>微信直订</option></select><select id="bookingRoomFilter" onchange="renderOwnerBookings()"></select></div><div id="ownerBookings"></div></div>`);
     pane('ownerCleaning', `<div id="ownerCleaningShell"></div>`);
     pane('ownerNotes', `<div id="ownerNotesShell"></div>`);
     pane('ownerRooms', `<div id="roomSettingsUnifiedShell" class="room-settings-shell"><div id="roomSettings"></div></div>`);
@@ -562,13 +554,28 @@
       ensureCleanerProfileTab();
       return;
     }
-    root.innerHTML = `<div id="cleanerDashboardShell"><div id="cleanerSummary"></div><div id="cleanerMetrics" class="grid"></div><div id="cleanerTodayNotes"></div><div class="card"><div class="tabbar"><button class="active" onclick="showTab('cleanerToday', this)">今日保洁</button><button onclick="showTab('cleanerFuture', this)">未来保洁</button><button onclick="showTab('cleanerManual', this)">手动调整记录</button><button onclick="showTab('cleanerHistory', this)">历史保洁</button><button data-pms-profile-tab="1" onclick="showTab('cleanerProfile', this)">用户设置</button></div></div><div id="cleanerToday" class="tab-content active"></div><div id="cleanerFuture" class="tab-content"></div><div id="cleanerManual" class="tab-content"></div><div id="cleanerHistory" class="tab-content"></div><div id="cleanerProfile" class="tab-content"></div></div>`;
+    const profileTab = isActualCleaner() ? `<button data-pms-profile-tab="1" onclick="showTab('cleanerProfile', this)">用户设置</button>` : '';
+    const profilePane = isActualCleaner() ? '<div id="cleanerProfile" class="tab-content"></div>' : '';
+    root.innerHTML = `<div id="cleanerDashboardShell"><div id="cleanerSummary"></div><div id="cleanerMetrics" class="grid"></div><div id="cleanerTodayNotes"></div><div class="card"><div class="tabbar"><button class="active" onclick="showTab('cleanerToday', this)">今日保洁</button><button onclick="showTab('cleanerFuture', this)">未来保洁</button><button onclick="showTab('cleanerManual', this)">手动调整记录</button><button onclick="showTab('cleanerHistory', this)">历史保洁</button>${profileTab}</div></div><div id="cleanerToday" class="tab-content active"></div><div id="cleanerFuture" class="tab-content"></div><div id="cleanerManual" class="tab-content"></div><div id="cleanerHistory" class="tab-content"></div>${profilePane}</div>`;
     ensureCleanerProfileTab();
   }
   function ensureCleanerProfileTab(){
     const shell = qs('cleanerDashboardShell');
     if(!shell) return;
     const tabbar = shell.querySelector('.tabbar');
+    if(!isActualCleaner()){
+      const btn = tabbar && tabbar.querySelector('[data-pms-profile-tab]');
+      if(btn) btn.remove();
+      const pane = qs('cleanerProfile');
+      if(pane){
+        if(pane.classList.contains('active')){
+          const todayBtn = tabbar && tabbar.querySelector('button[onclick*="cleanerToday"]');
+          showTabImpl('cleanerToday', todayBtn || null);
+        }
+        pane.remove();
+      }
+      return;
+    }
     if(tabbar && !tabbar.querySelector('[data-pms-profile-tab]')){
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -885,10 +892,11 @@
     if(!row || !row.date || !row.target_id) return '';
     const key = cleaningPhotoTaskKey(row);
     ui.photoRows[key] = {date: row.date, target_id: row.target_id, target_type: row.target_type || 'room', task_key: key};
-    const id = 'cleanPhoto_' + safe(key);
+    const cameraId = 'cleanPhotoCamera_' + safe(key);
+    const fileId = 'cleanPhotoFile_' + safe(key);
     const photos = cleaningPhotosForRow(row);
     const canUpload = row.date <= today();
-    const upload = canUpload ? `<button class="smallbtn" onclick="chooseCleaningPhoto('${encodeURIComponent(key)}')">${photos.length ? '继续拍照' : '拍照上传'}</button><input id="${id}" type="file" accept="image/*" capture="environment" onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)">` : '';
+    const upload = canUpload ? `<div class="mail-actions"><button class="smallbtn" onclick="chooseCleaningPhoto('${encodeURIComponent(key)}','camera')">拍照</button><button class="smallbtn" onclick="chooseCleaningPhoto('${encodeURIComponent(key)}','file')">上传照片</button></div><input id="${cameraId}" type="file" accept="image/*" capture="environment" onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><input id="${fileId}" type="file" accept="image/*" onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)">` : '';
     const list = photos.length ? `<div class="photo-list">${photos.map((p,i) => {
       const href = String(p.url || '').startsWith('/') ? apiUrl(p.url) : String(p.url || '');
       return `<a href="${esc(href)}" target="_blank" rel="noopener">照片${i+1}</a>`;
@@ -896,9 +904,9 @@
     const expiry = photos.length ? `<div class="photo-expiry">7天后自动删除</div>` : '';
     return `<div class="photo-cell">${upload}${list}${expiry}</div>`;
   }
-  function chooseCleaningPhoto(encodedKey){
+  function chooseCleaningPhoto(encodedKey,mode){
     const key = decodeURIComponent(encodedKey || '');
-    const input = qs('cleanPhoto_' + safe(key));
+    const input = qs((mode === 'file' ? 'cleanPhotoFile_' : 'cleanPhotoCamera_') + safe(key));
     if(input) input.click();
   }
   function fileToDataUrl(file){
@@ -1053,6 +1061,12 @@
     const dayCount = Math.max(1, Math.min(90, daysBetweenSafe(start, addDay(end,1))));
     return {start, end, endExclusive:addDay(end,1), dayCount};
   }
+  function rangeLabel(range){
+    const r = range || calendarRange();
+    if(r.start === today() && r.dayCount === 14) return '未来14天';
+    if(r.start === today() && r.dayCount === 28) return '未来28天';
+    return `${r.start} 至 ${r.end}`;
+  }
   function weekendClass(day){
     const d = parseDate(day).getDay();
     return d === 0 ? 'weekend weekend-sun' : d === 6 ? 'weekend weekend-sat' : '';
@@ -1137,6 +1151,8 @@
     const showProp = ownerPropIds().length !== 1;
     const el = qs('sixMonthStats');
     if(!el) return;
+    const title = qs('futureStatsTitle') || (el.closest('.card') && el.closest('.card').querySelector('h2'));
+    if(title) title.textContent = `${rangeLabel(range)}每个房间预订统计`;
     const rows = rooms.map(room => {
       const real = dedupeBookings(bookingsForRoom(room, ownerRealBookings())).filter(b => b.checkin < range.endExclusive && b.checkout > range.start);
       const locks = dedupeBookings(bookingsForRoom(room, ownerLockBookings())).filter(b => b.checkin < range.endExclusive && b.checkout > range.start);
@@ -1152,6 +1168,8 @@
   }
   function renderOwnerBookingsImpl(){
     const range = calendarRange();
+    const title = qs('futureBookingsTitle');
+    if(title) title.textContent = `${rangeLabel(range)}预订列表`;
     const pf = qs('platformFilter') && qs('platformFilter').value || '';
     const rf = qs('bookingRoomFilter') && qs('bookingRoomFilter').value || '';
     let rows = dedupeBookings(ownerBookingsAll()).filter(b => b.checkin < range.endExclusive && b.checkout > range.start);
@@ -1488,7 +1506,11 @@
   }
   function renderUserProfileImpl(){
     renderUserProfilePanel('ownerProfile');
-    renderUserProfilePanel('cleanerProfile');
+    if(isActualCleaner()) renderUserProfilePanel('cleanerProfile');
+    else {
+      const pane = qs('cleanerProfile');
+      if(pane) pane.innerHTML = '';
+    }
   }
   async function saveUserProfile(rootId,btn){
     const input = qs(rootId + '_displayName');
@@ -1600,6 +1622,10 @@
     if(id === 'cleaner') renderCleanerImpl(); else renderOwnerImpl();
   }
   function showTabImpl(id,btn){
+    if(id === 'cleanerProfile' && !isActualCleaner()){
+      id = 'cleanerToday';
+      btn = qs('cleanerDashboardShell') && qs('cleanerDashboardShell').querySelector('button[onclick*="cleanerToday"]');
+    }
     const parent = btn && btn.closest ? btn.closest('.section') : qs('cleaner');
     if(parent) parent.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
     const pane = qs(id);

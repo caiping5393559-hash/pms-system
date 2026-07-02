@@ -131,12 +131,12 @@ input,select,textarea{border:1px solid var(--line);border-radius:10px;padding:9p
         <p class="small">黄色边框表示该房间该日期有房东备注，例如纪念日布置、生日布置、婴儿床准备等。</p>
       </div>
       <div class="card">
-        <h2>未来 6 个月每个房间预定统计</h2>
+        <h2 id="futureStatsTitle">当前区间每个房间预订统计</h2>
         <div id="sixMonthStats"></div>
       </div>
       <div class="card">
         <div class="toolbar">
-          <strong>未来预订列表</strong>
+          <strong id="futureBookingsTitle">当前区间预订列表</strong>
           <select id="platformFilter" onchange="renderOwnerBookings()">
             <option value="">全部平台</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>微信直订</option>
           </select>
@@ -773,14 +773,16 @@ function renderOwnerCalendar(){
   updateRangePresetButtons();
 }
 function renderSixMonthStats(){
-  const end=addDays(TODAY,183);
+  const range=calendarRange();
+  const title=document.getElementById('futureStatsTitle');
+  if(title) title.textContent=`${range.start===TODAY&&range.dayCount===14?'未来14天':range.start===TODAY&&range.dayCount===28?'未来28天':range.start+' 至 '+range.end}每个房间预订统计`;
   const rows=rooms.map(r=>{
-    const rb=bookings.filter(b=>b.room_id===r.id && b.checkout>=TODAY && b.checkin<=end);
-    const nights=rb.reduce((s,b)=>s+Math.max(0,daysBetween(b.checkin,b.checkout)),0);
-    const occupancy=Math.round(nights/183*100);
+    const rb=bookings.filter(b=>b.room_id===r.id && b.checkin<range.endExclusive && b.checkout>range.start);
+    const nights=rb.reduce((s,b)=>s+Math.max(0,Math.min(daysBetween(range.start,b.checkout),daysBetween(range.start,range.endExclusive))-Math.max(0,daysBetween(range.start,b.checkin))),0);
+    const occupancy=range.dayCount?Math.round(nights/range.dayCount*100):0;
     return `<tr><td>${r.name}</td><td>${rb.length}</td><td>${nights}</td><td>${occupancy}%</td><td>$${r.cleaning_fee}</td></tr>`;
   }).join('');
-  document.getElementById('sixMonthStats').innerHTML=`<table><tr><th>房间</th><th>未来6个月订单数</th><th>占用晚数</th><th>粗略出租率</th><th>单次保洁费</th></tr>${rows}</table>`;
+  document.getElementById('sixMonthStats').innerHTML=`<table><tr><th>房间</th><th>订单数</th><th>占用晚数</th><th>粗略出租率</th><th>单次保洁费</th></tr>${rows}</table>`;
 }
 function renderOwnerBookings(){
   const pf=document.getElementById('platformFilter').value, rf=document.getElementById('bookingRoomFilter').value;
