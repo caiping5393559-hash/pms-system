@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-01-cancel-review-controls-v21"
+PMS_PATCH_VERSION = "2026-07-01-profile-contact-fields-v22"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -3563,7 +3563,7 @@ def pms_state_response_for_user(state, actor):
     if actor:
         public_actor = {
             key: actor.get(key, "")
-            for key in ("id", "role", "username", "name", "email", "phone", "cleaner_code", "group_id", "group_ids")
+            for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids")
             if actor.get(key) not in (None, "")
         }
         filtered["current_user"] = public_actor
@@ -3862,7 +3862,7 @@ def pms_public_profile(user):
     public = {}
     if not isinstance(user, dict):
         return public
-    for key in ("id", "role", "username", "name", "email", "phone", "cleaner_code", "group_id", "group_ids"):
+    for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids"):
         value = user.get(key)
         if value not in (None, ""):
             public[key] = value

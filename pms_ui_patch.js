@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-01-cancel-review-controls-v21';
+  const VERSION = '2026-07-01-profile-contact-fields-v22';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -767,6 +767,7 @@
   function cancelReviewDates(note){
     if(!note) return [];
     if(note.owner_review_task_date) return [String(note.owner_review_task_date).slice(0,10)].filter(Boolean);
+    if(String(note.owner_review_status || '') === 'clean_needed') return [String(note.date || '').slice(0,10)].filter(Boolean);
     const direct = Array.isArray(note.review_dates) ? note.review_dates.map(x => String(x || '').slice(0,10)).filter(Boolean) : [];
     if(direct.length) return Array.from(new Set(direct));
     const base = String(note.date || '').slice(0,10);
@@ -1362,6 +1363,16 @@
     const username = String((user && user.username) || '').trim();
     return username.includes('@') ? username : '';
   }
+  function profilePhone(user){
+    return String((user && (user.phone || user.mobile || user.tel || user.phone_number)) || '').trim();
+  }
+  function profileWechat(user){
+    return String((user && (user.wechat || user.weixin || user.wx || user.wechat_id)) || '').trim();
+  }
+  function isCleanerProfile(user){
+    const userRole = String((user && user.role) || '').trim().toLowerCase();
+    return userRole === 'cleaner';
+  }
   function roleLabel(value){
     const text = String(value || role() || '').toLowerCase();
     if(text === 'admin') return '管理员';
@@ -1374,9 +1385,11 @@
     if(!root) return;
     const u = getCurrentUser() || {};
     const email = profileEmail(u);
-    const phone = u.phone || u.mobile || u.tel || '';
+    const phone = profilePhone(u);
+    const wechat = profileWechat(u);
     const cleanerCode = u.cleaner_code || u.cleanerCode || '';
-    root.innerHTML = `<div class="card user-profile-card"><div class="property-detail-head"><div><h2>用户设置</h2><div class="small">查看当前登录账号资料；这里只能修改对外显示名。</div></div><span class="badge green">${esc(roleLabel(u.role))}</span></div><div class="profile-grid"><div class="profile-field"><label>对外显示名</label><input id="${rootId}_displayName" value="${esc(u.name || '')}" placeholder="例如 zhoulimei"></div><div class="profile-field"><label>用户名</label><input readonly value="${esc(u.username || '未填写')}"></div><div class="profile-field"><label>邮箱</label><input readonly value="${esc(email || '未填写')}"></div><div class="profile-field"><label>手机/微信</label><input readonly value="${esc(phone || '未填写')}"></div><div class="profile-field"><label>保洁编号</label><input readonly value="${esc(cleanerCode || '无')}"></div><div class="profile-field"><label>账号类型</label><input readonly value="${esc(roleLabel(u.role))}"></div></div><div class="profile-actions"><button class="smallbtn primary" onclick="saveUserProfile('${rootId}',this)">保存显示名</button><span id="${rootId}_profileStatus" class="profile-status"></span></div></div>`;
+    const cleanerCodeField = isCleanerProfile(u) ? `<div class="profile-field"><label>保洁编号</label><input readonly value="${esc(cleanerCode || '未生成')}"></div>` : '';
+    root.innerHTML = `<div class="card user-profile-card"><div class="property-detail-head"><div><h2>用户设置</h2><div class="small">查看当前登录账号资料；这里只能修改对外显示名。</div></div><span class="badge green">${esc(roleLabel(u.role))}</span></div><div class="profile-grid"><div class="profile-field"><label>对外显示名</label><input id="${rootId}_displayName" value="${esc(u.name || '')}" placeholder="例如 zhoulimei"></div><div class="profile-field"><label>用户名</label><input readonly value="${esc(u.username || '未填写')}"></div><div class="profile-field"><label>邮箱</label><input readonly value="${esc(email || '未填写')}"></div><div class="profile-field"><label>手机号</label><input readonly value="${esc(phone || '未填写')}"></div><div class="profile-field"><label>微信号</label><input readonly value="${esc(wechat || '未填写')}"></div>${cleanerCodeField}<div class="profile-field"><label>账号类型</label><input readonly value="${esc(roleLabel(u.role))}"></div></div><div class="profile-actions"><button class="smallbtn primary" onclick="saveUserProfile('${rootId}',this)">保存显示名</button><span id="${rootId}_profileStatus" class="profile-status"></span></div></div>`;
   }
   function renderUserProfileImpl(){
     renderUserProfilePanel('ownerProfile');
