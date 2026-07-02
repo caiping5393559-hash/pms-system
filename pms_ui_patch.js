@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-02-room-index-v30';
+  const VERSION = '2026-07-02-v31';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -10,6 +10,7 @@
     editingRoom: '',
     editingArea: '',
     roomSettingsPanel: 'summary',
+    roomDefaultsApplied: false,
     syncResults: {},
     pendingChannels: {},
     calendarVacancyOnly: false,
@@ -25,6 +26,7 @@
   ui.mail.statusByProperty = ui.mail.statusByProperty || {};
   ui.calendarVacancyOnly = !!ui.calendarVacancyOnly;
   ui.roomSettingsPanel = ui.roomSettingsPanel || 'summary';
+  ui.roomDefaultsApplied = !!ui.roomDefaultsApplied;
 
   function esc(value){
     return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
@@ -214,10 +216,23 @@
     const props = new Set(ownerPropIds());
     return getRooms().filter(r => props.has(roomPropId(r.id))).map(r => r.id);
   }
+  function savedDefaultRoomIds(){
+    const u = getCurrentUser() || {};
+    const raw = Array.isArray(u.default_room_ids) ? u.default_room_ids : (Array.isArray(u.defaultRoomIds) ? u.defaultRoomIds : []);
+    const valid = new Set(validOwnerRoomIds());
+    return raw.map(String).filter(id => valid.has(id));
+  }
+  function applySavedDefaultRooms(force=false){
+    if(ui.roomDefaultsApplied && !force) return;
+    const defaults = savedDefaultRoomIds();
+    if(defaults.length) ui.selectedRoomIds = defaults;
+    ui.roomDefaultsApplied = true;
+  }
   function pruneSelectedRooms(){
     const valid = new Set(validOwnerRoomIds());
     if(!ui.selectedRoomIds || !Array.isArray(ui.selectedRoomIds)){
-      ui.selectedRoomIds = Array.from(valid);
+      const defaults = savedDefaultRoomIds();
+      ui.selectedRoomIds = defaults.length ? defaults : Array.from(valid);
       return;
     }
     ui.selectedRoomIds = ui.selectedRoomIds.filter(id => valid.has(id));
@@ -349,6 +364,7 @@
     if(Array.isArray(state.propertyMailForwarding)) ui.mail.propertyMailForwarding = state.propertyMailForwarding;
     if(Array.isArray(state.mailEvents)) ui.mail.mailEvents = state.mailEvents;
     ensureRealDefaultProperty();
+    applySavedDefaultRooms();
     if(currentDataCount()) rememberGoodState();
     clearDataGate();
     return state;
@@ -555,8 +571,7 @@
       card.innerHTML = `<div class="tabbar">
         <button class="active" onclick="showOwnerTab('ownerDailyWork', this)">指定日期工作表</button>
         <button onclick="showOwnerTab('ownerCalendar', this)">未来预订</button>
-        <button onclick="showOwnerTab('ownerCleaning', this)">保洁费用/调整</button>
-        <button onclick="showOwnerTab('ownerNotes', this)">备注管理</button>
+        <button onclick="showOwnerTab('ownerCleaning', this)">保洁/备注/调整</button>
         <button onclick="showOwnerTab('ownerRooms', this)">房间/公区设置</button>
       </div>`;
       qs('ownerMetrics').insertAdjacentElement('afterend', card);
@@ -572,7 +587,6 @@
     pane('ownerDailyWork', `<div class="card"><h2>指定日期工作表</h2><div class="toolbar"><span class="small">日期：</span><input id="workDate" type="date" onchange="renderDailyWork()"><button class="smallbtn primary" onclick="document.getElementById('workDate').value=TODAY;renderDailyWork()">今天</button><button class="smallbtn" onclick="document.getElementById('workDate').value=addDays(document.getElementById('workDate').value||TODAY,1);renderDailyWork()">下一天</button><button class="smallbtn" onclick="document.getElementById('workDate').value=addDays(document.getElementById('workDate').value||TODAY,-1);renderDailyWork()">上一天</button></div><div id="dailyWorkMetrics" class="grid"></div></div><div id="dailyWorkContent"></div>`);
     pane('ownerCalendar', `<div class="card"><h2>未来房态总览</h2><div class="toolbar"><span class="small">默认未来 14 天，可切换 28 天，也可指定日期范围：</span><button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">未来14天</button><button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">未来28天</button><input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()"><input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()"><span id="ownerRoomFilterSummary" class="badge blue"></span><button id="calendarVacancyOnlyBtn" class="smallbtn" onclick="toggleCalendarVacancyOnly()">只看空房</button><span id="calendarVacancySummary" class="badge green"></span></div><div class="scroll"><div id="calendarGrid" class="timeline"></div></div></div><div class="card"><h2 id="futureStatsTitle">当前区间每个房间预订统计</h2><div id="sixMonthStats"></div></div><div class="card"><div class="toolbar"><strong id="futureBookingsTitle">当前区间预订列表</strong><select id="platformFilter" onchange="renderOwnerBookings()"><option value="">全部平台</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>Other</option><option>微信直订</option></select><span id="bookingRoomFilterSummary" class="badge blue"></span></div><div id="ownerBookings"></div></div>`);
     pane('ownerCleaning', `<div id="ownerCleaningShell"></div>`);
-    pane('ownerNotes', `<div id="ownerNotesShell"></div>`);
     pane('ownerRooms', `<div id="roomSettingsUnifiedShell" class="room-settings-shell"><div id="roomSettings"></div></div>`);
     ensureOwnerProfileTab();
     ensureRoomSettingsShell();
@@ -702,6 +716,11 @@
       .feed-line,.readonly-line{word-break:break-all;border:1px solid #d8e1ef;background:#f8fafc;border-radius:8px;padding:8px 10px;font-size:12px;color:#475569}
       .sync-status{display:inline-flex;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:900;border:1px solid #d8e1ef;background:#f8fafc;color:#475569}
       .sync-status.ok{border-color:#86efac;background:#f0fdf4;color:#166534}.sync-status.error{border-color:#fb7185;background:#fff1f2;color:#be123c}.sync-status.warn{border-color:#fbbf24;background:#fffbeb;color:#92400e}
+      #calendarGrid.vacancy-only .cell:not(.head):not(.room){background:#fff!important;border-color:#d8e1ef!important;color:#0f172a!important;outline:none!important;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:900}
+      #calendarGrid.vacancy-only .cell:not(.head):not(.room):before,#calendarGrid.vacancy-only .cell:not(.head):not(.room):after{display:none!important}
+      #calendarGrid.vacancy-only .cell.empty-night{color:#0f766e!important}
+      #calendarGrid.vacancy-only .cell.hidden-occupied{color:transparent!important}
+      #calendarGrid.vacancy-only .cell.hidden-occupied *{display:none!important}
       #calendarGrid .cell{position:relative;overflow:hidden;min-width:64px}
       #calendarGrid .cell.head.weekend{background:#fffbeb!important;color:#92400e!important;border-color:#f59e0b!important}
       #calendarGrid .cell.head.weekend-sun{background:#fff7ed!important;color:#9a3412!important;border-color:#fb923c!important}
@@ -715,6 +734,7 @@
       #calendarGrid .cell.turnover{background:#ccfbf1!important;border-color:#14b8a6!important}
       #calendarGrid .cell.checkout-only:after,#calendarGrid .cell.checkin-only:after,#calendarGrid .cell.turnover:after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom right,transparent 0 calc(50% - 1.2px),#0f766e calc(50% - 1.2px) calc(50% + 1.2px),transparent calc(50% + 1.2px));opacity:.82;z-index:1}
       #calendarGrid .cell.locked{display:flex;align-items:center;justify-content:center;text-align:center;background:#fff1f2!important;border-color:#fda4af!important;color:#9f1239!important;font-weight:900}
+      #calendarGrid.vacancy-only .cell.hidden-occupied{outline:none!important;border-color:#e2e8f0!important;background:#fff!important}
       #calendarGrid .cell .cell-platform{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:900;position:relative;z-index:2}
       .weekend-label{display:block;font-size:11px;font-weight:900;line-height:1.1;margin-top:2px;color:#b45309}
       .work-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important}
@@ -1069,7 +1089,7 @@
   }
   function propertyMailDigest(propertyId){
     const count = ui.mail.mailEvents.filter(e => String(e.property_id) === String(propertyId)).length;
-    return `<button type="button" class="smallbtn" onclick="openPropertyMailTab('${esc(propertyId)}')">邮件提醒 ${count}</button>`;
+    return `<button type="button" class="smallbtn" onclick="openPropertyMailInRooms('${esc(propertyId)}')">邮件提醒 ${count}</button>`;
   }
   function propertyCard(prop){
     const rooms = propRooms(prop.id);
@@ -1112,7 +1132,8 @@
     if(!host) return;
     const rooms = validOwnerRoomIds().map(id => getRooms().find(r => String(r.id) === String(id))).filter(Boolean);
     const selectedCount = ownerRoomIds().length;
-    host.innerHTML = `<div class="scope-filter-head"><div><div class="scope-filter-title">房间范围</div><div class="small">先在上面勾房源，再在这里勾房间；下面所有结果统一按这个范围显示。</div></div><div class="property-actions"><span class="badge blue">已选 ${selectedCount}/${rooms.length} 个房间</span><button class="smallbtn" onclick="setOwnerRoomAll()">全部房间</button></div></div><div class="scope-chip-list">${rooms.length ? rooms.map(roomScopeChip).join('') : '<span class="small">当前房源没有房间。</span>'}</div>`;
+    const defaultCount = savedDefaultRoomIds().length;
+    host.innerHTML = `<div class="scope-filter-head"><div><div class="scope-filter-title">房间范围</div><div class="small">先在上面勾房源，再在这里勾房间；点“保存默认”后，下次刷新或重新进入会直接按这些房间显示。</div></div><div class="property-actions"><span class="badge blue">已选 ${selectedCount}/${rooms.length} 个房间</span><span id="roomDefaultStatus" class="sync-status ok" style="${defaultCount ? '' : 'display:none'}">默认 ${defaultCount} 个</span><button class="smallbtn primary" onclick="saveOwnerRoomDefault(this)">保存默认</button><button class="smallbtn" onclick="setOwnerRoomAll()">全部房间</button></div></div><div class="scope-chip-list">${rooms.length ? rooms.map(roomScopeChip).join('') : '<span class="small">当前房源没有房间。</span>'}</div>`;
   }
 
   function initSelectsImpl(){
@@ -1192,11 +1213,10 @@
     const real = dedupeBookings(bookingsForRoom(room, ownerRealBookings()));
     const locks = dedupeBookings(bookingsForRoom(room, ownerLockBookings()));
     return (days || []).some(day => {
-      const checkout = real.some(x => x.checkout === day);
       const checkin = real.some(x => x.checkin === day);
       const stay = real.some(x => x.checkin < day && x.checkout > day);
       const lock = locks.some(x => x.checkin <= day && x.checkout > day);
-      return !checkout && !checkin && !stay && !lock;
+      return !checkin && !stay && !lock;
     });
   }
   function calendarDaysForRange(range){
@@ -1205,19 +1225,18 @@
   }
   function selectedCalendarRooms(range){
     const rows = ownerRooms();
-    if(!ui.calendarVacancyOnly) return rows;
-    return rows.filter(room => roomHasEmptyCalendarCell(room, calendarDaysForRange(range)));
+    return rows;
   }
   function updateCalendarVacancyControls(range, visibleCount){
     const total = ownerRooms().length;
     const btn = qs('calendarVacancyOnlyBtn');
     if(btn){
       btn.classList.toggle('primary', !!ui.calendarVacancyOnly);
-      btn.textContent = ui.calendarVacancyOnly ? '显示全部房间' : '只看空房';
+      btn.textContent = ui.calendarVacancyOnly ? '显示全部房态' : '只看空房';
     }
     const summary = qs('calendarVacancySummary');
     if(summary){
-      summary.textContent = ui.calendarVacancyOnly ? `空房 ${visibleCount}/${total} 个房间` : '';
+      summary.textContent = ui.calendarVacancyOnly ? `只标空晚 · ${visibleCount}/${total} 个房间` : '';
       summary.style.display = ui.calendarVacancyOnly ? 'inline-flex' : 'none';
     }
   }
@@ -1233,6 +1252,7 @@
     const rows = selectedCalendarRooms(range);
     const grid = qs('calendarGrid');
     if(!grid) return;
+    grid.classList.toggle('vacancy-only', !!ui.calendarVacancyOnly);
     if(!rows.length){
       grid.style.gridTemplateColumns = '1fr';
       grid.innerHTML = `<div class="cell head">${ui.calendarVacancyOnly ? '当前日期范围没有空房' : '当前房源没有房间'}</div>`;
@@ -1255,6 +1275,7 @@
         const classes = ['cell'].concat(weekendClass(day).split(' ').filter(Boolean));
         const titles = [];
         let body = '';
+        const nightBooked = !!(checkin || stay || lock);
         if(checkout && checkin){
           classes.push('calendar-booked','turnover');
           titles.push(`退房：${bookingLabels(checkout).join('/')} ${checkout.checkin} 到 ${checkout.checkout}`, `入住：${bookingLabels(checkin).join('/')} ${checkin.checkin} 到 ${checkin.checkout}`);
@@ -1273,7 +1294,16 @@
           body = '<span class="cell-platform">不开放锁定</span>';
           titles.push(`不开放锁定：${lock.checkin} 到 ${lock.checkout}；${lockReason(lock)}`);
         }
-        if(hasNote){
+        if(ui.calendarVacancyOnly){
+          if(nightBooked){
+            body = '';
+            classes.push('hidden-occupied');
+          }else{
+            body = '<span class="cell-platform">空</span>';
+            classes.push('empty-night');
+            titles.push('当晚空房');
+          }
+        }else if(hasNote){
           classes.push('hasnote');
           body += '<span class="cell-note">备注</span>';
           titles.push('有房东日期备注');
@@ -1311,9 +1341,7 @@
     const title = qs('futureBookingsTitle');
     if(title) title.textContent = `${rangeLabel(range)}预订列表`;
     const pf = qs('platformFilter') && qs('platformFilter').value || '';
-    const calendarRoomEntities = new Set(selectedCalendarRooms(range).map(inventoryGroupId));
     let rows = dedupeBookings(ownerBookingsAll()).filter(b => b.checkin < range.endExclusive && b.checkout > range.start);
-    if(ui.calendarVacancyOnly) rows = rows.filter(b => calendarRoomEntities.has(roomEntityId(b.room_id)));
     if(pf) rows = rows.filter(b => bookingLabels(b).includes(pf) || b.platform === pf);
     rows.sort((a,b) => String(a.checkin).localeCompare(String(b.checkin)) || roomName(a.room_id).localeCompare(roomName(b.room_id),'zh-Hans-CN'));
     const showProp = ownerPropIds().length !== 1;
@@ -1368,7 +1396,7 @@
   function renderCleaningManagerShell(){
     const root = qs('ownerCleaningShell');
     if(!root) return;
-    root.innerHTML = `<div class="card"><h2>手动调整实际保洁</h2><div class="formgrid"><div><label>日期</label><input id="manualDate" type="date"></div><div><label>对象</label><select id="manualTarget"></select></div><div><label>调整类型</label><select id="manualType"><option value="add">额外增加保洁</option><option value="remove">取消系统保洁</option></select></div><div><label>调整金额</label><input id="manualAmount" type="number" step="0.01"></div><div><label>原因</label><input id="manualReason" placeholder="例如：临时加扫 / 实际没打扫"></div></div><br><button class="smallbtn primary" onclick="addManualChange()">添加调整记录</button></div><div class="card"><div class="toolbar"><h2 style="margin:0">手动调整记录</h2><input id="manualFilterStart" type="date" onchange="renderManualRecords()"><input id="manualFilterEnd" type="date" onchange="renderManualRecords()"><select id="manualFilterTarget" onchange="renderManualRecords()"></select><select id="manualFilterType" onchange="renderManualRecords()"><option value="">全部调整</option><option value="add">额外增加</option><option value="remove">取消保洁</option></select></div><div id="manualRecords"></div></div><div class="card"><div class="property-detail-head"><div><h2>保洁费用统计</h2><div class="small">按日期排序，再按房间排序；历史和将来分开显示。</div></div><div class="property-actions"><input id="cleanStart" type="date" onchange="renderCleaningFinance()"><input id="cleanEnd" type="date" onchange="renderCleaningFinance()"></div></div><div id="cleaningFinance"></div></div>`;
+    root.innerHTML = `<div class="card"><h2>手动调整实际保洁</h2><div class="formgrid"><div><label>日期</label><input id="manualDate" type="date"></div><div><label>对象</label><select id="manualTarget"></select></div><div><label>调整类型</label><select id="manualType"><option value="add">额外增加保洁</option><option value="remove">取消系统保洁</option></select></div><div><label>调整金额</label><input id="manualAmount" type="number" step="0.01"></div><div><label>原因</label><input id="manualReason" placeholder="例如：临时加扫 / 实际没打扫"></div></div><br><button class="smallbtn primary" onclick="addManualChange()">添加调整记录</button></div><div class="card"><div class="toolbar"><h2 style="margin:0">手动调整记录</h2><input id="manualFilterStart" type="date" onchange="renderManualRecords()"><input id="manualFilterEnd" type="date" onchange="renderManualRecords()"><select id="manualFilterTarget" onchange="renderManualRecords()"></select><select id="manualFilterType" onchange="renderManualRecords()"><option value="">全部调整</option><option value="add">额外增加</option><option value="remove">取消保洁</option></select></div><div id="manualRecords"></div></div><div class="card"><div class="property-detail-head"><div><h2>保洁费用统计</h2><div class="small">按日期排序，再按房间排序；历史和将来分开显示。</div></div><div class="property-actions"><input id="cleanStart" type="date" onchange="renderCleaningFinance()"><input id="cleanEnd" type="date" onchange="renderCleaningFinance()"></div></div><div id="cleaningFinance"></div></div><div id="ownerNotesShell"></div>`;
     const md = qs('manualDate'); if(md && !md.value) md.value = today();
     const cs = qs('cleanStart'); if(cs && !cs.value) cs.value = addDay(today(), -30);
     const ce = qs('cleanEnd'); if(ce && !ce.value) ce.value = addDay(today(), 30);
@@ -1593,16 +1621,13 @@
     return `<div class="room-index-section"><div class="room-index-head"><div><h3 style="margin:0">房源索引</h3><div class="small">先看状态；点保洁、邮件、公区或某个房间后，下面只展开对应设置。</div></div><div class="property-actions"><button class="smallbtn" onclick="setRoomSettingsPanel('summary')">收起详情</button><button class="smallbtn primary" onclick="addRoom('${esc(prop.id)}')">添加房间</button></div></div><div class="room-index-grid"><button type="button" class="${itemClass('cleaners')}" onclick="setRoomSettingsPanel('cleaners')"><div class="room-index-title"><span>保洁绑定</span><span class="badge green">${cleaners.length} 个</span></div><div class="room-index-desc">${cleaners.length ? cleaners.map(c => esc(cleanerDisplay(c.cleaner_code))).join('、') : '还没有绑定保洁'}</div></button><button type="button" class="${itemClass('mail')}" onclick="setRoomSettingsPanel('mail')"><div class="room-index-title"><span>邮件提醒</span><span class="badge ${mailEvents.length ? 'orange' : 'blue'}">${mailEvents.length} 条</span></div><div class="room-index-desc">${esc(mailStatus)}</div></button><button type="button" class="${itemClass('areas')}" onclick="setRoomSettingsPanel('areas')"><div class="room-index-title"><span>公区</span><span class="badge orange">${areas.length} 个</span></div><div class="room-index-desc">${areas.length ? areas.map(a => esc(a.name || a.id)).join('、') : '还没有公区'}</div></button>${rooms.length ? rooms.map(room => { const key = roomSettingsPanelKey('room', room.id); return `<button type="button" class="${itemClass(key)}" onclick="setRoomSettingsPanel('room','${esc(room.id)}')"><div class="room-index-title"><span>${esc(room.name || room.id)}</span><span class="badge blue">${channelRows(room.id).length} 渠道</span></div><div class="room-index-meta">${roomChannelBadges(room)}</div></button>`; }).join('') : '<div class="empty-panel">这个房源还没有房间。</div>'}</div></div>`;
   }
   function renderPropertyMailSummaryPanel(prop){
-    const row = mailSetting(prop.id) || {};
-    const events = ui.mail.mailEvents.filter(e => String(e.property_id) === String(prop.id)).sort((a,b) => String(b.received_at || b.created_at || '').localeCompare(String(a.received_at || a.created_at || ''))).slice(0,8);
-    const addr = row.pms_forward_address || generatedMailAddress(prop.id) || '后台未配置主 Gmail';
-    return `<div class="settings-section"><div class="property-detail-head"><div><h3 style="margin:0">邮件提醒</h3><div class="small">这里先看当前房源的邮箱和提醒记录；需要修改邮箱时进入完整邮件设置。</div></div><div class="property-actions"><button class="smallbtn" onclick="openPropertyMailTab('${esc(prop.id)}')">打开邮件设置</button><button class="smallbtn" onclick="syncMailEventsFromGmail('${esc(prop.id)}',this)">同步 Gmail</button><button class="smallbtn" onclick="checkMailDiagnostics('${esc(prop.id)}',this)">检查 Gmail</button></div></div><div class="formgrid"><div><label>Airbnb 通知邮箱</label><div class="readonly-line">${esc(row.source_email || '未设置')}</div></div><div><label>PMS 转发地址</label><div class="readonly-line">${esc(addr)}</div></div><div><label>状态</label><div class="readonly-line">${esc(row.forward_status || '未设置')}</div></div><div><label>备注</label><div class="readonly-line">${esc(row.notes || '无')}</div></div></div>${events.length ? `<table><tr><th>收到</th><th>类型</th><th>房间</th><th>内容</th></tr>${events.map(e => `<tr><td>${esc((e.received_at || e.created_at || '').slice(0,16))}</td><td>${esc(e.event_type || 'notice')}</td><td>${esc(e.room_id ? roomName(e.room_id) : e.room_name || '')}</td><td>${esc(e.title || e.summary || e.raw_subject || '')}</td></tr>`).join('')}</table>` : '<div class="empty-panel">暂无邮件提醒。</div>'}</div>`;
+    return renderPropertyMailPanel(prop);
   }
   function renderRoomSettingsDetail(prop, rooms){
     const active = activeRoomSettingsPanel(rooms);
     if(active === 'summary') return '';
     if(active === 'cleaners') return renderCleanerPanel(prop);
-    if(active === 'mail') return renderPropertyMailSummaryPanel(prop);
+    if(active === 'mail') return `<div class="settings-section">${renderPropertyMailPanel(prop)}</div>`;
     if(active === 'areas') return renderCommonAreaPanel(prop);
     if(active.startsWith('room:')){
       const roomId = active.slice(5);
@@ -1634,7 +1659,6 @@
     ensureOwnerPropertyModuleVisible();
     initSelectsImpl();
     renderOwnerMetricsImpl();
-    ensureOwnerMailTab();
     ensureOwnerProfileTab();
     renderOwnerTabImpl(activeOwnerTabId());
     setHeader('owner');
@@ -1645,10 +1669,8 @@
   function renderOwnerTabImpl(id){
     const tab = id || activeOwnerTabId();
     if(tab === 'ownerCalendar'){renderOwnerCalendarImpl(); renderSixMonthStatsImpl(); renderOwnerBookingsImpl();}
-    else if(tab === 'ownerCleaning'){renderCleaningManagerShell(); renderManualRecordsImpl(); renderCleaningFinanceImpl();}
+    else if(tab === 'ownerCleaning'){renderCleaningManagerShell(); renderManualRecordsImpl(); renderCleaningFinanceImpl(); renderOwnerNotesShell(); renderOwnerNotesImpl();}
     else if(tab === 'ownerRooms'){renderRoomSettingsImpl();}
-    else if(tab === 'ownerNotes'){renderOwnerNotesShell(); renderOwnerNotesImpl();}
-    else if(tab === 'ownerMail'){renderOwnerMail();}
     else if(tab === 'ownerProfile'){renderUserProfileImpl();}
     else renderDailyWorkImpl();
   }
@@ -1796,33 +1818,6 @@
     const parts = inbox.split('@');
     return `${parts[0]}+${cfg.alias_prefix || 'pms'}_${safe(propertyId)}@${parts.slice(1).join('@')}`;
   }
-  function ensureOwnerMailTab(){
-    const owner = qs('owner');
-    if(!owner) return;
-    const tabbar = owner.querySelector('.tabbar');
-    if(tabbar && !tabbar.querySelector('[data-pms-mail-tab]')){
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.dataset.pmsMailTab = '1';
-      btn.textContent = '邮件提醒';
-      btn.onclick = function(){showOwnerTabImpl('ownerMail', this);};
-      tabbar.appendChild(btn);
-    }
-    if(!qs('ownerMail')){
-      const pane = document.createElement('div');
-      pane.id = 'ownerMail';
-      pane.className = 'tab-content';
-      owner.appendChild(pane);
-    }
-  }
-  function renderOwnerMail(){
-    ensureOwnerMailTab();
-    const root = qs('ownerMail');
-    if(!root) return;
-    const props = propList().filter(p => ownerPropIds().includes(p.id));
-    const eventCount = props.reduce((n,p) => n + ui.mail.mailEvents.filter(e => String(e.property_id) === String(p.id)).length, 0);
-    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>邮件提醒</h2><div class="small">按房源管理 Airbnb 通知邮箱、PMS 转发地址和提醒记录。</div></div><span class="badge ${eventCount?'orange':'blue'}">共 ${eventCount} 条</span></div><div class="channel-list">${props.map(p => renderPropertyMailPanel(p)).join('') || '<div class="empty-panel">请先添加房源。</div>'}</div></div>`;
-  }
   function setMailPanelStatus(propId,kind,text){
     ui.mail.statusByProperty = ui.mail.statusByProperty || {};
     const key = String(propId || '');
@@ -1846,23 +1841,26 @@
     const addr = row.pms_forward_address || generatedMailAddress(prop.id);
     return `<div class="mail-panel" id="mailPanel_${safe(prop.id)}"><div class="property-detail-head"><div><h3 style="margin:0">${esc(prop.name || prop.id)}</h3><div class="small">${events.length} 条邮件提醒</div></div><div class="mail-actions">${mailPanelStatusHtml(prop.id)}<button class="smallbtn primary" onclick="savePropertyMail('${esc(prop.id)}',this)">保存邮箱</button><button class="smallbtn" onclick="syncMailEventsFromGmail('${esc(prop.id)}',this)">同步 Gmail</button><button class="smallbtn" onclick="checkMailDiagnostics('${esc(prop.id)}',this)">检查 Gmail</button></div></div><div class="formgrid"><div><label>Airbnb 通知邮箱</label><input id="mailSource_${safe(prop.id)}" value="${esc(row.source_email || '')}" placeholder="Airbnb 发信到哪个邮箱"></div><div><label>PMS 转发地址</label><input readonly value="${esc(addr || '后台未配置主 Gmail')}"></div><div><label>状态</label><select id="mailStatus_${safe(prop.id)}"><option value="not_set" ${row.forward_status==='not_set'?'selected':''}>未设置</option><option value="verification_pending" ${row.forward_status==='verification_pending'?'selected':''}>待验证</option><option value="active" ${row.forward_status==='active'?'selected':''}>启用</option><option value="paused" ${row.forward_status==='paused'?'selected':''}>暂停</option></select></div><div><label>备注</label><input id="mailNotes_${safe(prop.id)}" value="${esc(row.notes || '')}"></div></div>${events.length ? `<table><tr><th>收到</th><th>类型</th><th>房间</th><th>内容</th></tr>${events.map(e => `<tr><td>${esc((e.received_at || e.created_at || '').slice(0,16))}</td><td>${esc(e.event_type || 'notice')}</td><td>${esc(e.room_id ? roomName(e.room_id) : e.room_name || '')}</td><td>${esc(e.title || e.summary || e.raw_subject || '')}</td></tr>`).join('')}</table>` : '<div class="empty-panel">暂无邮件提醒。</div>'}</div>`;
   }
-  function openPropertyMailTab(propertyId){
-    ensureOwnerMailTab();
+  function openPropertyMailInRooms(propertyId){
     const id = String(propertyId || '');
     if(id && !ownerPropIds().includes(id)){
       setOwnerPropertyIds(ownerPropIds().concat([id]));
       setOwnerRoomIds(validOwnerRoomIds());
     }
+    if(id) ui.selectedPropertyId = id;
+    ui.roomSettingsPanel = 'mail';
     const owner = qs('owner');
-    const btn = owner && Array.from(owner.querySelectorAll('.tabbar button')).find(b => b.dataset.pmsMailTab || (b.textContent || '').includes('邮件提醒'));
-    showOwnerTabImpl('ownerMail', btn || null);
-    renderOwnerMail();
+    const btn = owner && Array.from(owner.querySelectorAll('.tabbar button')).find(b => (b.textContent || '').includes('房间/公区'));
+    showOwnerTabImpl('ownerRooms', btn || null);
     setTimeout(() => {
-      const panel = qs('mailPanel_' + safe(id));
+      const panel = qs('roomSettingsDetail') || qs('mailPanel_' + safe(id));
       if(panel) panel.scrollIntoView({block:'start', behavior:'smooth'});
       const input = qs('mailSource_' + safe(id));
       if(input) input.focus();
     }, 0);
+  }
+  function openPropertyMailTab(propertyId){
+    openPropertyMailInRooms(propertyId);
   }
 
   function showSectionImpl(id,btn){
@@ -2023,6 +2021,36 @@
   }
   function setOwnerRoomAllImpl(){setOwnerRoomIds(validOwnerRoomIds()); renderAll();}
   function setOnlyOwnerRoomImpl(id){setOwnerRoomIds([id]); renderAll();}
+  async function saveOwnerRoomDefault(btn){
+    const ids = ownerRoomIds();
+    if(!ids.length) return alert('至少选择一个房间再保存默认。');
+    const user = getCurrentUser() || {};
+    const name = String(user.name || user.username || '房东').trim();
+    const old = btn && btn.textContent;
+    if(btn){btn.disabled = true; btn.textContent = '保存中...';}
+    try{
+      const res = await fetch(apiUrl('/api/profile'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, default_room_ids: ids})
+      });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || data.ok === false) throw new Error(data.error || ('保存默认失败 HTTP ' + res.status));
+      if(data.user) setCurrentUser({...getCurrentUser(), ...data.user});
+      if(data.state) applyStateFromServerImpl(data.state);
+      ui.selectedRoomIds = ids;
+      const status = qs('roomDefaultStatus');
+      if(status){
+        status.style.display = 'inline-flex';
+        status.textContent = `已保存默认 ${ids.length} 个`;
+      }
+      renderAll();
+    }catch(e){
+      alert('保存默认房间失败：' + (e && e.message ? e.message : e));
+    }finally{
+      if(btn){btn.disabled = false; btn.textContent = old || '保存默认';}
+    }
+  }
   function refreshPropertyHub(){loadStateImpl().then(renderAll).catch(e => alert('刷新失败：' + e.message));}
   function editPropertyName(id){ui.editingProperty = id; ensureOwnerPropertyModuleVisible();}
   function cancelPropertyNameEdit(){ui.editingProperty = ''; ensureOwnerPropertyModuleVisible();}
@@ -2168,7 +2196,7 @@
       if(!res.ok || data.ok === false) throw new Error(data.error || ('HTTP ' + res.status));
       applyStateFromServerImpl(data.state || data);
       setMailPanelStatus(propId,'ok','邮箱设置已保存');
-      renderOwnerMail();
+      renderRoomSettingsImpl();
       setMailPanelStatus(propId,'ok','邮箱设置已保存');
     }catch(e){
       setMailPanelStatus(propId,'error','保存失败：' + (e && e.message ? e.message : e));
@@ -2197,7 +2225,7 @@
       const detail = details.find(d => String(d.property_id) === String(propId)) || details[0] || {};
       const text = `Gmail 同步完成：读取 ${Number(detail.emails || 0)} 封，生成 ${Number(detail.events || 0)} 条提醒`;
       setMailPanelStatus(propId,'ok',text);
-      renderOwnerMail();
+      renderRoomSettingsImpl();
       setMailPanelStatus(propId,'ok',text);
     }catch(e){
       let text = 'Gmail 同步失败：' + cleanMailError(e && e.message ? e.message : e);
@@ -2305,7 +2333,7 @@
     renderManualRecordsHTML: renderManualRecordsHTMLImpl,
     renderCleaningFinance: renderCleaningFinanceImpl,
     renderOwnerNotes: renderOwnerNotesImpl,
-    renderOwnerMail,
+    openPropertyMailInRooms,
     openPropertyMailTab,
     renderUserProfile: renderUserProfileImpl,
     saveUserProfile,
@@ -2319,6 +2347,7 @@
     setOwnerRoomFilter: setOwnerRoomFilterImpl,
     setOwnerRoomAll: setOwnerRoomAllImpl,
     setOnlyOwnerRoom: setOnlyOwnerRoomImpl,
+    saveOwnerRoomDefault,
     refreshPropertyHub,
     setRoomSettingsPanel,
     editPropertyName,
@@ -2399,6 +2428,7 @@
     ['renderSixMonthStats', renderSixMonthStatsImpl],
     ['renderOwnerBookings', renderOwnerBookingsImpl],
     ['renderRoomSettings', renderRoomSettingsImpl],
+    ['openPropertyMailInRooms', openPropertyMailInRooms],
     ['openPropertyMailTab', openPropertyMailTab],
     ['toggleCalendarVacancyOnly', toggleCalendarVacancyOnly],
     ['setOwnerPropertyFilter', setOwnerPropertyFilterImpl],
@@ -2407,6 +2437,7 @@
     ['setOwnerRoomFilter', setOwnerRoomFilterImpl],
     ['setOwnerRoomAll', setOwnerRoomAllImpl],
     ['setOnlyOwnerRoom', setOnlyOwnerRoomImpl],
+    ['saveOwnerRoomDefault', saveOwnerRoomDefault],
     ['setRoomSettingsPanel', setRoomSettingsPanel],
     ['addRoom', addRoomImpl],
     ['addCommonArea', addCommonAreaImpl],

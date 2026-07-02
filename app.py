@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-02-room-index-v30"
+PMS_PATCH_VERSION = "2026-07-02-v31"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -4019,7 +4019,7 @@ def pms_state_response_for_user(state, actor):
     if actor:
         public_actor = {
             key: actor.get(key, "")
-            for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids")
+            for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids", "default_room_ids", "defaultRoomIds")
             if actor.get(key) not in (None, "")
         }
         filtered["current_user"] = public_actor
@@ -4355,7 +4355,7 @@ def pms_public_profile(user):
     public = {}
     if not isinstance(user, dict):
         return public
-    for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids"):
+    for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids", "default_room_ids", "defaultRoomIds"):
         value = user.get(key)
         if value not in (None, ""):
             public[key] = value
@@ -4391,6 +4391,29 @@ def update_current_user_profile(payload, actor=None):
         raise RuntimeError("user not found")
 
     target["name"] = display_name
+    if "default_room_ids" in payload or "defaultRoomIds" in payload:
+        raw_defaults = payload.get("default_room_ids", payload.get("defaultRoomIds"))
+        if raw_defaults is None:
+            raw_defaults = []
+        if not isinstance(raw_defaults, list):
+            raise RuntimeError("default room ids must be a list")
+        if actor.get("role") == "admin":
+            allowed_room_ids = {
+                str(room.get("id") or "")
+                for room in state.get("rooms", [])
+                if isinstance(room, dict) and room.get("id")
+            }
+        else:
+            allowed_room_ids = {str(item or "") for item in actor_room_ids(actor, state)}
+        clean_defaults = []
+        for item in raw_defaults:
+            room_id = str(item or "").strip()
+            if room_id and room_id in allowed_room_ids and room_id not in clean_defaults:
+                clean_defaults.append(room_id)
+        if not clean_defaults:
+            raise RuntimeError("default room selection is empty")
+        target["default_room_ids"] = clean_defaults
+        target["defaultRoomIds"] = clean_defaults
     target["updated_at"] = now_utc_iso()
     base_save_state = globals().get("_pms_external_base_save_state")
     if callable(base_save_state):
