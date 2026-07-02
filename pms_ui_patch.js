@@ -1,9 +1,10 @@
 (function(){
-  const VERSION = '2026-07-02-single-frontend-v25';
+  const VERSION = '2026-07-02-property-room-filter-v26';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
     selectedPropertyIds: null,
+    selectedRoomIds: null,
     selectedPropertyId: '',
     editingProperty: '',
     editingRoom: '',
@@ -134,7 +135,7 @@
   }
   function roomPropId(roomId){
     const fallback = (propList()[0] && propList()[0].id) || 'property_default';
-    const r = getRooms().find(x => String(x.id) === String(roomId));
+    const r = getRooms().find(x => String(x.id) === String(roomId) || String(inventoryGroupId(x)) === String(roomId));
     return (r && (r.property_id || fallback)) || fallback;
   }
   function areaPropId(areaId){
@@ -146,6 +147,19 @@
   function roomName(id){
     const r = getRooms().find(x => String(x.id) === String(id));
     return (r && (r.name || r.id)) || id || '';
+  }
+  function normalizeRoomName(value){return String(value || '').trim().replace(/\s+/g,' ').toLowerCase();}
+  function roomNameExists(propId,name,exceptId=''){
+    const key = normalizeRoomName(name);
+    if(!key) return false;
+    return propRooms(propId).some(r => String(r.id) !== String(exceptId) && normalizeRoomName(r.name || r.id) === key);
+  }
+  function nextRoomName(propId){
+    for(let i=1;i<500;i++){
+      const name = i === 1 ? '新房间' : `新房间${i}`;
+      if(!roomNameExists(propId,name)) return name;
+    }
+    return '新房间' + Date.now();
   }
   function targetName(id,type){
     if(type === 'common'){
@@ -184,10 +198,44 @@
     const valid = new Set(validPropIds());
     ui.selectedPropertyIds = Array.from(new Set((ids || []).map(String).filter(id => valid.has(id))));
     if(!ui.selectedPropertyIds.length) ui.selectedPropertyIds = validPropIds();
+    pruneSelectedRooms();
   }
   function propMatches(propId){return ownerPropIds().includes(propId);}
-  function roomMatches(roomId){return propMatches(roomPropId(roomId));}
-  function targetMatches(targetId,type){return propMatches(targetPropId(targetId,type));}
+  function validOwnerRoomIds(){
+    const props = new Set(ownerPropIds());
+    return getRooms().filter(r => props.has(roomPropId(r.id))).map(r => r.id);
+  }
+  function pruneSelectedRooms(){
+    const valid = new Set(validOwnerRoomIds());
+    if(!ui.selectedRoomIds || !Array.isArray(ui.selectedRoomIds)){
+      ui.selectedRoomIds = Array.from(valid);
+      return;
+    }
+    ui.selectedRoomIds = ui.selectedRoomIds.filter(id => valid.has(id));
+    if(!ui.selectedRoomIds.length && valid.size) ui.selectedRoomIds = Array.from(valid);
+  }
+  function ownerRoomIds(){
+    pruneSelectedRooms();
+    const valid = new Set(validOwnerRoomIds());
+    const ids = (ui.selectedRoomIds || []).filter(id => valid.has(id));
+    if(!ids.length && valid.size) return Array.from(valid);
+    return ids;
+  }
+  function ownerRoomEntityIds(){return new Set(ownerRoomIds().map(roomEntityId));}
+  function ownerRoomScopeAll(){
+    const valid = validOwnerRoomIds();
+    return ownerRoomIds().length === valid.length;
+  }
+  function setOwnerRoomIds(ids){
+    const valid = new Set(validOwnerRoomIds());
+    ui.selectedRoomIds = Array.from(new Set((ids || []).map(String).filter(id => valid.has(id))));
+    if(!ui.selectedRoomIds.length) ui.selectedRoomIds = Array.from(valid);
+  }
+  function roomMatches(roomId){return propMatches(roomPropId(roomId)) && ownerRoomEntityIds().has(roomEntityId(roomId));}
+  function targetMatches(targetId,type){
+    if(!propMatches(targetPropId(targetId,type))) return false;
+    return type === 'common' ? ownerRoomScopeAll() : roomMatches(targetId);
+  }
   function ownerRooms(){return getRooms().filter(r => roomMatches(r.id));}
   function ownerAreas(){return getAreas().filter(a => targetMatches(a.id,'common'));}
   function selectedProp(){
@@ -513,7 +561,7 @@
       owner.appendChild(div);
     };
     pane('ownerDailyWork', `<div class="card"><h2>指定日期工作表</h2><div class="toolbar"><span class="small">日期：</span><input id="workDate" type="date" onchange="renderDailyWork()"><button class="smallbtn primary" onclick="document.getElementById('workDate').value=TODAY;renderDailyWork()">今天</button><button class="smallbtn" onclick="document.getElementById('workDate').value=addDays(document.getElementById('workDate').value||TODAY,1);renderDailyWork()">下一天</button><button class="smallbtn" onclick="document.getElementById('workDate').value=addDays(document.getElementById('workDate').value||TODAY,-1);renderDailyWork()">上一天</button></div><div id="dailyWorkMetrics" class="grid"></div></div><div id="dailyWorkContent"></div>`);
-    pane('ownerCalendar', `<div class="card"><h2>未来房态总览</h2><div class="toolbar"><span class="small">默认未来 14 天，可切换 28 天，也可指定日期范围：</span><button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">未来14天</button><button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">未来28天</button><input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()"><input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()"><select id="ownerRoomFilter" onchange="refreshCalendarRangeViews()"></select></div><div class="scroll"><div id="calendarGrid" class="timeline"></div></div></div><div class="card"><h2 id="futureStatsTitle">当前区间每个房间预订统计</h2><div id="sixMonthStats"></div></div><div class="card"><div class="toolbar"><strong id="futureBookingsTitle">当前区间预订列表</strong><select id="platformFilter" onchange="renderOwnerBookings()"><option value="">全部平台</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>Other</option><option>微信直订</option></select><select id="bookingRoomFilter" onchange="renderOwnerBookings()"></select></div><div id="ownerBookings"></div></div>`);
+    pane('ownerCalendar', `<div class="card"><h2>未来房态总览</h2><div class="toolbar"><span class="small">默认未来 14 天，可切换 28 天，也可指定日期范围：</span><button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">未来14天</button><button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">未来28天</button><input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()"><input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()"><span id="ownerRoomFilterSummary" class="badge blue"></span></div><div class="scroll"><div id="calendarGrid" class="timeline"></div></div></div><div class="card"><h2 id="futureStatsTitle">当前区间每个房间预订统计</h2><div id="sixMonthStats"></div></div><div class="card"><div class="toolbar"><strong id="futureBookingsTitle">当前区间预订列表</strong><select id="platformFilter" onchange="renderOwnerBookings()"><option value="">全部平台</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>Other</option><option>微信直订</option></select><span id="bookingRoomFilterSummary" class="badge blue"></span></div><div id="ownerBookings"></div></div>`);
     pane('ownerCleaning', `<div id="ownerCleaningShell"></div>`);
     pane('ownerNotes', `<div id="ownerNotesShell"></div>`);
     pane('ownerRooms', `<div id="roomSettingsUnifiedShell" class="room-settings-shell"><div id="roomSettings"></div></div>`);
@@ -605,8 +653,17 @@
       .property-card{display:grid;gap:10px;align-content:space-between;min-height:145px}
       .property-card-top{display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
       .property-title{font-size:18px;font-weight:900;color:#0f172a}
+      .property-select{display:flex;align-items:center;gap:8px;font-weight:900;color:#0f766e}
+      .property-select input,.scope-chip input{width:18px!important;height:18px;min-width:18px}
       .property-card input,.room-setting-card input,.room-setting-card select,.mail-panel input,.mail-panel textarea{width:100%;min-width:0}
       .property-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+      .scope-filter{display:grid;gap:10px;border:1px solid var(--line);background:#fff;border-radius:8px;padding:12px;margin:10px 0}
+      .scope-filter-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+      .scope-filter-title{font-weight:900;color:#0f172a}
+      .scope-chip-list{display:flex;gap:8px;flex-wrap:wrap}
+      .scope-chip{display:inline-flex;align-items:center;gap:7px;border:1px solid #cbd5e1;background:#f8fafc;border-radius:999px;padding:7px 10px;font-size:13px;font-weight:900}
+      .scope-chip.active{border-color:#5eead4;background:#ecfdf5;color:#0f766e}
+      .scope-chip .prop-label{font-size:11px;color:#64748b;font-weight:800}
       .room-settings-shell{display:grid;gap:14px}
       #roomSettings{display:grid;gap:14px}
       #roomSettings > .property-detail-head{border:1px solid var(--line);background:#fff;border-radius:8px;padding:14px}
@@ -997,24 +1054,51 @@
     const areas = propAreas(prop.id);
     const cleaners = propCleaners(prop.id);
     const editing = ui.editingProperty === prop.id;
+    const checked = ownerPropIds().includes(prop.id);
     const nameBlock = editing
       ? `<div class="channel-row"><input id="propertyName_${safe(prop.id)}" value="${esc(prop.name || '')}"><button class="smallbtn primary" onclick="savePropertyName('${esc(prop.id)}',this)">保存名字</button><button class="smallbtn" onclick="cancelPropertyNameEdit()">取消</button></div>`
       : `<div class="property-title">房源:${esc(prop.name || prop.id)}</div>`;
-    return `<div class="property-card"><div><div class="property-card-top"><div>${nameBlock}<div class="property-meta"><span class="badge blue">${rooms.length} 个房间</span><span class="badge orange">${areas.length} 个公区</span><span class="badge green">${cleaners.length} 个保洁绑定</span></div></div></div></div><div class="property-actions">${editing?'':`<button class="smallbtn" onclick="editPropertyName('${esc(prop.id)}')">修改名字</button>`}<button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">进入房间管理</button><button class="smallbtn" onclick="deletePropertyUi('${esc(prop.id)}',this)">删除房源</button>${propertyMailDigest(prop.id)}</div></div>`;
+    return `<div class="property-card ${checked?'active':''}"><div><div class="property-card-top"><div>${nameBlock}<div class="property-meta"><span class="badge blue">${rooms.length} 个房间</span><span class="badge orange">${areas.length} 个公区</span><span class="badge green">${cleaners.length} 个保洁绑定</span></div></div><label class="property-select" title="纳入下面所有统计和列表"><input type="checkbox" ${checked?'checked':''} onchange="setOwnerPropertyFilter('${esc(prop.id)}',this.checked)">选择</label></div></div><div class="property-actions">${editing?'':`<button class="smallbtn" onclick="editPropertyName('${esc(prop.id)}')">修改名字</button>`}<button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">进入房间管理</button><button class="smallbtn" onclick="setOnlyOwnerProperty('${esc(prop.id)}')">只看这个房源</button><button class="smallbtn" onclick="deletePropertyUi('${esc(prop.id)}',this)">删除房源</button>${propertyMailDigest(prop.id)}</div></div>`;
   }
   function ensureOwnerPropertyModuleVisible(){
     if(visibleAsCleaner()) return;
     const host = ensureOwnerPropertyHost();
     if(!host) return;
     const props = propList();
-    setOwnerPropertyIds(validPropIds());
-    const label = `共 ${props.length} 个房源`;
-    host.innerHTML = `<div class="property-module-head"><div><h2 style="margin:0">房源管理</h2><div class="small">直接读取后台房源数据；可以添加房源、改名，并进入对应房源的房间/iCal 设置。</div></div><div class="property-actions"><span class="badge green">${esc(label)}</span><button class="smallbtn primary" onclick="addProperty()">添加房源</button></div></div><div class="property-cards">${props.length ? props.map(propertyCard).join('') : '<div class="empty-panel">还没有房源。点“添加房源”开始配置。</div>'}</div>`;
+    const label = `已选 ${ownerPropIds().length}/${props.length} 个房源`;
+    host.innerHTML = `<div class="property-module-head"><div><h2 style="margin:0">房源管理</h2><div class="small">勾选房源后，下面所有工作表、预订、保洁、备注和房间筛选都会按这个范围显示。</div></div><div class="property-actions"><span class="badge green">${esc(label)}</span><button class="smallbtn" onclick="setOwnerPropertyAll()">全部房源</button><button class="smallbtn primary" onclick="addProperty()">添加房源</button></div></div><div class="property-cards">${props.length ? props.map(propertyCard).join('') : '<div class="empty-panel">还没有房源。点“添加房源”开始配置。</div>'}</div>`;
+    renderOwnerScopeFilter();
+  }
+  function ensureOwnerScopeFilterHost(){
+    if(visibleAsCleaner()) return null;
+    let host = qs('ownerScopeFilter');
+    if(host) return host;
+    host = document.createElement('div');
+    host.id = 'ownerScopeFilter';
+    host.className = 'scope-filter';
+    const propHost = qs('ownerPropertyHubMount');
+    if(propHost) propHost.insertAdjacentElement('afterend', host);
+    return host;
+  }
+  function roomScopeChip(room){
+    const checked = ownerRoomIds().some(id => String(id) === String(room.id));
+    const showProp = ownerPropIds().length !== 1;
+    return `<label class="scope-chip ${checked?'active':''}"><input type="checkbox" ${checked?'checked':''} onchange="setOwnerRoomFilter('${esc(room.id)}',this.checked)"><span>${esc(roomName(room.id))}</span>${showProp?`<span class="prop-label">${esc(propName(roomPropId(room.id)))}</span>`:''}<button type="button" class="smallbtn" onclick="event.preventDefault();event.stopPropagation();setOnlyOwnerRoom('${esc(room.id)}')">只看</button></label>`;
+  }
+  function renderOwnerScopeFilter(){
+    const host = ensureOwnerScopeFilterHost();
+    if(!host) return;
+    const rooms = validOwnerRoomIds().map(id => getRooms().find(r => String(r.id) === String(id))).filter(Boolean);
+    const selectedCount = ownerRoomIds().length;
+    host.innerHTML = `<div class="scope-filter-head"><div><div class="scope-filter-title">房间范围</div><div class="small">先在上面勾房源，再在这里勾房间；下面所有结果统一按这个范围显示。</div></div><div class="property-actions"><span class="badge blue">已选 ${selectedCount}/${rooms.length} 个房间</span><button class="smallbtn" onclick="setOwnerRoomAll()">全部房间</button></div></div><div class="scope-chip-list">${rooms.length ? rooms.map(roomScopeChip).join('') : '<span class="small">当前房源没有房间。</span>'}</div>`;
   }
 
   function initSelectsImpl(){
-    const roomOptions = `<option value="">全部房间</option>` + ownerRooms().map(r => `<option value="${esc(r.id)}">${esc(roomName(r.id))}</option>`).join('');
-    ['ownerRoomFilter','bookingRoomFilter'].forEach(id => { const el = qs(id); if(el) el.innerHTML = roomOptions; });
+    renderOwnerScopeFilter();
+    ['ownerRoomFilterSummary','bookingRoomFilterSummary'].forEach(id => {
+      const el = qs(id);
+      if(el) el.textContent = `已选 ${ownerRoomIds().length}/${validOwnerRoomIds().length} 个房间`;
+    });
     const roomNoteRoom = qs('roomNoteRoom'); if(roomNoteRoom) roomNoteRoom.innerHTML = ownerRooms().map(r => `<option value="${esc(r.id)}">${esc(roomName(r.id))}</option>`).join('');
     refreshManualTargetOptionsImpl();
     refreshNoteTargetOptionsImpl();
@@ -1083,9 +1167,7 @@
     });
   }
   function selectedCalendarRooms(){
-    const id = qs('ownerRoomFilter') && qs('ownerRoomFilter').value;
-    const rows = ownerRooms();
-    return id ? rows.filter(r => String(r.id) === String(id)) : rows;
+    return ownerRooms();
   }
   function renderOwnerCalendarImpl(){
     const startInput = qs('rangeStart');
@@ -1171,10 +1253,8 @@
     const title = qs('futureBookingsTitle');
     if(title) title.textContent = `${rangeLabel(range)}预订列表`;
     const pf = qs('platformFilter') && qs('platformFilter').value || '';
-    const rf = qs('bookingRoomFilter') && qs('bookingRoomFilter').value || '';
     let rows = dedupeBookings(ownerBookingsAll()).filter(b => b.checkin < range.endExclusive && b.checkout > range.start);
     if(pf) rows = rows.filter(b => bookingLabels(b).includes(pf) || b.platform === pf);
-    if(rf) rows = rows.filter(b => roomEntityId(b.room_id) === roomEntityId(rf));
     rows.sort((a,b) => String(a.checkin).localeCompare(String(b.checkin)) || roomName(a.room_id).localeCompare(roomName(b.room_id),'zh-Hans-CN'));
     const showProp = ownerPropIds().length !== 1;
     const el = qs('ownerBookings');
@@ -1185,6 +1265,7 @@
     }).join('') : `<tr><td colspan="${showProp?8:7}">当前日期范围没有预订</td></tr>`}</table>`;
   }
   function refreshCalendarRangeViewsImpl(){
+    initSelectsImpl();
     renderOwnerMetricsImpl();
     renderOwnerCalendarImpl();
     renderSixMonthStatsImpl();
@@ -1749,9 +1830,26 @@
       return;
     }
     setOwnerPropertyIds(ids);
+    if(checked){
+      setOwnerRoomIds(ownerRoomIds().concat(propRooms(id).map(r => r.id)));
+    }
     renderAll();
   }
-  function setOwnerPropertyAllImpl(){setOwnerPropertyIds(validPropIds()); renderAll();}
+  function setOwnerPropertyAllImpl(){setOwnerPropertyIds(validPropIds()); setOwnerRoomIds(validOwnerRoomIds()); renderAll();}
+  function setOnlyOwnerPropertyImpl(id){setOwnerPropertyIds([id]); setOwnerRoomIds(validOwnerRoomIds()); renderAll();}
+  function setOwnerRoomFilterImpl(id,checked){
+    let ids = ownerRoomIds();
+    ids = checked ? ids.concat([id]) : ids.filter(x => x !== id);
+    if(!checked && !ids.length){
+      alert('至少保留一个房间。');
+      renderAll();
+      return;
+    }
+    setOwnerRoomIds(ids);
+    renderAll();
+  }
+  function setOwnerRoomAllImpl(){setOwnerRoomIds(validOwnerRoomIds()); renderAll();}
+  function setOnlyOwnerRoomImpl(id){setOwnerRoomIds([id]); renderAll();}
   function refreshPropertyHub(){loadStateImpl().then(renderAll).catch(e => alert('刷新失败：' + e.message));}
   function editPropertyName(id){ui.editingProperty = id; ensureOwnerPropertyModuleVisible();}
   function cancelPropertyNameEdit(){ui.editingProperty = ''; ensureOwnerPropertyModuleVisible();}
@@ -1796,7 +1894,10 @@
   async function saveRoomBasics(id,btn){
     const room = getRooms().find(r => String(r.id) === String(id));
     if(room){
-      room.name = (qs('roomName_' + safe(id)) && qs('roomName_' + safe(id)).value.trim()) || room.name || id;
+      const name = (qs('roomName_' + safe(id)) && qs('roomName_' + safe(id)).value.trim()) || room.name || id;
+      const propId = roomPropId(id);
+      if(roomNameExists(propId,name,id)) return alert('同一个房源里不能有相同房间名。请换一个房间名。');
+      room.name = name;
       room.cleaning_fee = Number((qs('roomFee_' + safe(id)) && qs('roomFee_' + safe(id)).value) || 0);
     }
     ui.editingRoom = '';
@@ -1805,7 +1906,10 @@
   }
   async function addRoomImpl(propId){
     const id = 'room_' + Date.now();
-    getRooms().push({id, property_id: propId || (selectedProp() && selectedProp().id) || (propList()[0] && propList()[0].id) || 'property_default', name: '新房间', cleaning_fee: 30, type:'room', created_at:nowIso()});
+    const propertyId = propId || (selectedProp() && selectedProp().id) || (propList()[0] && propList()[0].id) || 'property_default';
+    getRooms().push({id, property_id: propertyId, name: nextRoomName(propertyId), cleaning_fee: 30, type:'room', created_at:nowIso()});
+    setOwnerPropertyIds([propertyId]);
+    setOwnerRoomIds(validOwnerRoomIds());
     await persistAll();
     renderAll();
   }
@@ -1956,6 +2060,10 @@
     setRangePreset: setRangePresetImpl,
     setOwnerPropertyFilter: setOwnerPropertyFilterImpl,
     setOwnerPropertyAll: setOwnerPropertyAllImpl,
+    setOnlyOwnerProperty: setOnlyOwnerPropertyImpl,
+    setOwnerRoomFilter: setOwnerRoomFilterImpl,
+    setOwnerRoomAll: setOwnerRoomAllImpl,
+    setOnlyOwnerRoom: setOnlyOwnerRoomImpl,
     refreshPropertyHub,
     editPropertyName,
     cancelPropertyNameEdit,
@@ -2034,6 +2142,12 @@
     ['renderSixMonthStats', renderSixMonthStatsImpl],
     ['renderOwnerBookings', renderOwnerBookingsImpl],
     ['renderRoomSettings', renderRoomSettingsImpl],
+    ['setOwnerPropertyFilter', setOwnerPropertyFilterImpl],
+    ['setOwnerPropertyAll', setOwnerPropertyAllImpl],
+    ['setOnlyOwnerProperty', setOnlyOwnerPropertyImpl],
+    ['setOwnerRoomFilter', setOwnerRoomFilterImpl],
+    ['setOwnerRoomAll', setOwnerRoomAllImpl],
+    ['setOnlyOwnerRoom', setOnlyOwnerRoomImpl],
     ['addRoom', addRoomImpl],
     ['addCommonArea', addCommonAreaImpl],
     ['syncIcal', syncPropertyIcalImpl],
