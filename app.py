@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-01-user-settings-v18"
+PMS_PATCH_VERSION = "2026-07-01-cancel-review-task-v19"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -1357,12 +1357,20 @@ def _pms_channel_add_cancel_cleaning_review(state, booking, listing, synced_at):
     room_id = listing.get("room_id") or booking.get("room_id")
     review_date = local_now.date().isoformat() if hasattr(local_now, "date") else datetime.utcnow().date().isoformat()
     platform = listing.get("platform") or booking.get("platform") or "iCal"
+    try:
+        next_review_date = (datetime.strptime(review_date, "%Y-%m-%d") + timedelta(days=1)).date().isoformat()
+    except Exception:
+        next_review_date = review_date
+    review_dates = [review_date]
+    if next_review_date and next_review_date not in review_dates:
+        review_dates.append(next_review_date)
     note = {
         "id": note_id,
         "date": review_date,
+        "review_dates": review_dates,
         "target_id": room_id,
         "target_type": "room",
-        "note": f"{platform} iCal 旧订单在入住日16:00后或入住后消失：{booking.get('checkin')} → {booking.get('checkout')}。请房东确认客人是否入住/退款，是否需要安排保洁；当天来不及可改到第二天。",
+        "note": f"{platform} iCal 旧订单在入住日16:00后或入住后消失：{booking.get('checkin')} → {booking.get('checkout')}。这是独立的退房保洁待确认任务，请房东确认客人是否入住/退款，是否需要安排保洁；当天来不及可改到第二天。",
         "priority": "保洁确认",
         "note_type": "cancel_review",
         "amount": 0,

@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-01-user-settings-v18';
+  const VERSION = '2026-07-01-cancel-review-task-v19';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -639,6 +639,7 @@
       .profile-field input[readonly]{background:#f8fafc;color:#475569}
       .profile-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
       .profile-status{font-size:13px;font-weight:900;color:#0f766e}
+      .review-row{background:#fff7ed!important}
       @media(max-width:900px){.room-basics,.channel-grid{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}}
     `;
     document.head.appendChild(style);
@@ -760,8 +761,48 @@
   function noteTaskRows(start,end){
     return getNotes().filter(n => {
       const type = n.target_type || 'room';
-      return n.date && (!start || n.date >= start) && (!end || n.date <= end) && targetMatches(n.target_id,type) && n.amount_present;
+      return n.date && !n.cancellation_review && (!start || n.date >= start) && (!end || n.date <= end) && targetMatches(n.target_id,type) && n.amount_present;
     }).map(n => ({date:n.date,target_id:n.target_id,target_type:n.target_type || 'room',source:'备注',type:'note_task',actual:true,reason:n.note || '',amount:Number(n.amount || 0),note_task:true,note_id:n.id || ''}));
+  }
+  function cancelReviewDates(note){
+    if(!note) return [];
+    if(note.owner_review_task_date) return [String(note.owner_review_task_date).slice(0,10)].filter(Boolean);
+    const direct = Array.isArray(note.review_dates) ? note.review_dates.map(x => String(x || '').slice(0,10)).filter(Boolean) : [];
+    if(direct.length) return Array.from(new Set(direct));
+    const base = String(note.date || '').slice(0,10);
+    if(!base) return [];
+    return Array.from(new Set([base, addDay(base,1)].filter(Boolean)));
+  }
+  function cancelReviewTaskRows(start,end,includePending=false){
+    const out = [];
+    getNotes().forEach(note => {
+      if(!note || !note.cancellation_review || note.inactive || note.deleted) return;
+      const type = note.target_type || 'room';
+      if(!targetMatches(note.target_id,type)) return;
+      const status = String(note.owner_review_status || 'pending');
+      if(status === 'no_cleaning' || status === 'moved_next_day') return;
+      if(!includePending && status !== 'clean_needed') return;
+      cancelReviewDates(note).forEach(date => {
+        if((start && date < start) || (end && date > end)) return;
+        out.push({
+          id: 'cancel_review_task_' + safe(note.id || '') + '_' + safe(date),
+          date,
+          target_id: note.target_id,
+          target_type: type,
+          source: status === 'clean_needed' ? '房东确认退房保洁' : '订单消失待确认',
+          type: 'cancel_review_task',
+          actual: true,
+          reason: note.note || '订单消失后的退房保洁待确认',
+          cancel_review_task: true,
+          review_note_id: note.id || '',
+          review_status: status,
+          checkin: note.checkin || '',
+          checkout: note.checkout || '',
+          platform: note.platform || ''
+        });
+      });
+    });
+    return out;
   }
   function actualCleaningRowsImpl(start,end){
     const rows = systemCleaningRowsImpl().concat(commonAreaRowsImpl(start,end));
@@ -778,25 +819,33 @@
         });
       }
     });
-    return dedupeCleaningRowsImpl(rows.filter(r => r.actual).concat(noteTaskRows(start,end)));
+    return dedupeCleaningRowsImpl(rows.filter(r => r.actual).concat(noteTaskRows(start,end), cancelReviewTaskRows(start,end,false)));
   }
   function scopedCleaningRows(start,end){
     return actualCleaningRowsImpl(start,end).filter(r => targetMatches(r.target_id, r.target_type));
   }
   function rowAmount(row){
+    if(row.cancel_review_task && String(row.review_status || 'pending') !== 'clean_needed') return 0;
     if(row.type === 'manual_add' || row.note_task) return Number(row.amount || targetFee(row.target_id,row.target_type));
     return targetFee(row.target_id,row.target_type);
   }
-  function rowFeeText(row){return money(rowAmount(row));}
+  function rowFeeText(row){
+    if(row.cancel_review_task && String(row.review_status || 'pending') !== 'clean_needed') return '<span class="sync-status warn">待确认</span>';
+    return money(rowAmount(row));
+  }
   function roomDateNoteFor(date, roomId){return getRoomNotes().filter(n => n.date === date && String(n.room_id) === String(roomId));}
   function noteFor(date,targetId,targetType){return getNotes().filter(n => n.date === date && String(n.target_id) === String(targetId) && (n.target_type || 'room') === (targetType || 'room'));}
   function inlineNotes(date,targetId,targetType){
-    const all = noteFor(date,targetId,targetType).concat((targetType === 'room' ? roomDateNoteFor(date,targetId).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})) : []));
+    const all = noteFor(date,targetId,targetType).filter(n => !n.cancellation_review).concat((targetType === 'room' ? roomDateNoteFor(date,targetId).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})) : []));
     if(!all.length) return '';
     return all.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate ? '日期备注' : '备注'}</div><div>${esc(n.note)}</div></div>`).join('');
   }
   function reviewNoteForRow(row){
-    return getNotes().find(n => n && n.cancellation_review && !n.inactive && !n.deleted && n.date === row.date && String(n.target_id) === String(row.target_id) && (n.target_type || 'room') === (row.target_type || 'room')) || null;
+    if(row && row.review_note_id){
+      const byId = getNotes().find(n => n && n.cancellation_review && !n.inactive && !n.deleted && String(n.id || '') === String(row.review_note_id));
+      if(byId) return byId;
+    }
+    return getNotes().find(n => n && n.cancellation_review && !n.inactive && !n.deleted && cancelReviewDates(n).includes(row.date) && String(n.target_id) === String(row.target_id) && (n.target_type || 'room') === (row.target_type || 'room')) || null;
   }
   function reviewStatus(note){
     const status = String((note && note.owner_review_status) || 'pending');
@@ -818,7 +867,7 @@
     const rows = dedupeCleaningRowsImpl(items || []).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
     if(!rows.length) return `<div class="card"><p class="small">暂无记录</p></div>`;
     const showProp = ownerPropIds().length !== 1;
-    return `<div class="card"><table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>类型</th><th>对象</th>${showSource?'<th>来源</th>':''}<th>费用</th><th>备注/任务</th><th>确认</th></tr>${rows.map(row => `<tr class="${row.date === today() ? 'today-row' : ''}"><td>${esc(row.date)}</td>${showProp?`<td>${esc(propName(targetPropId(row.target_id,row.target_type)))}</td>`:''}<td>${objectBadge(row.target_type)}</td><td><span class="badge ${row.target_type === 'common' ? 'orange' : ''}">${esc(targetName(row.target_id,row.target_type))}</span></td>${showSource?`<td>${esc(row.source || '')}</td>`:''}<td>${rowFeeText(row)}</td><td>${esc(row.reason || '')}${inlineNotes(row.date,row.target_id,row.target_type)}</td><td>${cleaningReviewControls(row)}</td></tr>`).join('')}</table></div>`;
+    return `<div class="card"><table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>类型</th><th>对象</th>${showSource?'<th>来源</th>':''}<th>费用</th><th>备注/任务</th><th>确认</th></tr>${rows.map(row => `<tr class="${row.date === today() ? 'today-row' : ''} ${row.cancel_review_task ? 'review-row' : ''}"><td>${esc(row.date)}</td>${showProp?`<td>${esc(propName(targetPropId(row.target_id,row.target_type)))}</td>`:''}<td>${objectBadge(row.target_type)}</td><td><span class="badge ${row.target_type === 'common' ? 'orange' : ''}">${esc(targetName(row.target_id,row.target_type))}</span></td>${showSource?`<td>${esc(row.source || '')}</td>`:''}<td>${rowFeeText(row)}</td><td>${esc(row.reason || '')}${row.cancel_review_task ? '' : inlineNotes(row.date,row.target_id,row.target_type)}</td><td>${cleaningReviewControls(row)}</td></tr>`).join('')}</table></div>`;
   }
 
   function ensureOwnerPropertyHost(){
@@ -1044,8 +1093,9 @@
     const checkins = real.filter(b => b.checkin === d).sort((a,b) => roomName(a.room_id).localeCompare(roomName(b.room_id),'zh-Hans-CN'));
     const stays = real.filter(b => b.checkin < d && b.checkout > d).sort((a,b) => roomName(a.room_id).localeCompare(roomName(b.room_id),'zh-Hans-CN'));
     const empty = dailyEmptyRooms(d, real, locks);
-    const cleanRows = scopedCleaningRows(d,d).filter(r => r.date === d);
-    const notes = getNotes().filter(n => n.date === d && targetMatches(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === d && roomMatches(n.room_id)).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
+    const pendingReviewRows = cancelReviewTaskRows(d,d,true).filter(r => r.date === d && String(r.review_status || 'pending') !== 'clean_needed');
+    const cleanRows = scopedCleaningRows(d,d).filter(r => r.date === d).concat(pendingReviewRows);
+    const notes = getNotes().filter(n => !n.cancellation_review && n.date === d && targetMatches(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === d && roomMatches(n.room_id)).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
     const metrics = qs('dailyWorkMetrics');
     if(metrics) metrics.innerHTML = `<div class="metric"><div class="small">退房</div><div class="num">${checkouts.length}</div></div><div class="metric"><div class="small">入住</div><div class="num">${checkins.length}</div></div><div class="metric"><div class="small">剩余在住</div><div class="num">${stays.length}</div></div><div class="metric"><div class="small">空房</div><div class="num">${empty.length}</div></div><div class="metric"><div class="small">不开放锁定</div><div class="num">${locks.length}</div></div><div class="metric"><div class="small">保洁任务</div><div class="num">${cleanRows.length}</div></div>`;
     function bookingCards(title, rows, cls){
@@ -1721,6 +1771,7 @@
     note.updated_at = now;
     if(action === 'keep'){
       note.owner_review_status = 'clean_needed';
+      note.owner_review_task_date = row.date;
     }else if(action === 'move_next_day'){
       note.owner_review_status = 'moved_next_day';
       note.inactive = true;
