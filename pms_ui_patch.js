@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-01-cancel-review-separate-v20';
+  const VERSION = '2026-07-01-cancel-review-controls-v21';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -856,6 +856,7 @@
   }
   function cleaningTaskKey(row){return encodeURIComponent([row.date,row.target_type || 'room',row.target_id,cleanTargetKey(row)].join('|'));}
   function cleaningReviewControls(row){
+    if(!row || !row.cancel_review_task) return '';
     const note = reviewNoteForRow(row);
     if(!note) return '';
     if(!isOwnerLike()) return `<span class="sync-status warn">${esc(reviewStatus(note))}</span>`;
