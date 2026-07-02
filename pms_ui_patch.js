@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-01-profile-contact-fields-v22';
+  const VERSION = '2026-07-01-cleaning-photo-upload-v23';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -11,6 +11,7 @@
     syncResults: {},
     pendingChannels: {},
     mail: {mailForwardingConfig: [], propertyMailForwarding: [], mailEvents: []},
+    photoRows: {},
     booted: false,
     loading: false
   });
@@ -55,6 +56,8 @@
   function setChannels(value){try{channelListings = value;}catch(e){} window.channelListings = value;}
   function getConfirmations(){try{return Array.isArray(cleaningTaskConfirmations) ? cleaningTaskConfirmations : [];}catch(e){return window.cleaningTaskConfirmations || [];}}
   function setConfirmations(value){try{cleaningTaskConfirmations = value;}catch(e){} window.cleaningTaskConfirmations = value;}
+  function getPhotos(){try{return Array.isArray(cleaningTaskPhotos) ? cleaningTaskPhotos : [];}catch(e){return window.cleaningTaskPhotos || [];}}
+  function setPhotos(value){try{cleaningTaskPhotos = value;}catch(e){} window.cleaningTaskPhotos = value;}
   function getCurrentUser(){try{return currentUser || null;}catch(e){return window.currentUser || null;}}
   function setCurrentUser(value){try{currentUser = value;}catch(e){} window.currentUser = value;}
   function getLastSync(){try{return lastSync || '';}catch(e){return window.lastSync || '';}}
@@ -213,7 +216,7 @@
       groups: getGroups(), users: getUsers(), properties: getProperties(), propertyCleaners: getPropertyCleaners(),
       rooms: getRooms(), commonAreas: getAreas(), bookings: getBookings(), channelListings: getChannels(),
       manualChanges: getManual(), cleaningNotes: getNotes(), roomDateNotes: getRoomNotes(),
-      cleaningTaskConfirmations: getConfirmations(), sync_errors: getSyncErrors(), last_sync: getLastSync(),
+      cleaningTaskConfirmations: getConfirmations(), cleaningTaskPhotos: getPhotos(), sync_errors: getSyncErrors(), last_sync: getLastSync(),
       mailForwardingConfig: ui.mail.mailForwardingConfig, propertyMailForwarding: ui.mail.propertyMailForwarding,
       mailEvents: ui.mail.mailEvents, current_user: u, currentUser: u
     };
@@ -282,6 +285,7 @@
     if(Array.isArray(state.cleaningNotes)) setNotes(state.cleaningNotes);
     if(Array.isArray(state.roomDateNotes)) setRoomNotes(state.roomDateNotes);
     if(Array.isArray(state.cleaningTaskConfirmations)) setConfirmations(state.cleaningTaskConfirmations);
+    if(Array.isArray(state.cleaningTaskPhotos)) setPhotos(state.cleaningTaskPhotos);
     if(Array.isArray(state.sync_errors)) setSyncErrors(state.sync_errors);
     if(state.last_sync) setLastSync(state.last_sync);
     if(Array.isArray(state.mailForwardingConfig)) ui.mail.mailForwardingConfig = state.mailForwardingConfig;
@@ -640,6 +644,11 @@
       .profile-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
       .profile-status{font-size:13px;font-weight:900;color:#0f766e}
       .review-row{background:#fff7ed!important}
+      .photo-cell{display:grid;gap:6px;min-width:150px}
+      .photo-cell input[type=file]{display:none}
+      .photo-list{display:flex;gap:6px;flex-wrap:wrap}
+      .photo-list a{display:inline-flex;align-items:center;border:1px solid #bae6fd;background:#f0f9ff;color:#0369a1;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:900;text-decoration:none}
+      .photo-expiry{font-size:11px;color:#64748b}
       @media(max-width:900px){.room-basics,.channel-grid{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}}
     `;
     document.head.appendChild(style);
@@ -865,11 +874,97 @@
     const key = cleaningTaskKey(row);
     return `<div class="mail-actions"><span class="sync-status warn">等待房东确认</span><button class="smallbtn primary" onclick="resolveCancellationReview('${key}','keep',this)">确认需要保洁</button><button class="smallbtn" onclick="resolveCancellationReview('${key}','move_next_day',this)">改到第二天</button><button class="smallbtn" onclick="resolveCancellationReview('${key}','cancel',this)">不需要保洁</button></div>`;
   }
+  function cleaningPhotoTaskKey(row){
+    return [row && row.date, row && (row.target_type || 'room'), row && row.target_id, row && (row.type || ''), row && (row.source || ''), row && (row.review_note_id || row.note_id || '')].map(x => String(x || '')).join('|');
+  }
+  function cleaningPhotosForRow(row){
+    const key = cleaningPhotoTaskKey(row);
+    return getPhotos().filter(p => p && String(p.task_key || p.taskKey || '') === key);
+  }
+  function cleaningPhotoControls(row){
+    if(!row || !row.date || !row.target_id) return '';
+    const key = cleaningPhotoTaskKey(row);
+    ui.photoRows[key] = {date: row.date, target_id: row.target_id, target_type: row.target_type || 'room', task_key: key};
+    const id = 'cleanPhoto_' + safe(key);
+    const photos = cleaningPhotosForRow(row);
+    const canUpload = row.date <= today();
+    const upload = canUpload ? `<button class="smallbtn" onclick="chooseCleaningPhoto('${encodeURIComponent(key)}')">${photos.length ? '继续拍照' : '拍照上传'}</button><input id="${id}" type="file" accept="image/*" capture="environment" onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)">` : '';
+    const list = photos.length ? `<div class="photo-list">${photos.map((p,i) => {
+      const href = String(p.url || '').startsWith('/') ? apiUrl(p.url) : String(p.url || '');
+      return `<a href="${esc(href)}" target="_blank" rel="noopener">照片${i+1}</a>`;
+    }).join('')}</div>` : '<span class="small">未上传</span>';
+    const expiry = photos.length ? `<div class="photo-expiry">7天后自动删除</div>` : '';
+    return `<div class="photo-cell">${upload}${list}${expiry}</div>`;
+  }
+  function chooseCleaningPhoto(encodedKey){
+    const key = decodeURIComponent(encodedKey || '');
+    const input = qs('cleanPhoto_' + safe(key));
+    if(input) input.click();
+  }
+  function fileToDataUrl(file){
+    return new Promise((resolve,reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error || new Error('读取照片失败'));
+      reader.readAsDataURL(file);
+    });
+  }
+  function imageFromDataUrl(dataUrl){
+    return new Promise((resolve,reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('照片格式无法压缩'));
+      img.src = dataUrl;
+    });
+  }
+  async function prepareCleaningPhoto(file){
+    const dataUrl = await fileToDataUrl(file);
+    const type = String(file.type || '').toLowerCase();
+    if(!/^image\/(jpeg|jpg|png|webp)$/.test(type)) return dataUrl;
+    try{
+      const img = await imageFromDataUrl(dataUrl);
+      const maxSide = 1600;
+      const scale = Math.min(1, maxSide / Math.max(img.width || maxSide, img.height || maxSide));
+      if(scale >= 1 && file.size < 900000) return dataUrl;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round((img.width || maxSide) * scale));
+      canvas.height = Math.max(1, Math.round((img.height || maxSide) * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.78);
+    }catch(e){
+      return dataUrl;
+    }
+  }
+  async function uploadCleaningPhoto(encodedKey,input){
+    const key = decodeURIComponent(encodedKey || '');
+    const row = ui.photoRows[key];
+    const file = input && input.files && input.files[0];
+    if(!row || !file) return;
+    const oldTitle = document.title;
+    try{
+      const dataUrl = await prepareCleaningPhoto(file);
+      const res = await fetch(apiUrl('/api/cleaning-photo'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({...row, file_name: file.name || 'cleaning-photo.jpg', content_type: file.type || 'image/jpeg', photo_data: dataUrl})
+      });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || data.ok === false) throw new Error(data.error || ('上传失败 HTTP ' + res.status));
+      applyStateFromServerImpl(data.state || data);
+      renderAll();
+    }catch(e){
+      alert('上传照片失败：' + (e && e.message ? e.message : e));
+    }finally{
+      if(input) input.value = '';
+      document.title = oldTitle;
+    }
+  }
   function cleaningTableScoped(items, showSource=true){
     const rows = dedupeCleaningRowsImpl(items || []).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
     if(!rows.length) return `<div class="card"><p class="small">暂无记录</p></div>`;
     const showProp = ownerPropIds().length !== 1;
-    return `<div class="card"><table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>类型</th><th>对象</th>${showSource?'<th>来源</th>':''}<th>费用</th><th>备注/任务</th><th>确认</th></tr>${rows.map(row => `<tr class="${row.date === today() ? 'today-row' : ''} ${row.cancel_review_task ? 'review-row' : ''}"><td>${esc(row.date)}</td>${showProp?`<td>${esc(propName(targetPropId(row.target_id,row.target_type)))}</td>`:''}<td>${objectBadge(row.target_type)}</td><td><span class="badge ${row.target_type === 'common' ? 'orange' : ''}">${esc(targetName(row.target_id,row.target_type))}</span></td>${showSource?`<td>${esc(row.source || '')}</td>`:''}<td>${rowFeeText(row)}</td><td>${esc(row.reason || '')}${row.cancel_review_task ? '' : inlineNotes(row.date,row.target_id,row.target_type)}</td><td>${cleaningReviewControls(row)}</td></tr>`).join('')}</table></div>`;
+    return `<div class="card"><table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>类型</th><th>对象</th>${showSource?'<th>来源</th>':''}<th>费用</th><th>备注/任务</th><th>照片</th><th>确认</th></tr>${rows.map(row => `<tr class="${row.date === today() ? 'today-row' : ''} ${row.cancel_review_task ? 'review-row' : ''}"><td>${esc(row.date)}</td>${showProp?`<td>${esc(propName(targetPropId(row.target_id,row.target_type)))}</td>`:''}<td>${objectBadge(row.target_type)}</td><td><span class="badge ${row.target_type === 'common' ? 'orange' : ''}">${esc(targetName(row.target_id,row.target_type))}</span></td>${showSource?`<td>${esc(row.source || '')}</td>`:''}<td>${rowFeeText(row)}</td><td>${esc(row.reason || '')}${row.cancel_review_task ? '' : inlineNotes(row.date,row.target_id,row.target_type)}</td><td>${cleaningPhotoControls(row)}</td><td>${cleaningReviewControls(row)}</td></tr>`).join('')}</table></div>`;
   }
 
   function ensureOwnerPropertyHost(){
@@ -1868,6 +1963,8 @@
     savePropertyMail,
     syncMailEventsFromGmail,
     resolveCancellationReview,
+    chooseCleaningPhoto,
+    uploadCleaningPhoto,
     copyText,
     realBookings: realBookingsImpl,
     lockBookings: lockBookingsImpl,

@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-01-profile-contact-fields-v22"
+PMS_PATCH_VERSION = "2026-07-01-cleaning-photo-upload-v23"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -3036,6 +3036,360 @@ if "_pms_cleaning_confirm_v1" not in source_text:
     else:
         source_text += "\n" + cleaning_confirm_backend + "\n"
 
+cleaning_photo_backend = r'''
+_pms_cleaning_photo_v1 = True
+
+import uuid as _pms_photo_uuid
+import urllib.error as _pms_photo_urllib_error
+import datetime as _pms_photo_dt
+
+if "cleaningTaskPhotos" not in STATE_KEYS:
+    STATE_KEYS.append("cleaningTaskPhotos")
+
+_PMS_PHOTO_MAX_BYTES = 6 * 1024 * 1024
+_PMS_PHOTO_RETENTION_DAYS = int(os.environ.get("PMS_CLEANING_PHOTO_RETENTION_DAYS", "7") or "7")
+
+
+def _pms_photo_text(value, limit=2000):
+    return str(value or "").strip()[:limit]
+
+
+def _pms_photo_now():
+    return _pms_photo_dt.datetime.now(_pms_photo_dt.timezone.utc)
+
+
+def _pms_photo_iso(dt):
+    return dt.astimezone(_pms_photo_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _pms_photo_parse_iso(value):
+    text = _pms_photo_text(value, 80)
+    if not text:
+        return None
+    try:
+        return _pms_photo_dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _pms_photo_is_expired(row, now=None):
+    expires = _pms_photo_parse_iso((row or {}).get("expires_at"))
+    return bool(expires and expires <= (now or _pms_photo_now()))
+
+
+def _pms_photo_clean(row):
+    raw = row if isinstance(row, dict) else {}
+    cleaned = {
+        "id": _pms_photo_text(raw.get("id"), 120),
+        "date": _pms_photo_text(raw.get("date"), 20),
+        "target_id": _pms_photo_text(raw.get("target_id") or raw.get("targetId"), 120),
+        "target_type": _pms_photo_text(raw.get("target_type") or raw.get("targetType") or "room", 20),
+        "task_key": _pms_photo_text(raw.get("task_key") or raw.get("taskKey"), 500),
+        "file_name": _pms_photo_text(raw.get("file_name") or raw.get("fileName"), 180),
+        "content_type": _pms_photo_text(raw.get("content_type") or raw.get("contentType") or "image/jpeg", 80),
+        "size": int(raw.get("size") or 0),
+        "url": _pms_photo_text(raw.get("url"), 2000),
+        "storage_bucket": _pms_photo_text(raw.get("storage_bucket") or raw.get("storageBucket"), 200),
+        "storage_object": _pms_photo_text(raw.get("storage_object") or raw.get("storageObject"), 500),
+        "storage_backend": _pms_photo_text(raw.get("storage_backend") or raw.get("storageBackend"), 40),
+        "photo_doc": _pms_photo_text(raw.get("photo_doc") or raw.get("photoDoc"), 120),
+        "uploaded_by": _pms_photo_text(raw.get("uploaded_by") or raw.get("uploadedBy"), 120),
+        "uploaded_by_name": _pms_photo_text(raw.get("uploaded_by_name") or raw.get("uploadedByName"), 200),
+        "uploaded_at": _pms_photo_text(raw.get("uploaded_at") or raw.get("uploadedAt"), 80),
+        "expires_at": _pms_photo_text(raw.get("expires_at") or raw.get("expiresAt"), 80),
+    }
+    return {key: value for key, value in cleaned.items() if value not in ("", None, 0)}
+
+
+_pms_photo_base_default_state = default_state
+def default_state():
+    state = _pms_photo_base_default_state()
+    state.setdefault("cleaningTaskPhotos", [])
+    return state
+
+
+_pms_photo_base_normalize_state = normalize_state
+def normalize_state(raw):
+    state = _pms_photo_base_normalize_state(raw)
+    state.setdefault("cleaningTaskPhotos", [])
+    state["cleaningTaskPhotos"] = [
+        item for item in (_pms_photo_clean(row) for row in state.get("cleaningTaskPhotos", []))
+        if item.get("id") and item.get("url") and item.get("task_key")
+    ][-2000:]
+    return state
+
+
+def _pms_photo_allowed_targets(state, actor):
+    normalized = normalize_state(state)
+    base_filter = globals().get("_pms_photo_base_filter_state_for_user") or filter_state_for_user
+    filtered = base_filter(normalized, actor) if actor else {}
+    room_ids = {
+        _pms_photo_text(item.get("id"), 120)
+        for item in filtered.get("rooms", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    common_ids = {
+        _pms_photo_text(item.get("id"), 120)
+        for item in filtered.get("commonAreas", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    return room_ids, common_ids
+
+
+def _pms_photo_target_allowed(row, room_ids, common_ids):
+    target_type = _pms_photo_text(row.get("target_type") or row.get("targetType") or "room", 20)
+    target_id = _pms_photo_text(row.get("target_id") or row.get("targetId"), 120)
+    if target_type == "common":
+        return target_id in common_ids
+    return target_id in room_ids
+
+
+_pms_photo_base_filter_state_for_user = filter_state_for_user
+def filter_state_for_user(state, actor):
+    filtered = _pms_photo_base_filter_state_for_user(state, actor)
+    normalized = normalize_state(state)
+    room_ids, common_ids = _pms_photo_allowed_targets(normalized, actor)
+    now = _pms_photo_now()
+    filtered["cleaningTaskPhotos"] = [
+        row for row in normalized.get("cleaningTaskPhotos", [])
+        if _pms_photo_target_allowed(row, room_ids, common_ids) and not _pms_photo_is_expired(row, now)
+    ]
+    return filtered
+
+
+def _pms_photo_storage_buckets():
+    project = firebase_project_id()
+    raw = [
+        os.environ.get("FIREBASE_STORAGE_BUCKET"),
+        os.environ.get("FIREBASE_STORAGE_BUCKET_NAME"),
+        os.environ.get("GOOGLE_CLOUD_STORAGE_BUCKET"),
+        f"{project}.firebasestorage.app" if project else "",
+        f"{project}.appspot.com" if project else "",
+    ]
+    out = []
+    for item in raw:
+        text = _pms_photo_text(item, 200)
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def _pms_photo_storage_request(method, bucket, object_name, data=None, content_type="application/octet-stream"):
+    if method == "POST":
+        url = "https://storage.googleapis.com/upload/storage/v1/b/{}/o?uploadType=media&name={}".format(
+            urllib.parse.quote(bucket, safe=""),
+            urllib.parse.quote(object_name, safe=""),
+        )
+    else:
+        url = "https://storage.googleapis.com/storage/v1/b/{}/o/{}".format(
+            urllib.parse.quote(bucket, safe=""),
+            urllib.parse.quote(object_name, safe=""),
+        )
+    headers = {"Authorization": "Bearer " + access_token()}
+    if method == "POST":
+        headers["Content-Type"] = content_type or "application/octet-stream"
+        headers["x-goog-meta-firebaseStorageDownloadTokens"] = str(_pms_photo_uuid.uuid4())
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    with urllib.request.urlopen(req, timeout=45) as response:
+        raw = response.read().decode("utf-8", errors="replace")
+        return json.loads(raw or "{}"), headers.get("x-goog-meta-firebaseStorageDownloadTokens", "")
+
+
+def _pms_photo_upload_storage(object_name, content, content_type):
+    errors = []
+    for bucket in _pms_photo_storage_buckets():
+        try:
+            meta, token = _pms_photo_storage_request("POST", bucket, object_name, data=content, content_type=content_type)
+            token = token or str(_pms_photo_uuid.uuid4())
+            url = "https://firebasestorage.googleapis.com/v0/b/{}/o/{}?alt=media&token={}".format(
+                urllib.parse.quote(bucket, safe=""),
+                urllib.parse.quote(object_name, safe=""),
+                urllib.parse.quote(token, safe=""),
+            )
+            return bucket, object_name, url
+        except _pms_photo_urllib_error.HTTPError as exc:
+            errors.append(f"{bucket}: HTTP {exc.code}")
+            if exc.code not in (400, 403, 404):
+                raise
+    raise RuntimeError("Firebase Storage upload failed: " + "; ".join(errors))
+
+
+def _pms_photo_delete_storage(row):
+    if _pms_photo_text((row or {}).get("storage_backend"), 40) == "firestore" or (row or {}).get("photo_doc"):
+        doc_id = _pms_photo_text((row or {}).get("photo_doc") or (row or {}).get("id"), 120)
+        if doc_id:
+            try:
+                firestore_request("DELETE", _pms_photo_doc_url(doc_id))
+            except Exception:
+                pass
+        return
+    bucket = _pms_photo_text((row or {}).get("storage_bucket"), 200)
+    object_name = _pms_photo_text((row or {}).get("storage_object"), 500)
+    if not bucket or not object_name:
+        return
+    try:
+        _pms_photo_storage_request("DELETE", bucket, object_name)
+    except Exception:
+        pass
+
+
+def _pms_photo_doc_url(photo_id):
+    project = urllib.parse.quote(firebase_project_id(), safe="")
+    collection = urllib.parse.quote(STATE_COLLECTION, safe="")
+    document = urllib.parse.quote(f"{STATE_DOCUMENT}__photo__{_pms_photo_text(photo_id, 120)}", safe="")
+    return f"https://firestore.googleapis.com/v1/projects/{project}/databases/(default)/documents/{collection}/{document}"
+
+
+def _pms_photo_write_firestore(photo_id, content, content_type, expires_at):
+    compressed = base64.b64encode(gzip.compress(content, compresslevel=9)).decode("ascii")
+    firestore_request("PATCH", _pms_photo_doc_url(photo_id), payload={
+        "fields": {
+            "photo_id": {"stringValue": photo_id},
+            "content_type": {"stringValue": content_type or "image/jpeg"},
+            "data_gzip_base64": {"stringValue": compressed},
+            "raw_bytes": {"integerValue": str(len(content))},
+            "expires_at": {"timestampValue": expires_at},
+            "created_at": {"timestampValue": _pms_photo_iso(_pms_photo_now())},
+        }
+    })
+
+
+def _pms_photo_read_firestore(photo_id):
+    doc = firestore_request("GET", _pms_photo_doc_url(photo_id))
+    if not doc:
+        raise RuntimeError("photo not found")
+    fields = doc.get("fields", {})
+    content_type = fields.get("content_type", {}).get("stringValue") or "image/jpeg"
+    data = fields.get("data_gzip_base64", {}).get("stringValue") or ""
+    if not data:
+        raise RuntimeError("photo data not found")
+    content = gzip.decompress(base64.b64decode(data.encode("ascii")))
+    return content, content_type
+
+
+def pms_photo_binary_response(handler, data, content_type):
+    handler.send_response(200)
+    handler.send_header("Content-Type", content_type or "application/octet-stream")
+    handler.send_header("Content-Length", str(len(data)))
+    handler.send_header("Cache-Control", "private, max-age=300")
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
+def _pms_photo_cleanup_state(state, delete_objects=False):
+    normalized = normalize_state(state)
+    now = _pms_photo_now()
+    keep = []
+    for row in normalized.get("cleaningTaskPhotos", []):
+        if _pms_photo_is_expired(row, now):
+            if delete_objects:
+                _pms_photo_delete_storage(row)
+            continue
+        keep.append(row)
+    normalized["cleaningTaskPhotos"] = keep[-2000:]
+    return normalized
+
+
+_pms_photo_base_save_state = save_state
+def save_state(state):
+    return _pms_photo_base_save_state(_pms_photo_cleanup_state(state, delete_objects=True))
+
+
+def _pms_photo_decode_payload(payload):
+    data_url = _pms_photo_text(payload.get("photo_data") or payload.get("photoData") or payload.get("data_url") or payload.get("dataUrl"), _PMS_PHOTO_MAX_BYTES * 2)
+    content_type = _pms_photo_text(payload.get("content_type") or payload.get("contentType") or "image/jpeg", 80)
+    if "," in data_url and data_url.startswith("data:"):
+        header, body = data_url.split(",", 1)
+        if ";" in header:
+            content_type = header[5:].split(";", 1)[0] or content_type
+        data_url = body
+    content = base64.b64decode(data_url.encode("ascii"), validate=False)
+    if not content:
+        raise RuntimeError("empty photo")
+    if len(content) > _PMS_PHOTO_MAX_BYTES:
+        raise RuntimeError("photo is too large")
+    if not str(content_type).lower().startswith("image/"):
+        raise RuntimeError("only image uploads are allowed")
+    return content, content_type
+
+
+def upload_cleaning_task_photo(payload, actor=None):
+    if not isinstance(payload, dict):
+        raise RuntimeError("payload must be an object")
+    state = _pms_photo_cleanup_state(load_state(), delete_objects=True)
+    room_ids, common_ids = _pms_photo_allowed_targets(state, actor)
+    target_type = _pms_photo_text(payload.get("target_type") or payload.get("targetType") or "room", 20)
+    target_id = _pms_photo_text(payload.get("target_id") or payload.get("targetId"), 120)
+    date = _pms_photo_text(payload.get("date"), 20)
+    task_key = _pms_photo_text(payload.get("task_key") or payload.get("taskKey"), 500)
+    if not date or not target_id or not task_key:
+        raise RuntimeError("date, target and task key are required")
+    if not _pms_photo_target_allowed({"target_type": target_type, "target_id": target_id}, room_ids, common_ids):
+        raise RuntimeError("cleaning task permission required")
+    content, content_type = _pms_photo_decode_payload(payload)
+    now = _pms_photo_now()
+    photo_id = "photo_" + _pms_photo_uuid.uuid4().hex
+    ext = ".jpg"
+    if "png" in content_type:
+        ext = ".png"
+    elif "webp" in content_type:
+        ext = ".webp"
+    elif "heic" in content_type or "heif" in content_type:
+        ext = ".heic"
+    object_name = "cleaning-photos/{}/{}/{}/{}{}".format(date, target_type, target_id, photo_id, ext)
+    expires_at = _pms_photo_iso(now + _pms_photo_dt.timedelta(days=max(1, _PMS_PHOTO_RETENTION_DAYS)))
+    storage_backend = "storage"
+    photo_doc = ""
+    try:
+        bucket, storage_object, url = _pms_photo_upload_storage(object_name, content, content_type)
+    except Exception:
+        bucket, storage_object = "", ""
+        storage_backend = "firestore"
+        photo_doc = photo_id
+        _pms_photo_write_firestore(photo_id, content, content_type, expires_at)
+        url = f"/api/cleaning-photo/{photo_id}"
+    row = {
+        "id": photo_id,
+        "date": date,
+        "target_id": target_id,
+        "target_type": target_type,
+        "task_key": task_key,
+        "file_name": _pms_photo_text(payload.get("file_name") or payload.get("fileName") or (photo_id + ext), 180),
+        "content_type": content_type,
+        "size": len(content),
+        "url": url,
+        "storage_bucket": bucket,
+        "storage_object": storage_object,
+        "storage_backend": storage_backend,
+        "photo_doc": photo_doc,
+        "uploaded_by": _pms_photo_text((actor or {}).get("id") or (actor or {}).get("username"), 120),
+        "uploaded_by_name": _pms_photo_text((actor or {}).get("name") or (actor or {}).get("username"), 200),
+        "uploaded_at": _pms_photo_iso(now),
+        "expires_at": expires_at,
+    }
+    photos = [item for item in state.get("cleaningTaskPhotos", []) if isinstance(item, dict)]
+    photos.append(row)
+    state["cleaningTaskPhotos"] = photos[-2000:]
+    saved = save_state(state)
+    return saved, row
+
+
+def serve_cleaning_task_photo(photo_id, actor=None):
+    state = _pms_photo_cleanup_state(load_state(), delete_objects=True)
+    room_ids, common_ids = _pms_photo_allowed_targets(state, actor)
+    row = next((item for item in state.get("cleaningTaskPhotos", []) if isinstance(item, dict) and item.get("id") == photo_id), None)
+    if not row or _pms_photo_is_expired(row) or not _pms_photo_target_allowed(row, room_ids, common_ids):
+        raise RuntimeError("photo not found")
+    if _pms_photo_text(row.get("storage_backend"), 40) == "firestore" or row.get("photo_doc"):
+        return _pms_photo_read_firestore(row.get("photo_doc") or row.get("id"))
+    raise RuntimeError("direct storage photo")
+'''
+if "_pms_cleaning_photo_v1" not in source_text:
+    if auto_sync_marker in source_text:
+        source_text = source_text.replace(auto_sync_marker, cleaning_photo_backend + "\n" + auto_sync_marker, 1)
+    else:
+        source_text += "\n" + cleaning_photo_backend + "\n"
+
 ical_event_archive_backend = r'''
 _pms_ical_event_archive_v1 = True
 
@@ -3700,7 +4054,15 @@ state_get_route_old = '''            if path == "/api/state":
                 json_response(self, filter_state_for_user(load_state(), user))
                 return
 '''
-state_get_route_new = '''            if path == "/api/state":
+state_get_route_new = '''            if path.startswith("/api/cleaning-photo/"):
+                user = require_user(self, ("admin", "owner", "cleaner"))
+                if not user:
+                    return
+                photo_id = path.rsplit("/", 1)[-1]
+                data, content_type = serve_cleaning_task_photo(photo_id, actor=user)
+                pms_photo_binary_response(self, data, content_type)
+                return
+            if path == "/api/state":
                 user = require_user(self, ("admin", "owner", "cleaner"))
                 if not user:
                     return
@@ -3728,6 +4090,14 @@ state_post_route_new = '''            if path == "/api/profile":
                 payload = json.loads(raw.decode("utf-8") or "{}")
                 saved, public_profile, updated_user = update_current_user_profile(payload, actor=user)
                 json_response(self, {"ok": True, "user": public_profile, "state": pms_state_response_for_user(saved, updated_user)})
+                return
+            if path == "/api/cleaning-photo":
+                user = require_user(self, ("admin", "owner", "cleaner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved, photo = upload_cleaning_task_photo(payload, actor=user)
+                json_response(self, {"ok": True, "photo": photo, "state": pms_state_response_for_user(saved, user)})
                 return
             if path == "/api/state":
                 user = require_user(self, ("admin", "owner"))
