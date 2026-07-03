@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-03-v40';
+  const VERSION = '2026-07-03-v41';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -2004,19 +2004,35 @@
     ensureVersionBadge();
   }
   async function initAppImpl(){
-    ensureBaseShell();
-    ensureStyles();
-    ensureLogoutButton();
-    try{
-      await loadStateImpl();
-      ['manualDate','noteDate','noteFilterDate','roomNoteDate','workDate'].forEach(id => { const el = qs(id); if(el && !el.value) el.value = today(); });
+    if(ui.bootingPromise) return ui.bootingPromise;
+    if(ui.booted && currentDataCount()){
       applyRoleModeImpl();
-      ui.booted = true;
-    }catch(e){
-      console.error(e);
-      clearDataGate();
-      alert('加载 PMS 数据失败：' + (e && e.message ? e.message : e));
+      return;
     }
+    ui.bootStarted = true;
+    ui.bootingPromise = (async () => {
+      ensureBaseShell();
+      ensureStyles();
+      ensureLogoutButton();
+      try{
+        await loadStateImpl();
+        ['manualDate','noteDate','noteFilterDate','roomNoteDate','workDate'].forEach(id => { const el = qs(id); if(el && !el.value) el.value = today(); });
+        applyRoleModeImpl();
+        ui.booted = true;
+      }catch(e){
+        console.error(e);
+        clearDataGate();
+        alert('加载 PMS 数据失败：' + (e && e.message ? e.message : e));
+      }finally{
+        ui.bootingPromise = null;
+      }
+    })();
+    return ui.bootingPromise;
+  }
+
+  function startUnifiedApp(){
+    if(ui.bootStarted && (ui.bootingPromise || ui.booted)) return;
+    initAppImpl().catch(e => console.error(e));
   }
 
   async function syncPropertyIcalImpl(propertyId,btn){
@@ -2545,4 +2561,9 @@
   ].forEach(function(pair){
     try{ window[pair[0]] = pair[1]; }catch(e){}
   });
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', startUnifiedApp, {once:true});
+  }else{
+    setTimeout(startUnifiedApp, 0);
+  }
 })();
