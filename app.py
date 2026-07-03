@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-03-v42"
+PMS_PATCH_VERSION = "2026-07-03-v43"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -46,6 +46,12 @@ if "from http.server import BaseHTTPRequestHandler, HTTPServer\n" in source_text
     source_text = source_text.replace(
         "from http.server import BaseHTTPRequestHandler, HTTPServer\n",
         "from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer\n",
+        1,
+    )
+if "from http.server import HTTPServer, BaseHTTPRequestHandler\n" in source_text and "ThreadingHTTPServer" not in source_text:
+    source_text = source_text.replace(
+        "from http.server import HTTPServer, BaseHTTPRequestHandler\n",
+        "from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer\n",
         1,
     )
 

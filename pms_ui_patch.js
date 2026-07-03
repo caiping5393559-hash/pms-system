@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-03-v42';
+  const VERSION = '2026-07-03-v43';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
