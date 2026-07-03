@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-03-v38"
+PMS_PATCH_VERSION = "2026-07-03-v39"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -1963,10 +1963,10 @@ def _pms_emergency_empty_feed_ids():
 
 def make_feed(feed_id):
     normalized_feed_id = str(feed_id or "").replace(".ics", "")
-    if normalized_feed_id in _pms_emergency_empty_feed_ids():
-        return _pms_empty_ical_calendar("PMS Anti Overbooking")
     state = normalize_state(load_state())
     room_id, target_channel_id, target_listing = _pms_channel_feed_target(state, feed_id)
+    if normalized_feed_id in _pms_emergency_empty_feed_ids() and not target_channel_id:
+        return _pms_empty_ical_calendar("PMS Anti Overbooking")
     if not room_id:
         return None
     events = []
