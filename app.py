@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-03-v34"
+PMS_PATCH_VERSION = "2026-07-03-v36"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -582,7 +582,8 @@ old_visible_room_ids = """    room_ids = {room.get("id") for room in rooms}
     cleaner_codes = {
 """
 new_visible_room_ids = """    room_ids = {room.get("id") for room in rooms}
-    common_areas = [area for area in state.get("commonAreas", []) if isinstance(area, dict) and area.get("property_id") in property_ids]
+    first_property = next(iter(property_ids), "")
+    common_areas = [area for area in state.get("commonAreas", []) if isinstance(area, dict) and (area.get("property_id") or first_property) in property_ids]
     common_area_ids = {area.get("id") for area in common_areas}
     cleaner_codes = {
 """

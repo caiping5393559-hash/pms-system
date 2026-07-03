@@ -261,8 +261,9 @@
   }
   function roomMatches(roomId){return propMatches(roomPropId(roomId)) && ownerRoomEntityIds().has(roomEntityId(roomId));}
   function targetMatches(targetId,type){
-    if(!propMatches(targetPropId(targetId,type))) return false;
-    return type === 'common' ? ownerRoomScopeAll() : roomMatches(targetId);
+    const kind = type === 'common' ? 'common' : 'room';
+    if(!propMatches(targetPropId(targetId,kind))) return false;
+    return kind === 'common' ? true : roomMatches(targetId);
   }
   function ownerRooms(){return getRooms().filter(r => roomMatches(r.id));}
   function ownerAreas(){return getAreas().filter(a => targetMatches(a.id,'common'));}
@@ -880,10 +881,10 @@
     });
     return rows;
   }
-  function noteTaskRows(start,end){
+  function noteTaskRows(start,end,applyOwnerScope=true){
     return getNotes().filter(n => {
       const type = n.target_type || 'room';
-      return n.date && !n.cancellation_review && (!start || n.date >= start) && (!end || n.date <= end) && targetMatches(n.target_id,type) && n.amount_present;
+      return n.date && !n.cancellation_review && (!start || n.date >= start) && (!end || n.date <= end) && (!applyOwnerScope || targetMatches(n.target_id,type)) && n.amount_present;
     }).map(n => ({date:n.date,target_id:n.target_id,target_type:n.target_type || 'room',source:'备注',type:'note_task',actual:true,reason:n.note || '',amount:Number(n.amount || 0),note_task:true,note_id:n.id || ''}));
   }
   function cancelReviewDates(note){
@@ -896,12 +897,12 @@
     if(!base) return [];
     return Array.from(new Set([base, addDay(base,1)].filter(Boolean)));
   }
-  function cancelReviewTaskRows(start,end,includePending=false){
+  function cancelReviewTaskRows(start,end,includePending=false,applyOwnerScope=true){
     const out = [];
     getNotes().forEach(note => {
       if(!note || !note.cancellation_review || note.inactive || note.deleted) return;
       const type = note.target_type || 'room';
-      if(!targetMatches(note.target_id,type)) return;
+      if(applyOwnerScope && !targetMatches(note.target_id,type)) return;
       const status = String(note.owner_review_status || 'pending');
       if(status === 'no_cleaning' || status === 'moved_next_day') return;
       if(!includePending && status !== 'clean_needed') return;
@@ -927,7 +928,7 @@
     });
     return out;
   }
-  function actualCleaningRowsImpl(start,end){
+  function actualCleaningRowsImpl(start,end,applyOwnerScope=true){
     const rows = systemCleaningRowsImpl().concat(commonAreaRowsImpl(start,end));
     getManual().forEach(m => {
       const type = m.target_type || 'room';
@@ -942,7 +943,7 @@
         });
       }
     });
-    return dedupeCleaningRowsImpl(rows.filter(r => r.actual).concat(noteTaskRows(start,end), cancelReviewTaskRows(start,end,false)));
+    return dedupeCleaningRowsImpl(rows.filter(r => r.actual).concat(noteTaskRows(start,end,applyOwnerScope), cancelReviewTaskRows(start,end,false,applyOwnerScope)));
   }
   function scopedCleaningRows(start,end){
     return actualCleaningRowsImpl(start,end).filter(r => targetMatches(r.target_id, r.target_type));
@@ -1573,6 +1574,10 @@
   function feedUrlForRoom(room){
     return `${location.origin}/feed/${encodeURIComponent(inventoryGroupId(room))}.ics`;
   }
+  function feedUrlForChannel(room,ch){
+    const id = ch && ch.id ? ch.id : inventoryGroupId(room);
+    return `${location.origin}/feed/${encodeURIComponent(id)}.ics`;
+  }
   function channelInputId(id,field){return `channel_${safe(id)}_${field}`;}
   function looksLikePublicListingUrl(url){
     const text = String(url || '').trim().toLowerCase();
@@ -1623,7 +1628,8 @@
   function renderChannel(room,ch){
     const urlIssue = cleanChannelUrls({...ch}, false);
     const status = urlIssue.moved ? `<span class="sync-status warn">${esc(urlIssue.message)}</span>` : (!urlIssue.ok ? `<span class="sync-status warn">${esc(urlIssue.message)}</span>` : (ch.sync_error ? `<span class="sync-status error">同步失败：${esc(ch.sync_error)}</span>` : (ch.last_sync ? `<span class="sync-status ok">同步：${esc(ch.last_sync)} · ${Number(ch.synced_booking_count || 0)} 条</span>` : '<span class="sync-status warn">未同步</span>')));
-    return `<div class="channel-card"><div class="channel-grid"><div><label>平台</label><select id="${channelInputId(ch.id,'platform')}"><option ${ch.platform==='Airbnb'?'selected':''}>Airbnb</option><option ${ch.platform==='Booking'?'selected':''}>Booking</option><option ${ch.platform==='Vrbo'?'selected':''}>Vrbo</option><option ${ch.platform==='Other'?'selected':''}>Other</option></select></div><div><label>平台导出 iCal</label><input id="${channelInputId(ch.id,'ical')}" value="${esc(ch.ical_url || '')}" placeholder="粘贴平台导出的 .ics/iCal，不是房源页面"></div><div><label>公开房源链接</label><input id="${channelInputId(ch.id,'listing')}" value="${esc(ch.listing_url || '')}" placeholder="粘贴客人可见的公开房源页面"></div><div><label>备注</label><input id="${channelInputId(ch.id,'note')}" value="${esc(ch.channel_note || '')}" placeholder="账号/房源备注"></div><div class="property-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-row"><div>${status}</div><button class="smallbtn" onclick="copyText('${esc(feedUrlForRoom(room))}')">复制防超卖 iCal</button></div><div class="feed-line">${esc(feedUrlForRoom(room))}</div></div>`;
+    const feedUrl = feedUrlForChannel(room,ch);
+    return `<div class="channel-card"><div class="channel-grid"><div><label>平台</label><select id="${channelInputId(ch.id,'platform')}"><option ${ch.platform==='Airbnb'?'selected':''}>Airbnb</option><option ${ch.platform==='Booking'?'selected':''}>Booking</option><option ${ch.platform==='Vrbo'?'selected':''}>Vrbo</option><option ${ch.platform==='Other'?'selected':''}>Other</option></select></div><div><label>平台导出 iCal</label><input id="${channelInputId(ch.id,'ical')}" value="${esc(ch.ical_url || '')}" placeholder="粘贴平台导出的 .ics/iCal，不是房源页面"></div><div><label>公开房源链接</label><input id="${channelInputId(ch.id,'listing')}" value="${esc(ch.listing_url || '')}" placeholder="粘贴客人可见的公开房源页面"></div><div><label>备注</label><input id="${channelInputId(ch.id,'note')}" value="${esc(ch.channel_note || '')}" placeholder="账号/房源备注"></div><div class="property-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-row"><div>${status}</div><button class="smallbtn" onclick="copyText('${esc(feedUrl)}')">复制防超卖 iCal</button></div><div class="feed-line">${esc(feedUrl)}</div></div>`;
   }
   function renderRoomCard(room){
     const editing = ui.editingRoom === room.id;
@@ -1866,7 +1872,7 @@
   function renderCleanerImpl(){
     ensureBaseShell();
     ensureStyles();
-    const rows = actualCleaningRowsImpl(addDay(today(),-90), addDay(today(),180)).filter(r => cleanerCanSeeTarget(r.target_id,r.target_type));
+    const rows = actualCleaningRowsImpl(addDay(today(),-90), addDay(today(),180), false).filter(r => cleanerCanSeeTarget(r.target_id,r.target_type));
     const todayRows = rows.filter(r => r.date === today()).sort((a,b) => targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
     const futureRows = rows.filter(r => r.date > today()).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN')).slice(0,120);
     const historyRows = rows.filter(r => r.date < today()).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
