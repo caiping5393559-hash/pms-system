@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-02-v31';
+  const VERSION = '2026-07-02-v33';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -14,6 +14,8 @@
     syncResults: {},
     pendingChannels: {},
     calendarVacancyOnly: false,
+    cleaningSubTab: 'today',
+    cleaningWorkDate: '',
     mail: {mailForwardingConfig: [], propertyMailForwarding: [], mailEvents: []},
     photoRows: {},
     booted: false,
@@ -27,6 +29,8 @@
   ui.calendarVacancyOnly = !!ui.calendarVacancyOnly;
   ui.roomSettingsPanel = ui.roomSettingsPanel || 'summary';
   ui.roomDefaultsApplied = !!ui.roomDefaultsApplied;
+  ui.cleaningSubTab = ['today','finance','manual','notes'].includes(ui.cleaningSubTab) ? ui.cleaningSubTab : 'today';
+  ui.cleaningWorkDate = ui.cleaningWorkDate || '';
 
   function esc(value){
     return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
@@ -1393,14 +1397,72 @@
     if(content) content.innerHTML = `<div class="work-grid">${bookingCards('退房',checkouts,'checkout')}${bookingCards('入住',checkins,'checkin')}${bookingCards('剩余在住',stays,'stay')}<div class="work-card empty"><h3>空房（${empty.length}）</h3>${empty.length ? empty.map(r => `<div class="note-card"><div class="note-title"><span class="badge green">${esc(roomName(r.id))}</span></div><div class="small">当晚没有入住、在住或锁定记录。</div>${inlineNotes(d,r.id,'room')}</div>`).join('') : '<p class="small">暂无空房</p>'}</div><div class="work-card locked"><h3>不开放锁定（${locks.length}）</h3>${locks.length ? locks.map(b => `<div class="note-card"><div class="note-title"><span class="badge orange">${esc(roomName(b.room_id))}</span> <span class="badge red">不开放锁定</span></div><div>${esc(b.checkin)} → ${esc(b.checkout)}</div><div class="small">原因：${esc(lockReason(b))}</div></div>`).join('') : '<p class="small">暂无</p>'}</div></div><div class="card"><h2>当天保洁任务</h2>${cleaningTableScoped(cleanRows)}</div><div class="card"><h2>当天备注</h2>${notes.length ? notes.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('') : '<p class="small">暂无备注</p>'}</div>`;
   }
 
+  const OWNER_CLEANING_TABS = [
+    ['today', '保洁工作'],
+    ['finance', '费用统计'],
+    ['manual', '手动调整'],
+    ['notes', '备注对话']
+  ];
+  function activeCleaningSubTab(){
+    const ids = OWNER_CLEANING_TABS.map(x => x[0]);
+    if(!ids.includes(ui.cleaningSubTab)) ui.cleaningSubTab = 'today';
+    return ui.cleaningSubTab;
+  }
+  function renderCleaningSubTabs(active){
+    return `<div class="tabbar cleaning-subtabs">${OWNER_CLEANING_TABS.map(([id,label]) => `<button class="${active === id ? 'active' : ''}" onclick="showCleaningSubTab('${id}',this)">${label}</button>`).join('')}</div>`;
+  }
+  function showCleaningSubTabImpl(id){
+    ui.cleaningSubTab = OWNER_CLEANING_TABS.some(x => x[0] === id) ? id : 'today';
+    renderCleaningManagerShell();
+  }
+  function setCleaningWorkDateImpl(value){
+    ui.cleaningWorkDate = value || today();
+    renderCleaningManagerShell();
+  }
+  function renderCleaningTodaySubTabImpl(){
+    const root = qs('ownerCleaningSubContent');
+    if(!root) return;
+    const d = ui.cleaningWorkDate || today();
+    const pendingReviewRows = cancelReviewTaskRows(d,d,true).filter(r => r.date === d && String(r.review_status || 'pending') !== 'clean_needed');
+    const rows = scopedCleaningRows(d,d).filter(r => r.date === d).concat(pendingReviewRows);
+    const notes = getNotes().filter(n => !n.cancellation_review && n.date === d && targetMatches(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === d && roomMatches(n.room_id)).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
+    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2 style="margin:0">保洁工作</h2><div class="small">按日期查看当天保洁任务、房东确认提示和当天备注。</div></div><div class="property-actions"><input id="ownerCleaningWorkDate" type="date" value="${esc(d)}" onchange="setCleaningWorkDate(this.value)"><button class="smallbtn" onclick="setCleaningWorkDate('')">今天</button></div></div></div>${cleaningTableScoped(rows)}<div class="card"><h2>当天备注</h2>${notes.length ? notes.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('') : '<p class="small">暂无备注</p>'}</div>`;
+  }
+  function renderManualChangeSubTabImpl(){
+    const root = qs('ownerCleaningSubContent');
+    if(!root) return;
+    root.innerHTML = `<div class="card"><h2>手动调整实际保洁</h2><div class="formgrid"><div><label>日期</label><input id="manualDate" type="date"></div><div><label>对象</label><select id="manualTarget"></select></div><div><label>调整类型</label><select id="manualType"><option value="add">额外增加保洁</option><option value="remove">取消系统保洁</option></select></div><div><label>调整金额</label><input id="manualAmount" type="number" step="0.01"></div><div><label>原因</label><input id="manualReason" placeholder="例如：临时加扫 / 实际没打扫"></div></div><br><button class="smallbtn primary" onclick="addManualChange()">添加调整记录</button></div><div class="card"><div class="toolbar"><h2 style="margin:0">手动调整记录</h2><input id="manualFilterStart" type="date" onchange="renderManualRecords()"><input id="manualFilterEnd" type="date" onchange="renderManualRecords()"><select id="manualFilterTarget" onchange="renderManualRecords()"></select><select id="manualFilterType" onchange="renderManualRecords()"><option value="">全部调整</option><option value="add">额外增加</option><option value="remove">取消保洁</option></select></div><div id="manualRecords"></div></div>`;
+    const md = qs('manualDate'); if(md && !md.value) md.value = today();
+    initSelectsImpl();
+    renderManualRecordsImpl();
+  }
+  function renderCleaningFinanceSubTabImpl(){
+    const root = qs('ownerCleaningSubContent');
+    if(!root) return;
+    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>保洁费用统计</h2><div class="small">按日期排序，再按房间排序；历史和将来分开显示。</div></div><div class="property-actions"><input id="cleanStart" type="date" onchange="renderCleaningFinance()"><input id="cleanEnd" type="date" onchange="renderCleaningFinance()"></div></div><div id="cleaningFinance"></div></div>`;
+    const cs = qs('cleanStart'); if(cs && !cs.value) cs.value = addDay(today(), -30);
+    const ce = qs('cleanEnd'); if(ce && !ce.value) ce.value = addDay(today(), 30);
+    renderCleaningFinanceImpl();
+  }
+  function renderOwnerNotesSubTabImpl(){
+    const root = qs('ownerCleaningSubContent');
+    if(!root) return;
+    root.innerHTML = `<div id="ownerNotesShell"></div>`;
+    renderOwnerNotesShell();
+    renderOwnerNotesImpl();
+  }
+  function renderCleaningSubContentImpl(active){
+    if(active === 'finance') return renderCleaningFinanceSubTabImpl();
+    if(active === 'manual') return renderManualChangeSubTabImpl();
+    if(active === 'notes') return renderOwnerNotesSubTabImpl();
+    return renderCleaningTodaySubTabImpl();
+  }
   function renderCleaningManagerShell(){
     const root = qs('ownerCleaningShell');
     if(!root) return;
-    root.innerHTML = `<div class="card"><h2>手动调整实际保洁</h2><div class="formgrid"><div><label>日期</label><input id="manualDate" type="date"></div><div><label>对象</label><select id="manualTarget"></select></div><div><label>调整类型</label><select id="manualType"><option value="add">额外增加保洁</option><option value="remove">取消系统保洁</option></select></div><div><label>调整金额</label><input id="manualAmount" type="number" step="0.01"></div><div><label>原因</label><input id="manualReason" placeholder="例如：临时加扫 / 实际没打扫"></div></div><br><button class="smallbtn primary" onclick="addManualChange()">添加调整记录</button></div><div class="card"><div class="toolbar"><h2 style="margin:0">手动调整记录</h2><input id="manualFilterStart" type="date" onchange="renderManualRecords()"><input id="manualFilterEnd" type="date" onchange="renderManualRecords()"><select id="manualFilterTarget" onchange="renderManualRecords()"></select><select id="manualFilterType" onchange="renderManualRecords()"><option value="">全部调整</option><option value="add">额外增加</option><option value="remove">取消保洁</option></select></div><div id="manualRecords"></div></div><div class="card"><div class="property-detail-head"><div><h2>保洁费用统计</h2><div class="small">按日期排序，再按房间排序；历史和将来分开显示。</div></div><div class="property-actions"><input id="cleanStart" type="date" onchange="renderCleaningFinance()"><input id="cleanEnd" type="date" onchange="renderCleaningFinance()"></div></div><div id="cleaningFinance"></div></div><div id="ownerNotesShell"></div>`;
-    const md = qs('manualDate'); if(md && !md.value) md.value = today();
-    const cs = qs('cleanStart'); if(cs && !cs.value) cs.value = addDay(today(), -30);
-    const ce = qs('cleanEnd'); if(ce && !ce.value) ce.value = addDay(today(), 30);
-    initSelectsImpl();
+    const active = activeCleaningSubTab();
+    root.innerHTML = `<div class="card cleaning-subnav-card"><div class="property-detail-head"><div><h2 style="margin:0">保洁/备注/调整</h2><div class="small">先选下面一个模块，页面只显示当前模块内容。</div></div></div>${renderCleaningSubTabs(active)}</div><div id="ownerCleaningSubContent"></div>`;
+    renderCleaningSubContentImpl(active);
   }
   function addManualChangeImpl(){
     const target = parseTarget(qs('manualTarget') && qs('manualTarget').value);
@@ -1669,7 +1731,7 @@
   function renderOwnerTabImpl(id){
     const tab = id || activeOwnerTabId();
     if(tab === 'ownerCalendar'){renderOwnerCalendarImpl(); renderSixMonthStatsImpl(); renderOwnerBookingsImpl();}
-    else if(tab === 'ownerCleaning'){renderCleaningManagerShell(); renderManualRecordsImpl(); renderCleaningFinanceImpl(); renderOwnerNotesShell(); renderOwnerNotesImpl();}
+    else if(tab === 'ownerCleaning'){renderCleaningManagerShell();}
     else if(tab === 'ownerRooms'){renderRoomSettingsImpl();}
     else if(tab === 'ownerProfile'){renderUserProfileImpl();}
     else renderDailyWorkImpl();
@@ -2328,6 +2390,8 @@
     renderCleaner: renderCleanerImpl,
     renderOwner: renderOwnerImpl,
     renderOwnerTab: renderOwnerTabImpl,
+    showCleaningSubTab: showCleaningSubTabImpl,
+    setCleaningWorkDate: setCleaningWorkDateImpl,
     renderOwnerMetrics: renderOwnerMetricsImpl,
     renderDailyWork: renderDailyWorkImpl,
     renderOwnerCalendar: renderOwnerCalendarImpl,
@@ -2423,6 +2487,8 @@
     ['showSection', showSectionImpl],
     ['showTab', showTabImpl],
     ['showOwnerTab', showOwnerTabImpl],
+    ['showCleaningSubTab', showCleaningSubTabImpl],
+    ['setCleaningWorkDate', setCleaningWorkDateImpl],
     ['applyRoleMode', applyRoleModeImpl],
     ['initApp', initAppImpl],
     ['refreshAll', function(){renderAll(); scheduleSaveImpl();}],
