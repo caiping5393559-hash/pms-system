@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-03-v39';
+  const VERSION = '2026-07-03-v40';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -380,7 +380,7 @@
     ensureDataGate('正在加载 PMS 数据...');
     let last = null;
     let lastError = null;
-    for(let i=0;i<8;i++){
+    for(let i=0;i<2;i++){
       try{
         const res = await fetch(apiUrl('/api/state'), {cache: 'no-store'});
         if(!res.ok) throw new Error('读取数据失败：HTTP ' + res.status);
@@ -401,7 +401,7 @@
       }catch(e){
         lastError = e;
       }
-      await new Promise(resolve => setTimeout(resolve, i < 2 ? 700 : 1200));
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
     ui.loading = false;
     clearDataGate();
@@ -2409,7 +2409,7 @@
     showOwnerTab: showOwnerTabImpl,
     applyRoleMode: applyRoleModeImpl,
     initApp: initAppImpl,
-    refreshAll: function(){renderAll(); scheduleSaveImpl();},
+    refreshAll: refreshPropertyHub,
     renderCleaner: renderCleanerImpl,
     renderOwner: renderOwnerImpl,
     renderOwnerTab: renderOwnerTabImpl,
@@ -2514,7 +2514,7 @@
     ['setCleaningWorkDate', setCleaningWorkDateImpl],
     ['applyRoleMode', applyRoleModeImpl],
     ['initApp', initAppImpl],
-    ['refreshAll', function(){renderAll(); scheduleSaveImpl();}],
+    ['refreshAll', refreshPropertyHub],
     ['renderCleaner', renderCleanerImpl],
     ['renderOwner', renderOwnerImpl],
     ['renderDailyWork', renderDailyWorkImpl],

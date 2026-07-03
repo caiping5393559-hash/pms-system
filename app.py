@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-03-v39"
+PMS_PATCH_VERSION = "2026-07-03-v40"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -4057,6 +4057,10 @@ def _pms_ensure_owner_default_property(state, actor):
 def pms_state_response_for_user(state, actor):
     normalized = normalize_state(state)
     normalized = _pms_ensure_owner_default_property(normalized, actor)
+    try:
+        _pms_ui_state_cache_store(normalized)
+    except Exception:
+        pass
     normalized["icalEventArchive"] = []
     normalized["icalSyncHistory"] = _pms_ui_sync_history_summary(normalized.get("icalSyncHistory", []))
     filtered = filter_state_for_user(normalized, actor)
@@ -4100,9 +4104,59 @@ def _pms_ui_state_data_count(state):
     return total
 
 
+_PMS_UI_STATE_CACHE = {"state": None, "loaded_at": 0.0}
+_PMS_UI_STATE_CACHE_LOCK = threading.Lock()
+
+
+def _pms_ui_state_cache_ttl():
+    try:
+        return max(0.0, float(os.environ.get("PMS_STATE_UI_CACHE_SECONDS", "12") or "12"))
+    except Exception:
+        return 12.0
+
+
+def _pms_ui_state_copy(state):
+    return normalize_state(json.loads(json.dumps(normalize_state(state), ensure_ascii=False)))
+
+
+def _pms_ui_state_cache_get():
+    ttl = _pms_ui_state_cache_ttl()
+    if ttl <= 0:
+        return None
+    with _PMS_UI_STATE_CACHE_LOCK:
+        state = _PMS_UI_STATE_CACHE.get("state")
+        loaded_at = float(_PMS_UI_STATE_CACHE.get("loaded_at") or 0.0)
+        if not state or not loaded_at:
+            return None
+        if time.monotonic() - loaded_at > ttl:
+            return None
+        if not _pms_ui_state_data_count(state):
+            return None
+        return _pms_ui_state_copy(state)
+
+
+def _pms_ui_state_cache_store(state):
+    normalized = normalize_state(state)
+    if not _pms_ui_state_data_count(normalized):
+        return normalized
+    with _PMS_UI_STATE_CACHE_LOCK:
+        _PMS_UI_STATE_CACHE["state"] = _pms_ui_state_copy(normalized)
+        _PMS_UI_STATE_CACHE["loaded_at"] = time.monotonic()
+    return normalized
+
+
+def _pms_ui_state_cache_clear():
+    with _PMS_UI_STATE_CACHE_LOCK:
+        _PMS_UI_STATE_CACHE["state"] = None
+        _PMS_UI_STATE_CACHE["loaded_at"] = 0.0
+
+
 def pms_load_state_for_ui():
-    attempts = max(1, int(os.environ.get("PMS_STATE_LOAD_ATTEMPTS", "4") or "4"))
-    delay = max(0.1, float(os.environ.get("PMS_STATE_LOAD_RETRY_SECONDS", "0.7") or "0.7"))
+    cached = _pms_ui_state_cache_get()
+    if cached is not None:
+        return cached
+    attempts = max(1, int(os.environ.get("PMS_STATE_LOAD_ATTEMPTS", "2") or "2"))
+    delay = max(0.05, float(os.environ.get("PMS_STATE_LOAD_RETRY_SECONDS", "0.25") or "0.25"))
     last_state = None
     for attempt in range(attempts):
         if not firebase_credentials_configured():
@@ -4116,9 +4170,9 @@ def pms_load_state_for_ui():
             state = normalize_state(state)
         last_state = state
         if _pms_ui_state_data_count(state) or attempt == attempts - 1:
-            return state
+            return _pms_ui_state_cache_store(state)
         time.sleep(delay)
-    return normalize_state(last_state or load_state())
+    return _pms_ui_state_cache_store(normalize_state(last_state or load_state()))
 '''
 if "_pms_external_event_storage_v1" not in source_text:
     if auto_sync_marker in source_text:
@@ -4274,6 +4328,10 @@ state_post_route_new = '''            if path == "/api/profile":
                     return
                 payload = json.loads(raw.decode("utf-8") or "{}")
                 save_state_from_payload_light(payload, actor=user)
+                try:
+                    _pms_ui_state_cache_clear()
+                except Exception:
+                    pass
                 json_response(self, {"ok": True, "saved_at": now_utc_iso()})
                 return
 '''
