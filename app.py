@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-03-v43"
+PMS_PATCH_VERSION = "2026-07-03-v44"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -4169,16 +4169,21 @@ def pms_load_state_for_ui():
         return cached
     attempts = max(1, int(os.environ.get("PMS_STATE_LOAD_ATTEMPTS", "2") or "2"))
     delay = max(0.05, float(os.environ.get("PMS_STATE_LOAD_RETRY_SECONDS", "0.25") or "0.25"))
+    include_external = str(os.environ.get("PMS_STATE_LOAD_EXTERNAL", "0") or "0").strip().lower() in ("1", "true", "yes", "on")
     last_state = None
     for attempt in range(attempts):
         if not firebase_credentials_configured():
             state = normalize_state(load_state())
         else:
             state = _pms_external_base_load_state()
-            for key in ("mailEvents", "icalSyncHistory"):
-                rows = _pms_external_read(key)
-                if rows is not None:
-                    state[key] = rows
+            if include_external:
+                for key in ("mailEvents", "icalSyncHistory"):
+                    rows = _pms_external_read(key)
+                    if rows is not None:
+                        state[key] = rows
+            else:
+                state.setdefault("mailEvents", [])
+                state.setdefault("icalSyncHistory", [])
             state = normalize_state(state)
         last_state = state
         if _pms_ui_state_data_count(state) or attempt == attempts - 1:
