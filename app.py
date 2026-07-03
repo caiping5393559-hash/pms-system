@@ -22,7 +22,7 @@ if actual != EXPECTED_SOURCE_SHA256:
     raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
 
 source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-02-v33"
+PMS_PATCH_VERSION = "2026-07-03-v34"
 source_text = re.sub(
     r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
     "\n",
@@ -3233,6 +3233,7 @@ def _pms_photo_clean(row):
         "task_key": _pms_photo_text(raw.get("task_key") or raw.get("taskKey"), 500),
         "file_name": _pms_photo_text(raw.get("file_name") or raw.get("fileName"), 180),
         "content_type": _pms_photo_text(raw.get("content_type") or raw.get("contentType") or "image/jpeg", 80),
+        "upload_source": _pms_photo_text(raw.get("upload_source") or raw.get("uploadSource"), 40),
         "size": int(raw.get("size") or 0),
         "url": _pms_photo_text(raw.get("url"), 2000),
         "storage_bucket": _pms_photo_text(raw.get("storage_bucket") or raw.get("storageBucket"), 200),
@@ -3502,6 +3503,7 @@ def upload_cleaning_task_photo(payload, actor=None):
         "task_key": task_key,
         "file_name": _pms_photo_text(payload.get("file_name") or payload.get("fileName") or (photo_id + ext), 180),
         "content_type": content_type,
+        "upload_source": _pms_photo_text(payload.get("upload_source") or payload.get("uploadSource"), 40),
         "size": len(content),
         "url": url,
         "storage_bucket": bucket,

@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-02-v33';
+  const VERSION = '2026-07-03-v34';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -755,10 +755,13 @@
       .profile-status{font-size:13px;font-weight:900;color:#0f766e}
       .review-row{background:#fff7ed!important}
       .photo-cell{display:grid;gap:6px;min-width:150px}
-      .photo-cell input[type=file]{display:none}
+      .photo-cell input[type=file]{position:absolute;opacity:0;width:1px;height:1px;overflow:hidden;pointer-events:none}
       .photo-list{display:flex;gap:6px;flex-wrap:wrap}
       .photo-list a{display:inline-flex;align-items:center;border:1px solid #bae6fd;background:#f0f9ff;color:#0369a1;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:900;text-decoration:none}
       .photo-expiry{font-size:11px;color:#64748b}
+      .photo-status{font-size:12px;color:#64748b;font-weight:800;min-height:16px}
+      .photo-status.ok{color:#047857}
+      .photo-status.error{color:#b91c1c}
       @media(max-width:900px){.room-basics,.channel-grid{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}}
     `;
     document.head.appendChild(style);
@@ -997,9 +1000,10 @@
     ui.photoRows[key] = {date: row.date, target_id: row.target_id, target_type: row.target_type || 'room', task_key: key};
     const cameraId = 'cleanPhotoCamera_' + safe(key);
     const fileId = 'cleanPhotoFile_' + safe(key);
+    const statusId = 'cleanPhotoStatus_' + safe(key);
     const photos = cleaningPhotosForRow(row);
     const canUpload = row.date <= today();
-    const upload = canUpload ? `<div class="mail-actions"><button class="smallbtn" onclick="chooseCleaningPhoto('${encodeURIComponent(key)}','camera')">拍照</button><button class="smallbtn" onclick="chooseCleaningPhoto('${encodeURIComponent(key)}','file')">上传照片</button></div><input id="${cameraId}" type="file" accept="image/*" capture="environment" onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><input id="${fileId}" type="file" accept="image/*" onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)">` : '';
+    const upload = canUpload ? `<div class="mail-actions"><label class="smallbtn" for="${cameraId}">拍照</label><label class="smallbtn" for="${fileId}">上传照片</label></div><input id="${cameraId}" data-upload-source="camera" type="file" accept="image/*" capture="environment" onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><input id="${fileId}" data-upload-source="file" type="file" accept="image/*" onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><div id="${statusId}" class="photo-status"></div>` : '';
     const list = photos.length ? `<div class="photo-list">${photos.map((p,i) => {
       const href = String(p.url || '').startsWith('/') ? apiUrl(p.url) : String(p.url || '');
       return `<a href="${esc(href)}" target="_blank" rel="noopener">照片${i+1}</a>`;
@@ -1051,21 +1055,34 @@
     const key = decodeURIComponent(encodedKey || '');
     const row = ui.photoRows[key];
     const file = input && input.files && input.files[0];
+    const status = qs('cleanPhotoStatus_' + safe(key));
+    const setStatus = (text, kind='') => {
+      if(status){
+        status.textContent = text || '';
+        status.className = 'photo-status' + (kind ? ' ' + kind : '');
+      }
+    };
     if(!row || !file) return;
     const oldTitle = document.title;
     try{
+      setStatus('上传中...');
       const dataUrl = await prepareCleaningPhoto(file);
       const res = await fetch(apiUrl('/api/cleaning-photo'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({...row, file_name: file.name || 'cleaning-photo.jpg', content_type: file.type || 'image/jpeg', photo_data: dataUrl})
+        body: JSON.stringify({...row, file_name: file.name || 'cleaning-photo.jpg', content_type: file.type || 'image/jpeg', upload_source: (input && input.dataset && input.dataset.uploadSource) || '', photo_data: dataUrl})
       });
-      const data = await res.json().catch(() => ({}));
-      if(!res.ok || data.ok === false) throw new Error(data.error || ('上传失败 HTTP ' + res.status));
+      const raw = await res.text();
+      let data = {};
+      try{data = raw ? JSON.parse(raw) : {};}catch(e){}
+      if(!res.ok || data.ok === false) throw new Error(data.error || raw.slice(0, 200) || ('上传失败 HTTP ' + res.status));
+      setStatus('上传成功', 'ok');
       applyStateFromServerImpl(data.state || data);
       renderAll();
     }catch(e){
-      alert('上传照片失败：' + (e && e.message ? e.message : e));
+      const message = e && e.message ? e.message : String(e || '未知错误');
+      setStatus('上传失败：' + message, 'error');
+      alert('上传照片失败：' + message);
     }finally{
       if(input) input.value = '';
       document.title = oldTitle;
