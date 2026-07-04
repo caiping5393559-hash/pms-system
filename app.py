@@ -19,10 +19,20 @@ import urllib.error
 import threading
 import time
 
-PMS_PATCH_VERSION = "2026-07-04-v58-cleaner-compact-tasks"
+PMS_PATCH_VERSION = "2026-07-04-v59-room-area-features"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
+ROOM_APPLIANCE_LABELS = {
+    "microwave": "微波炉",
+    "oven": "烤箱",
+    "fridge": "冰箱",
+    "washer": "洗衣机",
+    "dryer": "烘干机",
+    "coffee_maker": "咖啡机",
+    "tv": "电视",
+    "ac": "空调",
+}
 BASE = Path(__file__).resolve().parent
 STATIC = BASE / "static"
 STATE_PATH = BASE / "state.json"
@@ -295,6 +305,57 @@ def _pms_core_filter_state_for_user(state, user):
     return visible
 
 
+def normalize_room_appliances_value(value):
+    if isinstance(value, list):
+        rows = value
+    elif isinstance(value, str):
+        rows = re.split(r"[,，\s]+", value)
+    else:
+        rows = []
+    out = []
+    for item in rows:
+        text = str(item or "").strip()
+        if text and text not in out:
+            out.append(text[:60])
+    return out
+
+
+def pms_positive_int(value, default=1):
+    try:
+        num = int(float(value))
+    except (TypeError, ValueError):
+        num = default
+    return max(1, num)
+
+
+def normalize_common_area_components(area):
+    area = area if isinstance(area, dict) else {}
+    raw_type = str(area.get("area_type") or area.get("areaType") or area.get("kind") or "general").strip().lower()
+    count = pms_positive_int(area.get("unit_count") or area.get("unitCount") or area.get("count") or 1)
+    has_explicit = any(key in area for key in ("has_kitchen", "hasKitchen", "has_bathroom", "hasBathroom", "has_general", "hasGeneral"))
+    if has_explicit:
+        has_kitchen = bool(area.get("has_kitchen") or area.get("hasKitchen"))
+        has_bathroom = bool(area.get("has_bathroom") or area.get("hasBathroom"))
+        has_general = bool(area.get("has_general") or area.get("hasGeneral"))
+    else:
+        has_kitchen = raw_type in {"shared_kitchen", "kitchen", "厨房"}
+        has_bathroom = raw_type in {"shared_bathroom", "bathroom", "bath", "卫生间"}
+        has_general = not (has_kitchen or has_bathroom)
+    kitchen_count = pms_positive_int(area.get("kitchen_count") or area.get("kitchenCount") or (count if has_kitchen else 1))
+    bathroom_count = pms_positive_int(area.get("bathroom_count") or area.get("bathroomCount") or (count if has_bathroom else 1))
+    general_count = pms_positive_int(area.get("general_count") or area.get("generalCount") or (count if has_general else 1))
+    if not (has_kitchen or has_bathroom or has_general):
+        has_general = True
+    return {
+        "has_kitchen": has_kitchen,
+        "kitchen_count": kitchen_count,
+        "has_bathroom": has_bathroom,
+        "bathroom_count": bathroom_count,
+        "has_general": has_general,
+        "general_count": general_count,
+    }
+
+
 def _pms_core_normalize_state(raw):
     state = _pms_core_default_state()
     if isinstance(raw, dict):
@@ -345,6 +406,8 @@ def _pms_core_normalize_state(raw):
         room.setdefault("type", "room")
         room.setdefault("property_id", default_property)
         room.setdefault("cleaning_fee", 0)
+        room.setdefault("bathroom_type", "private")
+        room["appliances"] = normalize_room_appliances_value(room.get("appliances"))
         for field in ["airbnb_ical", "booking_ical", "vrbo_ical", "other_ical", "airbnb_public_url", "booking_public_url", "vrbo_public_url", "other_public_url"]:
             room.setdefault(field, "")
     for idx, binding in enumerate(state["propertyCleaners"]):
@@ -363,6 +426,8 @@ def _pms_core_normalize_state(raw):
         area.setdefault("type", "common")
         area.setdefault("property_id", default_property)
         area.setdefault("cleaning_fee", 0)
+        for key, value in normalize_common_area_components(area).items():
+            area[key] = value
     for booking in state["bookings"]:
         if isinstance(booking, dict):
             booking.setdefault("source", booking.get("source") or "manual")
@@ -4581,6 +4646,22 @@ def _pms_room_bathroom_type(room):
     return "private"
 
 
+def _pms_room_appliances(room):
+    return normalize_room_appliances_value((room or {}).get("appliances"))
+
+
+def _pms_room_appliance_labels(room):
+    return [ROOM_APPLIANCE_LABELS.get(item, item) for item in _pms_room_appliances(room)]
+
+
+def _pms_default_room_task_applicable(room, preset):
+    if preset.get("private_bath") and _pms_room_bathroom_type(room) != "private":
+        return False, "no_private_bath"
+    if str(preset.get("id") or "") == "monthly_appliance_detail" and not _pms_room_appliances(room):
+        return False, "no_room_appliances"
+    return True, ""
+
+
 def _pms_default_room_task_key(room_id, preset_id):
     return f"room_default|{room_id or ''}|{preset_id or ''}"
 
@@ -4613,6 +4694,10 @@ def _pms_default_room_task(room, preset):
     note = str(preset.get("note") or "")
     if is_base and bathroom != "private":
         note = "垃圾清空、床品毛巾更换、厨房台面和餐具检查、地面吸尘拖地、高频接触点擦拭、补齐耗材、拍照记录异常；本房间无独立卫生间，卫生间清洁归入公区共享卫生间任务。"
+    if str(preset.get("id") or "") == "monthly_appliance_detail":
+        appliances = _pms_room_appliance_labels(room)
+        if appliances:
+            note = f"{note} 本房间独有电器：{'、'.join(appliances)}。"
     return {
         "id": "recurring_default_" + re.sub(r"[^a-zA-Z0-9_-]", "_", room_id) + "_" + re.sub(r"[^a-zA-Z0-9_-]", "_", str(preset.get("id") or "")),
         "recurring_task": True,
@@ -4647,17 +4732,39 @@ def _pms_ensure_default_room_cleaning_tasks(state):
         for item in notes
         if item.get("recurring_task")
     }
+    rooms_by_id = {str(room.get("id")): room for room in state.get("rooms", []) if isinstance(room, dict) and room.get("id")}
+    presets_by_id = {str(preset.get("id")): preset for preset in _PMS_DEFAULT_ROOM_CLEANING_TASKS}
+    for item in notes:
+        if not isinstance(item, dict) or not item.get("recurring_task") or not item.get("default_room_task"):
+            continue
+        room = rooms_by_id.get(str(item.get("target_id") or ""))
+        preset = presets_by_id.get(str(item.get("template_id") or ""))
+        if not room or not preset:
+            continue
+        applicable, reason = _pms_default_room_task_applicable(room, preset)
+        if not applicable:
+            item["enabled"] = False
+            item["inactive"] = True
+            item["auto_disabled_reason"] = reason
+        elif item.get("auto_disabled_reason") in {"no_private_bath", "no_room_appliances"}:
+            item["enabled"] = True
+            item.pop("inactive", None)
+            item.pop("auto_disabled_reason", None)
     for area in state.get("commonAreas", []):
         if isinstance(area, dict):
             area.setdefault("area_type", "general")
             area.setdefault("unit_count", 1)
+            for key, value in normalize_common_area_components(area).items():
+                area[key] = value
     for room in state.get("rooms", []):
         if not isinstance(room, dict) or not room.get("id"):
             continue
         room.setdefault("bathroom_type", "private")
+        room["appliances"] = _pms_room_appliances(room)
         bathroom = _pms_room_bathroom_type(room)
         for preset in _PMS_DEFAULT_ROOM_CLEANING_TASKS:
-            if preset.get("private_bath") and bathroom != "private":
+            applicable, _reason = _pms_default_room_task_applicable(room, preset)
+            if not applicable:
                 continue
             key = _pms_default_room_task_key(room.get("id"), preset.get("id"))
             if key in existing:

@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-04-v58-cleaner-compact-tasks';
+  const VERSION = '2026-07-04-v59-room-area-features';
   window.__PMS_PATCH_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -207,6 +207,17 @@
     'quarterly_curtains_blinds'
   ];
 
+  const ROOM_APPLIANCE_OPTIONS = [
+    ['microwave', '微波炉'],
+    ['oven', '烤箱'],
+    ['fridge', '冰箱'],
+    ['washer', '洗衣机'],
+    ['dryer', '烘干机'],
+    ['coffee_maker', '咖啡机'],
+    ['tv', '电视'],
+    ['ac', '空调']
+  ];
+
   const CLEANING_GUIDANCE_GROUPS = [
     ['每次退房/当天基础', ['垃圾清空', '床品毛巾更换', '厨房台面和餐具检查', '卫浴清洁', '地面吸尘拖地', '高频触摸点擦拭', '补齐耗材', '拍照记录异常']],
     ['每周/轻度深清', ['厨卫水垢和油污', '垃圾桶推出/收回', '冰箱过期物检查', '布草耗材盘点', '门口/阳台/走廊检查', '遥控器和小家电擦拭']],
@@ -310,8 +321,31 @@
       ['none','无卫生间']
     ].map(row => `<option value="${row[0]}" ${row[0] === value ? 'selected' : ''}>${row[1]}</option>`).join('');
   }
+  function roomAppliances(roomOrId){
+    const room = typeof roomOrId === 'object' && roomOrId ? roomOrId : getRooms().find(x => String(x.id) === String(roomOrId));
+    const raw = room && room.appliances;
+    const rows = Array.isArray(raw) ? raw : (String(raw || '').trim() ? String(raw || '').split(/[,，\s]+/) : []);
+    return Array.from(new Set(rows.map(x => String(x || '').trim()).filter(Boolean)));
+  }
+  function roomHasAppliances(roomOrId){return roomAppliances(roomOrId).length > 0;}
+  function roomApplianceLabel(roomOrId){
+    const selected = roomAppliances(roomOrId);
+    if(!selected.length) return '无单独电器';
+    const labels = selected.map(id => (ROOM_APPLIANCE_OPTIONS.find(row => row[0] === id) || [id,id])[1]);
+    return labels.join('、');
+  }
+  function roomApplianceCheckboxes(room){
+    const selected = new Set(roomAppliances(room));
+    return `<div class="check-grid appliance-grid">${ROOM_APPLIANCE_OPTIONS.map(row => `<label><input type="checkbox" id="roomAppliance_${safe(room.id)}_${row[0]}" value="${row[0]}" ${selected.has(row[0]) ? 'checked' : ''}> ${row[1]}</label>`).join('')}</div>`;
+  }
+  function readRoomAppliances(roomId){
+    return ROOM_APPLIANCE_OPTIONS.filter(row => qs('roomAppliance_' + safe(roomId) + '_' + row[0]) && qs('roomAppliance_' + safe(roomId) + '_' + row[0]).checked).map(row => row[0]);
+  }
   function presetRequiresPrivateBathroom(presetId){
     return ['weekly_kitchen_bath_detail','monthly_drain_deodorize'].includes(String(presetId || ''));
+  }
+  function presetRequiresAppliances(presetId){
+    return String(presetId || '') === 'monthly_appliance_detail';
   }
   function normalizeRoomName(value){return String(value || '').trim().replace(/\s+/g,' ').toLowerCase();}
   function roomNameExists(propId,name,exceptId=''){
@@ -344,30 +378,47 @@
     if(['shared_bathroom','bathroom','卫生间','bath'].includes(raw)) return 'shared_bathroom';
     return 'general';
   }
-  function commonAreaKindLabel(area){
+  function commonAreaComponents(area){
     const kind = commonAreaKind(area);
-    if(kind === 'shared_kitchen') return '共享厨房';
-    if(kind === 'shared_bathroom') return '共享卫生间';
-    return '普通公区';
+    const legacyCount = commonAreaCount(area);
+    const hasExplicit = area && ['has_kitchen','hasKitchen','has_bathroom','hasBathroom','has_general','hasGeneral'].some(key => Object.prototype.hasOwnProperty.call(area,key));
+    const hasKitchen = hasExplicit ? !!(area.has_kitchen || area.hasKitchen) : kind === 'shared_kitchen';
+    const hasBathroom = hasExplicit ? !!(area.has_bathroom || area.hasBathroom) : kind === 'shared_bathroom';
+    let hasGeneral = hasExplicit ? !!(area.has_general || area.hasGeneral) : kind === 'general';
+    if(!hasKitchen && !hasBathroom && !hasGeneral) hasGeneral = true;
+    return {
+      has_kitchen: hasKitchen,
+      kitchen_count: Math.max(1, Number((area && (area.kitchen_count || area.kitchenCount)) || (hasKitchen ? legacyCount : 1)) || 1),
+      has_bathroom: hasBathroom,
+      bathroom_count: Math.max(1, Number((area && (area.bathroom_count || area.bathroomCount)) || (hasBathroom ? legacyCount : 1)) || 1),
+      has_general: hasGeneral,
+      general_count: Math.max(1, Number((area && (area.general_count || area.generalCount)) || (hasGeneral ? legacyCount : 1)) || 1)
+    };
+  }
+  function commonAreaKindLabel(area){
+    const c = commonAreaComponents(area);
+    const parts = [];
+    if(c.has_kitchen) parts.push(`共享厨房 ${c.kitchen_count}`);
+    if(c.has_bathroom) parts.push(`共享卫生间 ${c.bathroom_count}`);
+    if(c.has_general) parts.push(`其他公区 ${c.general_count}`);
+    return parts.length ? parts.join(' / ') : '公区';
   }
   function commonAreaCount(area){
     const n = Math.max(1, Number((area && (area.unit_count || area.unitCount || area.count)) || 1));
     return Number.isFinite(n) ? n : 1;
   }
-  function commonAreaOptions(selected){
-    const value = commonAreaKind({area_type:selected || 'general'});
-    return [
-      ['general','普通公区'],
-      ['shared_kitchen','共享厨房'],
-      ['shared_bathroom','共享卫生间']
-    ].map(row => `<option value="${row[0]}" ${row[0] === value ? 'selected' : ''}>${row[1]}</option>`).join('');
+  function commonAreaComponentControls(area){
+    const c = commonAreaComponents(area);
+    const id = safe(area.id);
+    return `<div class="area-component-grid"><label><input id="areaHasKitchen_${id}" type="checkbox" ${c.has_kitchen ? 'checked' : ''}> 共享厨房</label><input id="areaKitchenCount_${id}" type="number" min="1" step="1" value="${esc(c.kitchen_count)}"><label><input id="areaHasBathroom_${id}" type="checkbox" ${c.has_bathroom ? 'checked' : ''}> 共享卫生间</label><input id="areaBathroomCount_${id}" type="number" min="1" step="1" value="${esc(c.bathroom_count)}"><label><input id="areaHasGeneral_${id}" type="checkbox" ${c.has_general ? 'checked' : ''}> 其他公区</label><input id="areaGeneralCount_${id}" type="number" min="1" step="1" value="${esc(c.general_count)}"></div>`;
   }
   function commonAreaReason(area){
-    const count = commonAreaCount(area);
-    const label = commonAreaKindLabel(area);
-    if(commonAreaKind(area) === 'shared_kitchen') return `共享厨房每日清洁（${count} 个）：台面、水槽、灶台、垃圾、地面和公共耗材。`;
-    if(commonAreaKind(area) === 'shared_bathroom') return `共享卫生间每日清洁（${count} 个）：马桶、洗手台、镜面、淋浴区、地面、垃圾和耗材。`;
-    return `${label}每日清洁（${count} 个）：公共地面、垃圾、台面和公共用品。`;
+    const c = commonAreaComponents(area);
+    const parts = [];
+    if(c.has_kitchen) parts.push(`共享厨房每日清洁（${c.kitchen_count} 个）：台面、水槽、灶台、垃圾、地面和公共耗材`);
+    if(c.has_bathroom) parts.push(`共享卫生间每日清洁（${c.bathroom_count} 个）：马桶、洗手台、镜面、淋浴区、地面、垃圾和耗材`);
+    if(c.has_general) parts.push(`其他公区每日清洁（${c.general_count} 个）：公共地面、垃圾、台面和公共用品`);
+    return parts.join('；') + '。';
   }
   function money(value){
     const n = Number(value || 0);
@@ -490,6 +541,31 @@
   function allRecurringTaskNotes(){
     return getNotes().filter(n => n && n.recurring_task);
   }
+  function defaultTaskApplicable(room,presetId){
+    if(presetRequiresPrivateBathroom(presetId) && roomBathroomType(room) !== 'private') return {ok:false, reason:'no_private_bath'};
+    if(presetRequiresAppliances(presetId) && !roomHasAppliances(room)) return {ok:false, reason:'no_room_appliances'};
+    return {ok:true, reason:''};
+  }
+  function syncRoomDefaultTaskApplicability(room){
+    if(!room || !room.id) return 0;
+    let changed = 0;
+    allRecurringTaskNotes().forEach(note => {
+      if(!note.default_room_task || String(note.target_id) !== String(room.id)) return;
+      const check = defaultTaskApplicable(room, note.template_id);
+      if(!check.ok){
+        if(note.enabled !== false || !note.inactive || note.auto_disabled_reason !== check.reason) changed += 1;
+        note.enabled = false;
+        note.inactive = true;
+        note.auto_disabled_reason = check.reason;
+      }else if(['no_private_bath','no_room_appliances'].includes(String(note.auto_disabled_reason || ''))){
+        note.enabled = true;
+        delete note.inactive;
+        delete note.auto_disabled_reason;
+        changed += 1;
+      }
+    });
+    return changed;
+  }
   function makeDefaultRoomTask(room,preset){
     const interval = Math.max(1, Number(preset.interval || (preset.schedule === 'weekly' ? 7 : 30)));
     const isBase = preset.id === 'checkout_turnover_standard';
@@ -497,6 +573,9 @@
     let note = preset.note;
     if(isBase && bathroom !== 'private'){
       note = '垃圾清空、床品毛巾更换、厨房台面和餐具检查、地面吸尘拖地、高频接触点擦拭、补齐耗材、拍照记录异常；本房间无独立卫生间，卫生间清洁归入公区共享卫生间任务。';
+    }
+    if(preset.id === 'monthly_appliance_detail' && roomHasAppliances(room)){
+      note = `${note} 本房间独有电器：${roomApplianceLabel(room)}。`;
     }
     return {
       id:'recurring_default_' + safe(room.id) + '_' + safe(preset.id),
@@ -526,13 +605,14 @@
   }
   function ensureDefaultRoomCleaningTasksForRoom(room){
     if(!room || !room.id) return 0;
+    let added = syncRoomDefaultTaskApplicability(room);
     const notes = getNotes();
     const existing = new Set(allRecurringTaskNotes().map(n => n.default_task_key || (n.default_room_task ? defaultRoomTaskKey(n.target_id,n.template_id) : '')));
-    let added = 0;
     DEFAULT_ROOM_TASK_PRESET_IDS.forEach(id => {
       const preset = recurringPresetById(id);
       const key = defaultRoomTaskKey(room.id,id);
       if(presetRequiresPrivateBathroom(id) && roomBathroomType(room) !== 'private') return;
+      if(presetRequiresAppliances(id) && !roomHasAppliances(room)) return;
       if(!preset || preset.target !== 'room' || existing.has(key)) return;
       notes.push(makeDefaultRoomTask(room,preset));
       existing.add(key);
@@ -1030,6 +1110,11 @@
       .channel-card{border:1px solid #bae6fd;background:#f8fcff;border-radius:8px;padding:10px;display:grid;gap:8px}
       .channel-grid{display:grid;grid-template-columns:130px minmax(190px,1fr) minmax(190px,1fr) minmax(140px,.8fr) auto;gap:8px;align-items:end}
       .channel-grid.area-grid{grid-template-columns:minmax(150px,1fr) 150px 90px 120px 150px auto}
+      .check-grid{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+      .check-grid label{display:inline-flex;align-items:center;gap:5px;font-weight:800}
+      .appliance-grid{grid-column:1/-1}
+      .area-component-grid{display:grid;grid-template-columns:max-content 90px max-content 90px max-content 90px;gap:8px;align-items:center}
+      .area-component-grid label{font-weight:900;display:inline-flex;align-items:center;gap:5px}
       .feed-line,.readonly-line{word-break:break-all;border:1px solid #d8e1ef;background:#f8fafc;border-radius:8px;padding:8px 10px;font-size:12px;color:#475569}
       .sync-status{display:inline-flex;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:900;border:1px solid #d8e1ef;background:#f8fafc;color:#475569}
       .sync-status.ok{border-color:#86efac;background:#f0fdf4;color:#166534}.sync-status.error{border-color:#fb7185;background:#fff1f2;color:#be123c}.sync-status.warn{border-color:#fbbf24;background:#fffbeb;color:#92400e}
@@ -1122,7 +1207,7 @@
       .task-guidance-grid ul{margin:8px 0 0;padding-left:18px;color:#475569;font-size:13px;line-height:1.55}
       #recurringTaskManager table{font-size:13px}
       #recurringTaskManager td{vertical-align:top}
-      @media(max-width:900px){.room-basics,.channel-grid,.property-edit-grid,.cleaning-task-row{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top,.cleaning-work-head{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}.cleaning-work-meta{justify-content:flex-start;min-width:0}}
+      @media(max-width:900px){.room-basics,.channel-grid,.property-edit-grid,.area-component-grid,.cleaning-task-row{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top,.cleaning-work-head{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}.cleaning-work-meta{justify-content:flex-start;min-width:0}}
       @media(max-width:600px){
         #cleaner .card,#ownerCleaningShell .card{padding:10px}
         .cleaning-list-card{padding:8px;background:#f8fafc}
@@ -2564,8 +2649,8 @@
     const editing = ui.editingRoom === room.id;
     const channels = channelRows(room.id);
     const roomHead = editing
-      ? `<div class="room-basics"><div><label>房间名称</label><input id="roomName_${safe(room.id)}" value="${esc(room.name || '')}"></div><div><label>单次保洁费</label><input id="roomFee_${safe(room.id)}" type="number" value="${esc(room.cleaning_fee || 0)}"></div><div><label>卫生间</label><select id="roomBathroom_${safe(room.id)}">${roomBathroomOptions(room.bathroom_type || 'private')}</select></div><div class="property-actions"><button class="smallbtn primary" onclick="saveRoomBasics('${esc(room.id)}',this)">保存</button><button class="smallbtn" onclick="cancelRoomBasics()">取消</button></div></div>`
-      : `<div><strong>${esc(room.name || room.id)}</strong><div class="small">清洁费：${money(room.cleaning_fee || 0)} · ${roomBathroomLabel(room)} · ${channels.length} 个渠道</div></div><div class="property-actions"><button class="smallbtn" onclick="editRoomBasics('${esc(room.id)}')">修改</button><button class="smallbtn" onclick="deleteRoomUi('${esc(room.id)}',this)">删除</button></div>`;
+      ? `<div class="room-basics"><div><label>房间名称</label><input id="roomName_${safe(room.id)}" value="${esc(room.name || '')}"></div><div><label>单次保洁费</label><input id="roomFee_${safe(room.id)}" type="number" value="${esc(room.cleaning_fee || 0)}"></div><div><label>卫生间</label><select id="roomBathroom_${safe(room.id)}">${roomBathroomOptions(room.bathroom_type || 'private')}</select></div><div><label>房间独有电器</label>${roomApplianceCheckboxes(room)}<div class="small">默认不选；只有勾选后才会生成家电细节清洁任务。</div></div><div class="property-actions"><button class="smallbtn primary" onclick="saveRoomBasics('${esc(room.id)}',this)">保存</button><button class="smallbtn" onclick="cancelRoomBasics()">取消</button></div></div>`
+      : `<div><strong>${esc(room.name || room.id)}</strong><div class="small">清洁费：${money(room.cleaning_fee || 0)} · ${roomBathroomLabel(room)} · 电器：${esc(roomApplianceLabel(room))} · ${channels.length} 个渠道</div></div><div class="property-actions"><button class="smallbtn" onclick="editRoomBasics('${esc(room.id)}')">修改</button><button class="smallbtn" onclick="deleteRoomUi('${esc(room.id)}',this)">删除</button></div>`;
     return `<div class="room-setting-card"><div class="room-head">${roomHead}</div><div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">渠道 / iCal</h3><div class="small">同一个真实房间只建一次；多个 Airbnb 账号或平台都作为渠道挂在这里。</div></div><button class="smallbtn primary" onclick="addChannelListing('${esc(room.id)}')">添加渠道</button></div><div class="channel-list">${channels.length ? channels.map(ch => renderChannel(room,ch)).join('') : '<div class="empty-panel">还没有渠道。点击“添加渠道”后粘贴 Airbnb/平台导出的 iCal。</div>'}</div></div></div>`;
   }
   function renderCleanerPanel(prop){
@@ -2574,7 +2659,7 @@
   }
   function renderCommonAreaPanel(prop){
     const areas = propAreas(prop.id);
-    return `<div class="settings-section"><div class="property-detail-head"><div><h3 style="margin:0">公区设置</h3><div class="small">公区默认每天保洁；共享厨房、共享卫生间可以填写数量，保洁任务会按这里生成。</div></div><button class="smallbtn primary" onclick="addCommonArea('${esc(prop.id)}')">添加公区</button></div><div class="channel-list">${areas.length ? areas.map(a => `<div class="channel-card"><div class="channel-grid area-grid"><div><label>名称</label><input id="areaName_${safe(a.id)}" value="${esc(a.name || '')}"></div><div><label>公区类型</label><select id="areaType_${safe(a.id)}">${commonAreaOptions(a.area_type || 'general')}</select></div><div><label>数量</label><input id="areaCount_${safe(a.id)}" type="number" min="1" step="1" value="${esc(commonAreaCount(a))}"></div><div><label>每日费用</label><input id="areaFee_${safe(a.id)}" type="number" value="${esc(a.cleaning_fee || 0)}"></div><div><label>是否每日保洁</label><select id="areaDaily_${safe(a.id)}"><option value="true" ${a.daily_default!==false?'selected':''}>每天打扫</option><option value="false" ${a.daily_default===false?'selected':''}>不默认</option></select></div><div class="property-actions"><button class="smallbtn primary" onclick="saveCommonAreaBasics('${esc(a.id)}',this)">保存</button><button class="smallbtn" onclick="deleteCommonAreaUi('${esc(a.id)}',this)">删除</button></div></div><div class="small">${esc(commonAreaReason(a))}</div></div>`).join('') : '<div class="empty-panel">还没有公区。</div>'}</div></div>`;
+    return `<div class="settings-section"><div class="property-detail-head"><div><h3 style="margin:0">公区设置</h3><div class="small">勾选这个公区包含哪些内容，并填写共享厨房、共享卫生间等数量；保洁任务会按这里生成。</div></div><button class="smallbtn primary" onclick="addCommonArea('${esc(prop.id)}')">添加公区</button></div><div class="channel-list">${areas.length ? areas.map(a => `<div class="channel-card"><div class="channel-grid area-grid"><div><label>名称</label><input id="areaName_${safe(a.id)}" value="${esc(a.name || '')}"></div><div style="grid-column:span 2"><label>包含内容</label>${commonAreaComponentControls(a)}</div><div><label>每日费用</label><input id="areaFee_${safe(a.id)}" type="number" value="${esc(a.cleaning_fee || 0)}"></div><div><label>是否每日保洁</label><select id="areaDaily_${safe(a.id)}"><option value="true" ${a.daily_default!==false?'selected':''}>每天打扫</option><option value="false" ${a.daily_default===false?'selected':''}>不默认</option></select></div><div class="property-actions"><button class="smallbtn primary" onclick="saveCommonAreaBasics('${esc(a.id)}',this)">保存</button><button class="smallbtn" onclick="deleteCommonAreaUi('${esc(a.id)}',this)">删除</button></div></div><div class="small">${esc(commonAreaReason(a))}</div></div>`).join('') : '<div class="empty-panel">还没有公区。</div>'}</div></div>`;
   }
   function roomSettingsPanelKey(kind,id){
     return id ? `${kind}:${id}` : String(kind || 'summary');
@@ -3151,6 +3236,7 @@
       room.name = name;
       room.cleaning_fee = Number((qs('roomFee_' + safe(id)) && qs('roomFee_' + safe(id)).value) || 0);
       room.bathroom_type = (qs('roomBathroom_' + safe(id)) && qs('roomBathroom_' + safe(id)).value) || room.bathroom_type || 'private';
+      room.appliances = readRoomAppliances(id);
       ensureDefaultRoomCleaningTasksForRoom(room);
     }
     ui.editingRoom = '';
@@ -3160,7 +3246,7 @@
   async function addRoomImpl(propId){
     const id = 'room_' + Date.now();
     const propertyId = propId || (selectedProp() && selectedProp().id) || (propList()[0] && propList()[0].id) || 'property_default';
-    const room = {id, property_id: propertyId, name: nextRoomName(propertyId), cleaning_fee: 30, bathroom_type:'private', type:'room', created_at:nowIso()};
+    const room = {id, property_id: propertyId, name: nextRoomName(propertyId), cleaning_fee: 30, bathroom_type:'private', appliances:[], type:'room', created_at:nowIso()};
     getRooms().push(room);
     ensureDefaultRoomCleaningTasksForRoom(room);
     setOwnerPropertyIds([propertyId]);
@@ -3180,7 +3266,7 @@
   }
   async function addCommonAreaImpl(propId){
     const id = 'common_' + Date.now();
-    getAreas().push({id, property_id: propId || (selectedProp() && selectedProp().id) || (propList()[0] && propList()[0].id) || 'property_default', name:'新公区', area_type:'general', unit_count:1, cleaning_fee:20, daily_default:true, type:'common'});
+    getAreas().push({id, property_id: propId || (selectedProp() && selectedProp().id) || (propList()[0] && propList()[0].id) || 'property_default', name:'新公区', area_type:'general', unit_count:1, has_general:true, general_count:1, has_kitchen:false, kitchen_count:1, has_bathroom:false, bathroom_count:1, cleaning_fee:20, daily_default:true, type:'common'});
     await persistAll();
     renderAll();
   }
@@ -3188,8 +3274,15 @@
     const area = getAreas().find(a => String(a.id) === String(id));
     if(area){
       area.name = (qs('areaName_' + safe(id)) && qs('areaName_' + safe(id)).value.trim()) || area.name || id;
-      area.area_type = (qs('areaType_' + safe(id)) && qs('areaType_' + safe(id)).value) || area.area_type || 'general';
-      area.unit_count = Math.max(1, Number((qs('areaCount_' + safe(id)) && qs('areaCount_' + safe(id)).value) || area.unit_count || 1));
+      area.has_kitchen = !!(qs('areaHasKitchen_' + safe(id)) && qs('areaHasKitchen_' + safe(id)).checked);
+      area.kitchen_count = Math.max(1, Number((qs('areaKitchenCount_' + safe(id)) && qs('areaKitchenCount_' + safe(id)).value) || area.kitchen_count || 1));
+      area.has_bathroom = !!(qs('areaHasBathroom_' + safe(id)) && qs('areaHasBathroom_' + safe(id)).checked);
+      area.bathroom_count = Math.max(1, Number((qs('areaBathroomCount_' + safe(id)) && qs('areaBathroomCount_' + safe(id)).value) || area.bathroom_count || 1));
+      area.has_general = !!(qs('areaHasGeneral_' + safe(id)) && qs('areaHasGeneral_' + safe(id)).checked);
+      area.general_count = Math.max(1, Number((qs('areaGeneralCount_' + safe(id)) && qs('areaGeneralCount_' + safe(id)).value) || area.general_count || 1));
+      if(!area.has_kitchen && !area.has_bathroom && !area.has_general) area.has_general = true;
+      area.area_type = area.has_kitchen ? 'shared_kitchen' : (area.has_bathroom ? 'shared_bathroom' : 'general');
+      area.unit_count = area.has_kitchen ? area.kitchen_count : (area.has_bathroom ? area.bathroom_count : area.general_count);
       area.cleaning_fee = Number((qs('areaFee_' + safe(id)) && qs('areaFee_' + safe(id)).value) || 0);
       area.daily_default = (qs('areaDaily_' + safe(id)) && qs('areaDaily_' + safe(id)).value) !== 'false';
     }
