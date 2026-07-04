@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-04-v61-room-kitchen-default';
+  const VERSION = '2026-07-04-v63-cleaning-parity-area-layout';
   window.__PMS_PATCH_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -404,7 +404,8 @@
       has_bathroom: hasBathroom,
       bathroom_count: Math.max(1, Number((area && (area.bathroom_count || area.bathroomCount)) || (hasBathroom ? legacyCount : 1)) || 1),
       has_general: hasGeneral,
-      general_count: Math.max(1, Number((area && (area.general_count || area.generalCount)) || (hasGeneral ? legacyCount : 1)) || 1)
+      general_count: Math.max(1, Number((area && (area.general_count || area.generalCount)) || (hasGeneral ? legacyCount : 1)) || 1),
+      general_label: String((area && (area.general_label || area.generalLabel || area.other_label || area.otherLabel)) || '其他公区').trim() || '其他公区'
     };
   }
   function commonAreaKindLabel(area){
@@ -412,7 +413,7 @@
     const parts = [];
     if(c.has_kitchen) parts.push(`共享厨房 ${c.kitchen_count}`);
     if(c.has_bathroom) parts.push(`共享卫生间 ${c.bathroom_count}`);
-    if(c.has_general) parts.push(`其他公区 ${c.general_count}`);
+    if(c.has_general) parts.push(`${c.general_label} ${c.general_count}`);
     return parts.length ? parts.join(' / ') : '公区';
   }
   function commonAreaCount(area){
@@ -422,14 +423,14 @@
   function commonAreaComponentControls(area){
     const c = commonAreaComponents(area);
     const id = safe(area.id);
-    return `<div class="area-component-list"><label class="area-component-item"><span><input id="areaHasKitchen_${id}" type="checkbox" ${c.has_kitchen ? 'checked' : ''}> 共享厨房</span><input id="areaKitchenCount_${id}" type="number" min="1" step="1" value="${esc(c.kitchen_count)}"></label><label class="area-component-item"><span><input id="areaHasBathroom_${id}" type="checkbox" ${c.has_bathroom ? 'checked' : ''}> 共享卫生间</span><input id="areaBathroomCount_${id}" type="number" min="1" step="1" value="${esc(c.bathroom_count)}"></label><label class="area-component-item"><span><input id="areaHasGeneral_${id}" type="checkbox" ${c.has_general ? 'checked' : ''}> 其他公区</span><input id="areaGeneralCount_${id}" type="number" min="1" step="1" value="${esc(c.general_count)}"></label></div>`;
+    return `<div class="area-component-list"><label class="area-component-item"><span><input id="areaHasKitchen_${id}" type="checkbox" ${c.has_kitchen ? 'checked' : ''}> 共享厨房</span><input id="areaKitchenCount_${id}" type="number" min="1" step="1" value="${esc(c.kitchen_count)}"></label><label class="area-component-item"><span><input id="areaHasBathroom_${id}" type="checkbox" ${c.has_bathroom ? 'checked' : ''}> 共享卫生间</span><input id="areaBathroomCount_${id}" type="number" min="1" step="1" value="${esc(c.bathroom_count)}"></label><label class="area-component-item area-component-other"><span><input id="areaHasGeneral_${id}" type="checkbox" ${c.has_general ? 'checked' : ''}> 其他公区</span><input id="areaGeneralLabel_${id}" type="text" value="${esc(c.general_label)}" placeholder="名称"><input id="areaGeneralCount_${id}" type="number" min="1" step="1" value="${esc(c.general_count)}"></label></div>`;
   }
   function commonAreaReason(area){
     const c = commonAreaComponents(area);
     const parts = [];
     if(c.has_kitchen) parts.push(`共享厨房每日清洁（${c.kitchen_count} 个）：台面、水槽、灶台、垃圾、地面和公共耗材`);
     if(c.has_bathroom) parts.push(`共享卫生间每日清洁（${c.bathroom_count} 个）：马桶、洗手台、镜面、淋浴区、地面、垃圾和耗材`);
-    if(c.has_general) parts.push(`其他公区每日清洁（${c.general_count} 个）：公共地面、垃圾、台面和公共用品`);
+    if(c.has_general) parts.push(`${c.general_label}每日清洁（${c.general_count} 个）：公共地面、垃圾、台面和公共用品`);
     return parts.join('；') + '。';
   }
   function money(value){
@@ -1171,17 +1172,19 @@
       .channel-grid.area-grid>div:nth-child(2){grid-column:auto!important}
       .common-area-list{display:grid;gap:10px;margin-top:10px}
       .common-area-card{border:1px solid #bae6fd;background:#f8fcff;border-radius:8px;padding:12px;display:grid;gap:10px}
-      .common-area-form{display:grid;grid-template-columns:minmax(180px,1fr) minmax(420px,2.2fr) minmax(120px,.45fr) minmax(150px,.55fr) auto;gap:10px;align-items:end}
+      .common-area-form{display:grid;grid-template-columns:minmax(150px,220px) minmax(0,1fr) minmax(100px,130px) minmax(140px,170px) auto;gap:10px;align-items:end}
       .common-area-field{display:grid;gap:5px;min-width:0}
       .common-area-field>span,.common-area-components-title{font-size:12px;font-weight:900;color:#475569}
       .common-area-actions{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
       .check-grid{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
       .check-grid label{display:inline-flex;align-items:center;gap:5px;font-weight:800}
       .appliance-grid{grid-column:1/-1}
-      .area-component-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;align-items:stretch}
-      .area-component-item{border:1px solid #d8e1ef;background:#fff;border-radius:8px;padding:8px;display:grid;grid-template-columns:minmax(0,1fr) 70px;gap:8px;align-items:center;font-weight:900;color:#0f172a}
+      .area-component-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:stretch}
+      .area-component-item{border:1px solid #d8e1ef;background:#fff;border-radius:8px;padding:8px;display:grid;grid-template-columns:minmax(0,1fr) 64px;gap:8px;align-items:center;font-weight:900;color:#0f172a;min-width:0}
       .area-component-item span{display:inline-flex;align-items:center;gap:6px;min-width:0;white-space:nowrap}
       .area-component-item input[type=number]{width:100%;min-width:0}
+      .area-component-item input[type=text]{width:100%;min-width:0}
+      .area-component-other{grid-template-columns:auto minmax(80px,1fr) 64px}
       .feed-line,.readonly-line{word-break:break-all;border:1px solid #d8e1ef;background:#f8fafc;border-radius:8px;padding:8px 10px;font-size:12px;color:#475569}
       .sync-status{display:inline-flex;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:900;border:1px solid #d8e1ef;background:#f8fafc;color:#475569}
       .sync-status.ok{border-color:#86efac;background:#f0fdf4;color:#166534}.sync-status.error{border-color:#fb7185;background:#fff1f2;color:#be123c}.sync-status.warn{border-color:#fbbf24;background:#fffbeb;color:#92400e}
@@ -1274,6 +1277,7 @@
       .task-guidance-grid ul{margin:8px 0 0;padding-left:18px;color:#475569;font-size:13px;line-height:1.55}
       #recurringTaskManager table{font-size:13px}
       #recurringTaskManager td{vertical-align:top}
+      @media(max-width:1200px){.common-area-form{grid-template-columns:1fr 1fr}.common-area-form>.common-area-field:nth-child(2){grid-column:1/-1}.common-area-actions{grid-column:1/-1;justify-content:flex-start}.area-component-list{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}}
       @media(max-width:900px){.room-basics,.channel-grid,.property-edit-grid,.common-area-form,.cleaning-task-row{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top,.cleaning-work-head{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}.common-area-actions{justify-content:flex-start}.common-area-actions>*{width:100%}.cleaning-work-meta{justify-content:flex-start;min-width:0}}
       @media(max-width:600px){
         #cleaner .card,#ownerCleaningShell .card{padding:10px}
@@ -2326,7 +2330,7 @@
     const stays = real.filter(b => b.checkin < d && b.checkout > d).sort((a,b) => roomName(a.room_id).localeCompare(roomName(b.room_id),'zh-Hans-CN'));
     const empty = dailyEmptyRooms(d, real, locks);
     const pendingReviewRows = cancelReviewTaskRows(d,d,true).filter(r => r.date === d && String(r.review_status || 'pending') !== 'clean_needed');
-    const cleanRows = scopedCleaningRows(d,d).filter(r => r.date === d).concat(pendingReviewRows);
+    const cleanRows = scopedCleaningRows(d,d).filter(r => r.date === d);
     const notes = getNotes().filter(n => !n.recurring_task && !n.cancellation_review && n.date === d && targetMatches(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === d && roomMatches(n.room_id)).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
     const metrics = qs('dailyWorkMetrics');
     if(metrics) metrics.innerHTML = `<div class="metric"><div class="small">退房</div><div class="num">${checkouts.length}</div></div><div class="metric"><div class="small">入住</div><div class="num">${checkins.length}</div></div><div class="metric"><div class="small">剩余在住</div><div class="num">${stays.length}</div></div><div class="metric"><div class="small">空房</div><div class="num">${empty.length}</div></div><div class="metric"><div class="small">不开放锁定</div><div class="num">${locks.length}</div></div><div class="metric"><div class="small">保洁任务</div><div class="num">${cleanRows.length}</div></div>`;
@@ -2338,7 +2342,8 @@
       }).join('') : '<p class="small">暂无</p>'}</div>`;
     }
     const content = qs('dailyWorkContent');
-    if(content) content.innerHTML = `<div class="work-grid">${bookingCards('退房',checkouts,'checkout')}${bookingCards('入住',checkins,'checkin')}${bookingCards('剩余在住',stays,'stay')}<div class="work-card empty"><h3>空房（${empty.length}）</h3>${empty.length ? empty.map(r => `<div class="note-card"><div class="note-title"><span class="badge green">${esc(roomName(r.id))}</span></div><div class="small">当晚没有入住、在住或锁定记录。</div>${inlineNotes(d,r.id,'room')}</div>`).join('') : '<p class="small">暂无空房</p>'}</div><div class="work-card locked"><h3>不开放锁定（${locks.length}）</h3>${locks.length ? locks.map(b => `<div class="note-card"><div class="note-title"><span class="badge orange">${esc(roomName(b.room_id))}</span> <span class="badge red">不开放锁定</span></div><div>${esc(b.checkin)} → ${esc(b.checkout)}</div><div class="small">原因：${esc(lockReason(b))}</div></div>`).join('') : '<p class="small">暂无</p>'}</div></div><div class="card"><h2>当天保洁任务</h2>${cleaningTableScoped(cleanRows)}</div><div class="card"><h2>当天备注</h2>${notes.length ? notes.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('') : '<p class="small">暂无备注</p>'}</div>`;
+    const pendingHtml = pendingReviewRows.length ? `<div class="card"><h2>待房东确认</h2><div class="small">这些是订单消失后的确认提醒，不是已经派给保洁的正式任务；确认需要保洁后才会进入保洁端。</div>${cleaningTableScoped(pendingReviewRows)}</div>` : '';
+    if(content) content.innerHTML = `<div class="work-grid">${bookingCards('退房',checkouts,'checkout')}${bookingCards('入住',checkins,'checkin')}${bookingCards('剩余在住',stays,'stay')}<div class="work-card empty"><h3>空房（${empty.length}）</h3>${empty.length ? empty.map(r => `<div class="note-card"><div class="note-title"><span class="badge green">${esc(roomName(r.id))}</span></div><div class="small">当晚没有入住、在住或锁定记录。</div>${inlineNotes(d,r.id,'room')}</div>`).join('') : '<p class="small">暂无空房</p>'}</div><div class="work-card locked"><h3>不开放锁定（${locks.length}）</h3>${locks.length ? locks.map(b => `<div class="note-card"><div class="note-title"><span class="badge orange">${esc(roomName(b.room_id))}</span> <span class="badge red">不开放锁定</span></div><div>${esc(b.checkin)} → ${esc(b.checkout)}</div><div class="small">原因：${esc(lockReason(b))}</div></div>`).join('') : '<p class="small">暂无</p>'}</div></div>${pendingHtml}<div class="card"><h2>当天保洁任务</h2><div class="small">这里和保洁端使用同一套正式任务列表。</div>${cleaningTableScoped(cleanRows)}</div><div class="card"><h2>当天备注</h2>${notes.length ? notes.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('') : '<p class="small">暂无备注</p>'}</div>`;
   }
 
   const OWNER_CLEANING_TABS = [
@@ -2368,9 +2373,10 @@
     if(!root) return;
     const d = ui.cleaningWorkDate || today();
     const pendingReviewRows = cancelReviewTaskRows(d,d,true).filter(r => r.date === d && String(r.review_status || 'pending') !== 'clean_needed');
-    const rows = scopedCleaningRows(d,d).filter(r => r.date === d).concat(pendingReviewRows);
+    const rows = scopedCleaningRows(d,d).filter(r => r.date === d);
     const notes = getNotes().filter(n => !n.recurring_task && !n.cancellation_review && n.date === d && targetMatches(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === d && roomMatches(n.room_id)).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
-    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2 style="margin:0">保洁工作</h2><div class="small">按日期查看当天保洁任务、房东确认提示和当天备注。</div></div><div class="property-actions"><input id="ownerCleaningWorkDate" type="date" value="${esc(d)}" onchange="setCleaningWorkDate(this.value)"><button class="smallbtn" onclick="setCleaningWorkDate('')">今天</button></div></div></div>${cleaningTableScoped(rows)}<div class="card"><h2>当天备注</h2>${notes.length ? notes.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('') : '<p class="small">暂无备注</p>'}</div>`;
+    const pendingHtml = pendingReviewRows.length ? `<div class="card"><h2>待房东确认</h2><div class="small">这里不是已分配给保洁的任务；确认需要保洁后，才会进入下面正式保洁列表，也会同步给保洁端。</div>${cleaningTableScoped(pendingReviewRows)}</div>` : '';
+    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2 style="margin:0">保洁工作</h2><div class="small">正式保洁任务和保洁端使用同一套列表；待确认提醒单独显示。</div></div><div class="property-actions"><input id="ownerCleaningWorkDate" type="date" value="${esc(d)}" onchange="setCleaningWorkDate(this.value)"><button class="smallbtn" onclick="setCleaningWorkDate('')">今天</button></div></div></div>${pendingHtml}${cleaningTableScoped(rows)}<div class="card"><h2>当天备注</h2>${notes.length ? notes.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('') : '<p class="small">暂无备注</p>'}</div>`;
   }
   function renderManualChangeSubTabImpl(){
     const root = qs('ownerCleaningSubContent');
@@ -2726,7 +2732,7 @@
   }
   function renderCommonAreaPanel(prop){
     const areas = propAreas(prop.id);
-    return `<div class="settings-section"><div class="property-detail-head"><div><h3 style="margin:0">公区设置</h3><div class="small">勾选这个公区包含哪些内容，并填写共享厨房、共享卫生间等数量；保洁任务会按这里生成。</div></div><button class="smallbtn primary" onclick="addCommonArea('${esc(prop.id)}')">添加公区</button></div><div class="channel-list">${areas.length ? areas.map(a => `<div class="channel-card"><div class="channel-grid area-grid"><div><label>名称</label><input id="areaName_${safe(a.id)}" value="${esc(a.name || '')}"></div><div style="grid-column:span 2"><label>包含内容</label>${commonAreaComponentControls(a)}</div><div><label>每日费用</label><input id="areaFee_${safe(a.id)}" type="number" value="${esc(a.cleaning_fee || 0)}"></div><div><label>是否每日保洁</label><select id="areaDaily_${safe(a.id)}"><option value="true" ${a.daily_default!==false?'selected':''}>每天打扫</option><option value="false" ${a.daily_default===false?'selected':''}>不默认</option></select></div><div class="property-actions"><button class="smallbtn primary" onclick="saveCommonAreaBasics('${esc(a.id)}',this)">保存</button><button class="smallbtn" onclick="deleteCommonAreaUi('${esc(a.id)}',this)">删除</button></div></div><div class="small">${esc(commonAreaReason(a))}</div></div>`).join('') : '<div class="empty-panel">还没有公区。</div>'}</div></div>`;
+    return `<div class="settings-section"><div class="property-detail-head"><div><h3 style="margin:0">公区设置</h3><div class="small">勾选这个公区包含哪些内容，并填写共享厨房、共享卫生间等数量；保洁任务会按这里生成。</div></div><button class="smallbtn primary" onclick="addCommonArea('${esc(prop.id)}')">添加公区</button></div><div class="common-area-list">${areas.length ? areas.map(a => `<div class="common-area-card"><div class="common-area-form"><label class="common-area-field"><span>名称</span><input id="areaName_${safe(a.id)}" value="${esc(a.name || '')}"></label><div class="common-area-field"><span>包含内容</span>${commonAreaComponentControls(a)}</div><label class="common-area-field"><span>每日费用</span><input id="areaFee_${safe(a.id)}" type="number" value="${esc(a.cleaning_fee || 0)}"></label><label class="common-area-field"><span>是否每日保洁</span><select id="areaDaily_${safe(a.id)}"><option value="true" ${a.daily_default!==false?'selected':''}>每天打扫</option><option value="false" ${a.daily_default===false?'selected':''}>不默认</option></select></label><div class="common-area-actions"><button class="smallbtn primary" onclick="saveCommonAreaBasics('${esc(a.id)}',this)">保存</button><button class="smallbtn" onclick="deleteCommonAreaUi('${esc(a.id)}',this)">删除</button></div></div><div class="small">${esc(commonAreaReason(a))}</div></div>`).join('') : '<div class="empty-panel">还没有公区。</div>'}</div></div>`;
   }
   function roomSettingsPanelKey(kind,id){
     return id ? `${kind}:${id}` : String(kind || 'summary');
@@ -3101,7 +3107,7 @@
       try{
         await loadStateImpl();
         if(isOwnerLike() && ensureDefaultRoomCleaningTasks()){
-          await persistAll();
+          scheduleSaveImpl();
         }
         ['manualDate','noteDate','noteFilterDate','roomNoteDate','workDate'].forEach(id => { const el = qs(id); if(el && !el.value) el.value = today(); });
         applyRoleModeImpl();
@@ -3334,7 +3340,7 @@
   }
   async function addCommonAreaImpl(propId){
     const id = 'common_' + Date.now();
-    getAreas().push({id, property_id: propId || (selectedProp() && selectedProp().id) || (propList()[0] && propList()[0].id) || 'property_default', name:'新公区', area_type:'general', unit_count:1, has_general:true, general_count:1, has_kitchen:false, kitchen_count:1, has_bathroom:false, bathroom_count:1, cleaning_fee:20, daily_default:true, type:'common'});
+    getAreas().push({id, property_id: propId || (selectedProp() && selectedProp().id) || (propList()[0] && propList()[0].id) || 'property_default', name:'新公区', area_type:'general', unit_count:1, has_general:true, general_count:1, general_label:'其他公区', has_kitchen:false, kitchen_count:1, has_bathroom:false, bathroom_count:1, cleaning_fee:20, daily_default:true, type:'common'});
     await persistAll();
     renderAll();
   }
@@ -3347,6 +3353,7 @@
       area.has_bathroom = !!(qs('areaHasBathroom_' + safe(id)) && qs('areaHasBathroom_' + safe(id)).checked);
       area.bathroom_count = Math.max(1, Number((qs('areaBathroomCount_' + safe(id)) && qs('areaBathroomCount_' + safe(id)).value) || area.bathroom_count || 1));
       area.has_general = !!(qs('areaHasGeneral_' + safe(id)) && qs('areaHasGeneral_' + safe(id)).checked);
+      area.general_label = ((qs('areaGeneralLabel_' + safe(id)) && qs('areaGeneralLabel_' + safe(id)).value.trim()) || area.general_label || '其他公区').slice(0, 80);
       area.general_count = Math.max(1, Number((qs('areaGeneralCount_' + safe(id)) && qs('areaGeneralCount_' + safe(id)).value) || area.general_count || 1));
       if(!area.has_kitchen && !area.has_bathroom && !area.has_general) area.has_general = true;
       area.area_type = area.has_kitchen ? 'shared_kitchen' : (area.has_bathroom ? 'shared_bathroom' : 'general');

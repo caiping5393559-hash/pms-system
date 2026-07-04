@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_PATCH_VERSION = "2026-07-04-v61-room-kitchen-default"
+PMS_PATCH_VERSION = "2026-07-04-v63-cleaning-parity-area-layout"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -352,6 +352,7 @@ def normalize_common_area_components(area):
     kitchen_count = pms_positive_int(area.get("kitchen_count") or area.get("kitchenCount") or (count if has_kitchen else 1))
     bathroom_count = pms_positive_int(area.get("bathroom_count") or area.get("bathroomCount") or (count if has_bathroom else 1))
     general_count = pms_positive_int(area.get("general_count") or area.get("generalCount") or (count if has_general else 1))
+    general_label = str(area.get("general_label") or area.get("generalLabel") or area.get("other_label") or area.get("otherLabel") or "其他公区").strip()[:80] or "其他公区"
     if not (has_kitchen or has_bathroom or has_general):
         has_general = True
     return {
@@ -361,6 +362,7 @@ def normalize_common_area_components(area):
         "bathroom_count": bathroom_count,
         "has_general": has_general,
         "general_count": general_count,
+        "general_label": general_label,
     }
 
 
