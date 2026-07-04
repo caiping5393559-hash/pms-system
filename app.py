@@ -1,77 +1,423 @@
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from datetime import datetime, timedelta, date, timezone
+from email.utils import formatdate
+from zoneinfo import ZoneInfo
 import base64
-import gzip
 import hashlib
+import hmac
+import json
+import mimetypes
+import os
 import re
+import secrets
+import traceback
+import urllib.parse
+import urllib.request
+import urllib.error
+import threading
+import time
 
-EXPECTED_SOURCE_SHA256 = "d702011f3f2ca2224047468decdbe5945876cedcb7b4a3eb6c6104b9275a7c0f"
+PMS_PATCH_VERSION = "2026-07-03-v45-clean-source-v1"
 BASE = Path(__file__).resolve().parent
+STATIC = BASE / "static"
+STATE_PATH = BASE / "state.json"
+CONFIG_PATH = BASE / "config.json"
+FIRESTORE_SCOPE = "https://www.googleapis.com/auth/datastore"
+DEFAULT_GROUP_ID = "group_default"
+DEFAULT_PROPERTY_ID = "property_default"
+STATE_KEYS = ["groups", "users", "properties", "propertyCleaners", "rooms", "commonAreas", "bookings", "manualChanges", "cleaningNotes", "roomDateNotes"]
+TOKEN_CACHE = {"token": "", "expiry": 0}
+SERVICE_ACCOUNT_CACHE = None
 
-parts = []
-for index in range(1, 7):
-    chunk = (BASE / f"pms_payload_{index:02d}.txt").read_text(encoding="utf-8").strip()
-    chunk = re.sub(r"\s+", "", chunk)
-    if index == 3 and len(chunk) == 3599 and chunk.endswith("KBv"):
-        chunk += "1uGilLUBv"
-    parts.append(chunk)
 
-payload = "".join(parts)
-source = gzip.decompress(base64.b64decode(payload))
-actual = hashlib.sha256(source).hexdigest()
-if actual != EXPECTED_SOURCE_SHA256:
-    raise RuntimeError(f"PMS payload checksum mismatch: {actual}")
-
-source_text = source.decode("utf-8")
-PMS_PATCH_VERSION = "2026-07-03-v44"
-source_text = re.sub(
-    r"\s*<div class=\"card\">\s*<h2>房东管理页面</h2>\s*<div class=\"small\">.*?</div>\s*</div>\s*",
-    "\n",
-    source_text,
-    count=1,
-    flags=re.S,
-)
-if "import threading\nimport time\n" not in source_text:
-    source_text = source_text.replace(
-        "import urllib.error\n",
-        "import urllib.error\nimport threading\nimport time\n",
-        1,
-    )
-if "from zoneinfo import ZoneInfo\n" not in source_text:
-    source_text = source_text.replace(
-        "from email.utils import formatdate\n",
-        "from email.utils import formatdate\nfrom zoneinfo import ZoneInfo\n",
-        1,
-    )
-if "from http.server import BaseHTTPRequestHandler, HTTPServer\n" in source_text and "ThreadingHTTPServer" not in source_text:
-    source_text = source_text.replace(
-        "from http.server import BaseHTTPRequestHandler, HTTPServer\n",
-        "from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer\n",
-        1,
-    )
-if "from http.server import HTTPServer, BaseHTTPRequestHandler\n" in source_text and "ThreadingHTTPServer" not in source_text:
-    source_text = source_text.replace(
-        "from http.server import HTTPServer, BaseHTTPRequestHandler\n",
-        "from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer\n",
-        1,
-    )
-
-old_firestore_request = '''def firestore_request(method, url, payload=None, timeout=12):
-    headers = {"Authorization": f"Bearer {access_token()}"}
-    data = None
-    if payload is not None:
-        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+def load_config():
+    if not CONFIG_PATH.exists():
+        return {}
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8") or "{}")
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return None
-        body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Firestore HTTP {exc.code}: {body}") from exc
-'''
-new_firestore_request = '''def firestore_request(method, url, payload=None, timeout=12):
+        return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+CONFIG = load_config()
+FIREBASE_CONFIG = CONFIG.get("firebase") or {}
+HOST = "0.0.0.0"
+PORT = int(os.environ.get("PORT", "10000"))
+OWNER_KEY = str(os.environ.get("OWNER_KEY") or CONFIG.get("owner_key") or "owner123")
+CLEANER_KEY = str(os.environ.get("CLEANER_KEY") or CONFIG.get("cleaner_key") or "cleaner123")
+OWNER_USER = str(os.environ.get("OWNER_USER") or CONFIG.get("owner_user") or "admin")
+OWNER_PASS = str(os.environ.get("OWNER_PASS") or CONFIG.get("owner_pass") or "admin123")
+DEFAULT_ADMIN_USERNAME = str(os.environ.get("ADMIN_USERNAME") or CONFIG.get("admin_username") or "admin")
+DEFAULT_ADMIN_PASSWORD = str(os.environ.get("ADMIN_PASSWORD") or CONFIG.get("admin_password") or "PMS-Admin-2026!")
+DEFAULT_OWNER_USERNAME = str(os.environ.get("DEFAULT_OWNER_USERNAME") or CONFIG.get("default_owner_username") or "owner1")
+DEFAULT_OWNER_PASSWORD = str(os.environ.get("DEFAULT_OWNER_PASSWORD") or CONFIG.get("default_owner_password") or "PMS-Owner-2026!")
+SESSION_COOKIE = "pms_session"
+SESSION_SECONDS = 60 * 60 * 24 * 7
+SESSION_SECRET = str(os.environ.get("SESSION_SECRET") or CONFIG.get("session_secret") or hashlib.sha256(f"{OWNER_KEY}:{CLEANER_KEY}:{OWNER_PASS}".encode("utf-8")).hexdigest())
+STATE_COLLECTION = FIREBASE_CONFIG.get("state_collection", "settings")
+STATE_DOCUMENT = FIREBASE_CONFIG.get("state_document", "system")
+ROOM_FIELDS = [
+    "name",
+    "type",
+    "property_id",
+    "cleaning_fee",
+    "airbnb_ical",
+    "booking_ical",
+    "vrbo_ical",
+    "other_ical",
+    "airbnb_public_url",
+    "booking_public_url",
+    "vrbo_public_url",
+    "other_public_url",
+]
+
+
+def default_state():
+    return {
+        "groups": [{"id": DEFAULT_GROUP_ID, "name": "默认房东组"}],
+        "users": [
+            {"id": "admin_default", "role": "admin", "name": "管理员", "group_ids": [DEFAULT_GROUP_ID]},
+            {"id": "owner_default", "role": "owner", "name": "默认房东", "group_ids": [DEFAULT_GROUP_ID]},
+        ],
+        "properties": [{"id": DEFAULT_PROPERTY_ID, "group_id": DEFAULT_GROUP_ID, "name": "默认房源"}],
+        "propertyCleaners": [],
+        "rooms": [],
+        "commonAreas": [],
+        "bookings": [],
+        "manualChanges": [],
+        "cleaningNotes": [],
+        "roomDateNotes": [],
+        "current_group_id": DEFAULT_GROUP_ID,
+        "last_sync": "",
+        "sync_errors": [],
+    }
+
+
+def plain(value):
+    if isinstance(value, dict):
+        return {str(k): plain(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [plain(v) for v in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return value
+
+
+def now_utc_iso():
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def normalize_cleaner_code(value):
+    value = re.sub(r"[^A-Za-z0-9]", "", str(value or "")).upper()
+    if value.startswith("CLN"):
+        value = value[3:]
+    return f"CLN-{value}" if value else ""
+
+
+def password_hash(password, salt=None):
+    salt = salt or secrets.token_hex(8)
+    digest = hashlib.sha256((salt + ":" + str(password or "")).encode("utf-8")).hexdigest()
+    return f"sha256${salt}${digest}"
+
+
+def verify_password(stored, password):
+    try:
+        algo, salt, digest = str(stored or "").split("$", 2)
+    except ValueError:
+        return False
+    if algo != "sha256" or not salt or not digest:
+        return False
+    expected = hashlib.sha256((salt + ":" + str(password or "")).encode("utf-8")).hexdigest()
+    return hmac.compare_digest(digest, expected)
+
+
+def ensure_default_accounts(state):
+    state = plain(state)
+    state.setdefault("groups", [])
+    state.setdefault("users", [])
+    default_group = next((group for group in state["groups"] if isinstance(group, dict) and group.get("id") == DEFAULT_GROUP_ID), None)
+    if default_group is None:
+        default_group = {"id": DEFAULT_GROUP_ID, "name": "默认房东组"}
+        state["groups"].insert(0, default_group)
+    else:
+        default_group.setdefault("name", "默认房东组")
+
+    accounts = [
+        {
+            "id": "admin_default",
+            "username": DEFAULT_ADMIN_USERNAME,
+            "password": DEFAULT_ADMIN_PASSWORD,
+            "role": "admin",
+            "name": "管理员",
+            "group_ids": [DEFAULT_GROUP_ID],
+        },
+        {
+            "id": "owner_default",
+            "username": DEFAULT_OWNER_USERNAME,
+            "password": DEFAULT_OWNER_PASSWORD,
+            "role": "owner",
+            "name": "默认房东",
+            "group_ids": [DEFAULT_GROUP_ID],
+        },
+    ]
+    for account in accounts:
+        user = next(
+            (
+                item
+                for item in state["users"]
+                if isinstance(item, dict)
+                and (item.get("id") == account["id"] or str(item.get("username") or "").lower() == account["username"].lower())
+            ),
+            None,
+        )
+        if user is None:
+            state["users"].append(
+                {
+                    "id": account["id"],
+                    "username": account["username"],
+                    "role": account["role"],
+                    "name": account["name"],
+                    "group_ids": account["group_ids"],
+                    "password_hash": password_hash(account["password"]),
+                    "created_at": now_utc_iso(),
+                }
+            )
+            continue
+        user["id"] = account["id"]
+        user["username"] = account["username"]
+        user["role"] = account["role"]
+        user.setdefault("name", account["name"])
+        user.setdefault("group_ids", account["group_ids"])
+        if not user.get("password_hash"):
+            user["password_hash"] = password_hash(account["password"])
+    return state
+
+
+def public_user(user):
+    return {key: value for key, value in plain(user).items() if key not in ("password_hash",)}
+
+
+def public_state(state):
+    state = plain(normalize_state(state))
+    state["users"] = [public_user(user) for user in state.get("users", []) if isinstance(user, dict)]
+    return state
+
+
+def user_group_ids(user):
+    return {str(item) for item in (user or {}).get("group_ids", []) if item}
+
+
+def filter_state_for_user(state, user):
+    state = plain(normalize_state(state))
+    role = (user or {}).get("role")
+    if role == "admin":
+        visible = public_state(state)
+        visible["current_user"] = public_user(user)
+        return visible
+
+    group_ids = user_group_ids(user)
+    if role == "cleaner":
+        cleaner_code = normalize_cleaner_code((user or {}).get("cleaner_code"))
+        property_ids = {
+            item.get("property_id")
+            for item in state.get("propertyCleaners", [])
+            if isinstance(item, dict) and normalize_cleaner_code(item.get("cleaner_code")) == cleaner_code
+        }
+        group_ids = {
+            prop.get("group_id")
+            for prop in state.get("properties", [])
+            if isinstance(prop, dict) and prop.get("id") in property_ids
+        }
+    else:
+        property_ids = {
+            prop.get("id")
+            for prop in state.get("properties", [])
+            if isinstance(prop, dict) and prop.get("group_id") in group_ids
+        }
+
+    properties = [prop for prop in state.get("properties", []) if isinstance(prop, dict) and prop.get("id") in property_ids]
+    property_ids = {prop.get("id") for prop in properties}
+    rooms = [room for room in state.get("rooms", []) if isinstance(room, dict) and room.get("property_id") in property_ids]
+    room_ids = {room.get("id") for room in rooms}
+    first_property = next(iter(property_ids), "")
+    common_areas = [area for area in state.get("commonAreas", []) if isinstance(area, dict) and (area.get("property_id") or first_property) in property_ids]
+    common_area_ids = {area.get("id") for area in common_areas}
+    cleaner_codes = {
+        normalize_cleaner_code(item.get("cleaner_code"))
+        for item in state.get("propertyCleaners", [])
+        if isinstance(item, dict) and item.get("property_id") in property_ids
+    }
+
+    visible = dict(state)
+    visible["groups"] = [group for group in state.get("groups", []) if isinstance(group, dict) and group.get("id") in group_ids]
+    visible["properties"] = properties
+    visible["propertyCleaners"] = [
+        item for item in state.get("propertyCleaners", []) if isinstance(item, dict) and item.get("property_id") in property_ids
+    ]
+    visible["rooms"] = rooms
+    visible["commonAreas"] = common_areas
+    visible["bookings"] = [booking for booking in state.get("bookings", []) if isinstance(booking, dict) and booking.get("room_id") in room_ids]
+    visible["manualChanges"] = [
+        item
+        for item in state.get("manualChanges", [])
+        if isinstance(item, dict)
+        and (
+            (item.get("target_type") == "common" and item.get("target_id") in common_area_ids)
+            or (item.get("target_type") != "common" and item.get("target_id") in room_ids)
+        )
+    ]
+    visible["cleaningNotes"] = [
+        item
+        for item in state.get("cleaningNotes", [])
+        if isinstance(item, dict)
+        and (
+            (item.get("target_type") == "common" and item.get("target_id") in common_area_ids)
+            or (item.get("target_type") != "common" and item.get("target_id") in room_ids)
+        )
+    ]
+    visible["roomDateNotes"] = [item for item in state.get("roomDateNotes", []) if isinstance(item, dict) and item.get("room_id") in room_ids]
+    visible["users"] = [
+        public_user(item)
+        for item in state.get("users", [])
+        if isinstance(item, dict)
+        and (
+            item.get("id") == (user or {}).get("id")
+            or (item.get("role") == "owner" and user_group_ids(item) & group_ids)
+            or (item.get("role") == "cleaner" and normalize_cleaner_code(item.get("cleaner_code")) in cleaner_codes)
+        )
+    ]
+    visible["current_user"] = public_user(user)
+    return visible
+
+
+def normalize_state(raw):
+    state = default_state()
+    if isinstance(raw, dict):
+        if "property_cleaners" in raw and "propertyCleaners" not in raw:
+            raw["propertyCleaners"] = raw.get("property_cleaners")
+        for key in STATE_KEYS + ["current_group_id", "last_sync", "sync_errors"]:
+            if key in raw:
+                state[key] = plain(raw[key])
+    for key in STATE_KEYS:
+        if not isinstance(state.get(key), list):
+            state[key] = []
+    if not state["groups"]:
+        state["groups"] = [{"id": DEFAULT_GROUP_ID, "name": "默认房东组"}]
+    for idx, group in enumerate(state["groups"]):
+        if not isinstance(group, dict):
+            group = {}
+            state["groups"][idx] = group
+        group.setdefault("id", DEFAULT_GROUP_ID if idx == 0 else f"group{idx + 1}")
+        group.setdefault("name", "默认房东组" if idx == 0 else f"房东组{idx + 1}")
+    if not any(group.get("id") == state.get("current_group_id") for group in state["groups"]):
+        state["current_group_id"] = state["groups"][0].get("id") or DEFAULT_GROUP_ID
+    if not state["properties"]:
+        state["properties"] = [{"id": DEFAULT_PROPERTY_ID, "group_id": state["current_group_id"], "name": "默认房源"}]
+    for idx, prop in enumerate(state["properties"]):
+        if not isinstance(prop, dict):
+            prop = {}
+            state["properties"][idx] = prop
+        prop.setdefault("id", DEFAULT_PROPERTY_ID if idx == 0 else f"property{idx + 1}")
+        prop.setdefault("group_id", state["current_group_id"])
+        prop.setdefault("name", "默认房源" if idx == 0 else f"房源{idx + 1}")
+    default_property = state["properties"][0].get("id") or DEFAULT_PROPERTY_ID
+    for idx, user in enumerate(state["users"]):
+        if not isinstance(user, dict):
+            user = {}
+            state["users"][idx] = user
+        user.setdefault("id", f"user{idx + 1}")
+        user.setdefault("role", "cleaner")
+        user.setdefault("name", user.get("cleaner_code") or f"用户{idx + 1}")
+        if user.get("role") in ("owner", "admin"):
+            user.setdefault("group_ids", [state["current_group_id"]])
+    state = ensure_default_accounts(state)
+    for idx, room in enumerate(state["rooms"]):
+        if not isinstance(room, dict):
+            room = {}
+            state["rooms"][idx] = room
+        room.setdefault("id", f"room{idx + 1}")
+        room.setdefault("name", f"Room {idx + 1}")
+        room.setdefault("type", "room")
+        room.setdefault("property_id", default_property)
+        room.setdefault("cleaning_fee", 0)
+        for field in ["airbnb_ical", "booking_ical", "vrbo_ical", "other_ical", "airbnb_public_url", "booking_public_url", "vrbo_public_url", "other_public_url"]:
+            room.setdefault(field, "")
+    for idx, binding in enumerate(state["propertyCleaners"]):
+        if not isinstance(binding, dict):
+            binding = {}
+            state["propertyCleaners"][idx] = binding
+        binding.setdefault("property_id", default_property)
+        binding["cleaner_code"] = normalize_cleaner_code(binding.get("cleaner_code"))
+        binding.setdefault("created_at", "")
+    for idx, area in enumerate(state["commonAreas"]):
+        if not isinstance(area, dict):
+            area = {}
+            state["commonAreas"][idx] = area
+        area.setdefault("id", f"common{idx + 1}")
+        area.setdefault("name", f"Common Area {idx + 1}")
+        area.setdefault("type", "common")
+        area.setdefault("property_id", default_property)
+        area.setdefault("cleaning_fee", 0)
+    for booking in state["bookings"]:
+        if isinstance(booking, dict):
+            booking.setdefault("source", booking.get("source") or "manual")
+    if not isinstance(state.get("sync_errors"), list):
+        state["sync_errors"] = []
+    if not isinstance(state.get("last_sync"), str):
+        state["last_sync"] = str(state.get("last_sync") or "")
+    return state
+
+
+def service_account_info():
+    global SERVICE_ACCOUNT_CACHE
+    if SERVICE_ACCOUNT_CACHE:
+        return SERVICE_ACCOUNT_CACHE
+    raw_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON") or os.environ.get("FIREBASE_ADMINSDK_JSON")
+    if raw_json:
+        SERVICE_ACCOUNT_CACHE = json.loads(raw_json)
+        return SERVICE_ACCOUNT_CACHE
+    raw_b64 = os.environ.get("FIREBASE_SERVICE_ACCOUNT_BASE64")
+    if raw_b64:
+        SERVICE_ACCOUNT_CACHE = json.loads(base64.b64decode(raw_b64).decode("utf-8"))
+        return SERVICE_ACCOUNT_CACHE
+    credential_path = str(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
+    candidates = []
+    if credential_path:
+        candidates.append(Path(credential_path))
+    candidates.extend([BASE / "firebase-key.json", BASE / "firebase-adminsdk.json"])
+    for path in candidates:
+        if path and path.is_file():
+            SERVICE_ACCOUNT_CACHE = json.loads(path.read_text(encoding="utf-8"))
+            return SERVICE_ACCOUNT_CACHE
+    raise RuntimeError("Firebase service account is not configured")
+
+
+def firebase_project_id():
+    return os.environ.get("FIREBASE_PROJECT_ID") or FIREBASE_CONFIG.get("project_id") or service_account_info().get("project_id") or "pms-system-aee0d"
+
+
+def access_token():
+    now = datetime.now(timezone.utc).timestamp()
+    if TOKEN_CACHE["token"] and TOKEN_CACHE["expiry"] - now > 60:
+        return TOKEN_CACHE["token"]
+    from google.oauth2 import service_account
+    from google.auth.transport.requests import Request
+    creds = service_account.Credentials.from_service_account_info(service_account_info(), scopes=[FIRESTORE_SCOPE])
+    creds.refresh(Request())
+    TOKEN_CACHE["token"] = creds.token
+    TOKEN_CACHE["expiry"] = creds.expiry.timestamp() if creds.expiry else now + 3000
+    return TOKEN_CACHE["token"]
+
+
+def firestore_doc_url():
+    project = urllib.parse.quote(firebase_project_id(), safe="")
+    collection = urllib.parse.quote(STATE_COLLECTION, safe="")
+    document = urllib.parse.quote(STATE_DOCUMENT, safe="")
+    return f"https://firestore.googleapis.com/v1/projects/{project}/databases/(default)/documents/{collection}/{document}"
+
+
+def firestore_request(method, url, payload=None, timeout=12):
     headers = {"Authorization": f"Bearer {access_token()}"}
     data = None
     if payload is not None:
@@ -89,50 +435,35 @@ new_firestore_request = '''def firestore_request(method, url, payload=None, time
     except Exception as exc:
         reason = getattr(exc, "reason", None) or str(exc) or exc.__class__.__name__
         raise RuntimeError(f"Firebase database request failed: {reason}") from exc
-'''
-if new_firestore_request not in source_text:
-    if old_firestore_request not in source_text:
-        raise RuntimeError("Firestore request hook not found")
-    source_text = source_text.replace(old_firestore_request, new_firestore_request, 1)
-
-old_service_account_paths = '''    for path in [Path(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")), BASE / "firebase-key.json", BASE / "firebase-adminsdk.json"]:
-        if path and path.exists():
-            SERVICE_ACCOUNT_CACHE = json.loads(path.read_text(encoding="utf-8"))
-            return SERVICE_ACCOUNT_CACHE
-'''
-new_service_account_paths = '''    credential_path = str(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
-    candidates = []
-    if credential_path:
-        candidates.append(Path(credential_path))
-    candidates.extend([BASE / "firebase-key.json", BASE / "firebase-adminsdk.json"])
-    for path in candidates:
-        if path and path.is_file():
-            SERVICE_ACCOUNT_CACHE = json.loads(path.read_text(encoding="utf-8"))
-            return SERVICE_ACCOUNT_CACHE
-'''
-if new_service_account_paths not in source_text:
-    if old_service_account_paths not in source_text:
-        raise RuntimeError("Firebase credential path hook not found")
-    source_text = source_text.replace(old_service_account_paths, new_service_account_paths, 1)
-
-old_state_io = '''def load_state():
-    doc = firestore_request("GET", firestore_doc_url())
-    if not doc:
-        return load_seed_state()
-    fields = doc.get("fields", {})
-    if "state_json" in fields:
-        return normalize_state(json.loads(fields["state_json"].get("stringValue") or "{}"))
-    raw = {key: from_firestore_value(value) for key, value in fields.items()}
-    return normalize_state(raw) if any(key in raw for key in STATE_KEYS) else load_seed_state()
 
 
-def save_state(state):
-    state = normalize_state(state)
-    payload = {"fields": {"state_json": {"stringValue": json.dumps(state, ensure_ascii=False, separators=(",", ":"))}, "updated_at": {"timestampValue": now_utc_iso()}}}
-    firestore_request("PATCH", firestore_doc_url(), payload=payload)
-    return state
-'''
-new_state_io = '''def firebase_credentials_configured():
+def from_firestore_value(value):
+    if "stringValue" in value:
+        return value["stringValue"]
+    if "integerValue" in value:
+        return int(value["integerValue"])
+    if "doubleValue" in value:
+        return float(value["doubleValue"])
+    if "booleanValue" in value:
+        return bool(value["booleanValue"])
+    if "nullValue" in value:
+        return None
+    if "timestampValue" in value:
+        return value["timestampValue"]
+    if "arrayValue" in value:
+        return [from_firestore_value(item) for item in value.get("arrayValue", {}).get("values", [])]
+    if "mapValue" in value:
+        return {key: from_firestore_value(item) for key, item in value.get("mapValue", {}).get("fields", {}).items()}
+    return None
+
+
+def load_seed_state():
+    if STATE_PATH.exists():
+        return normalize_state(json.loads(STATE_PATH.read_text(encoding="utf-8")))
+    return default_state()
+
+
+def firebase_credentials_configured():
     if os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON") or os.environ.get("FIREBASE_ADMINSDK_JSON") or os.environ.get("FIREBASE_SERVICE_ACCOUNT_BASE64"):
         return True
     credential_path = str(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
@@ -185,65 +516,581 @@ def save_state(state):
     }
     firestore_request("PATCH", firestore_doc_url(), payload=payload)
     return state
-'''
-if new_state_io not in source_text:
-    if old_state_io not in source_text:
-        raise RuntimeError("state IO fallback hook not found")
-    source_text = source_text.replace(old_state_io, new_state_io, 1)
-old_text_response = '''def text_response(handler, text, status=200, content_type="text/plain; charset=utf-8"):
-    data = str(text).encode("utf-8")
-    handler.send_response(status)
-    handler.send_header("Content-Type", content_type)
-    handler.send_header("Content-Length", str(len(data)))
-    handler.send_header("Cache-Control", "no-store")
-    handler.end_headers()
-    handler.wfile.write(data)
-'''
-new_text_response = '''def _pms_inject_html_version_badge(text, content_type):
-    raw = str(text)
-    if "text/html" not in str(content_type or "").lower() or 'id="pmsVersionBadge"' in raw:
-        return raw
-    badge = f"""<style id="pmsVersionBadgeServerStyle">
-#pmsVersionBadge{{position:fixed;right:12px;bottom:12px;top:auto;z-index:999;display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:6px 9px;font:900 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;white-space:nowrap;box-shadow:0 8px 20px rgba(15,23,42,.10);pointer-events:none;opacity:.88}}
-</style><span id="pmsVersionBadge">PMS v{PMS_PATCH_VERSION}</span>"""
-    marker = "</body>"
-    if marker in raw:
-        return raw.replace(marker, badge + marker, 1)
-    return raw + badge
 
 
-def text_response(handler, text, status=200, content_type="text/plain; charset=utf-8"):
-    data = _pms_inject_html_version_badge(text, content_type).encode("utf-8")
-    handler.send_response(status)
-    handler.send_header("Content-Type", content_type)
-    handler.send_header("Content-Length", str(len(data)))
-    handler.send_header("Cache-Control", "no-store")
-    handler.end_headers()
-    handler.wfile.write(data)
-'''
-if new_text_response not in source_text:
-    if old_text_response not in source_text:
-        raise RuntimeError("text_response hook not found")
-    source_text = source_text.replace(old_text_response, new_text_response, 1)
-patch_index_return_old = '''    return text.encode("utf-8")
+def merge_scoped_list(current_items, incoming_items, keep_current):
+    incoming_items = [item for item in incoming_items if isinstance(item, dict)]
+    return [item for item in current_items if isinstance(item, dict) and keep_current(item)] + incoming_items
 
 
-class Handler(BaseHTTPRequestHandler):
-'''
-patch_index_return_new = '''    text = _pms_inject_html_version_badge(text, "text/html; charset=utf-8")
-    return text.encode("utf-8")
+def save_state_from_payload(payload, actor=None):
+    if not isinstance(payload, dict):
+        raise RuntimeError("state payload must be an object")
+    current = normalize_state(load_state())
+    if actor and actor.get("role") != "admin":
+        property_ids = actor_property_ids(actor, current)
+        room_ids = actor_room_ids(actor, current)
+        common_area_ids = {
+            area.get("id")
+            for area in current.get("commonAreas", [])
+            if isinstance(area, dict)
+            and (area.get("property_id") or first_actor_property_id(actor, current)) in property_ids
+        }
+        merged = dict(current)
+        if "groups" in payload:
+            group_ids = user_group_ids(actor)
+            merged["groups"] = merge_scoped_list(current.get("groups", []), payload.get("groups", []), lambda item: item.get("id") not in group_ids)
+        if "properties" in payload:
+            merged["properties"] = merge_scoped_list(current.get("properties", []), payload.get("properties", []), lambda item: item.get("id") not in property_ids)
+        if "propertyCleaners" in payload:
+            merged["propertyCleaners"] = merge_scoped_list(current.get("propertyCleaners", []), payload.get("propertyCleaners", []), lambda item: item.get("property_id") not in property_ids)
+        if "rooms" in payload:
+            incoming_rooms = []
+            for room in payload.get("rooms", []):
+                if not isinstance(room, dict):
+                    continue
+                property_id = str(room.get("property_id") or first_actor_property_id(actor, current))
+                if property_id not in property_ids:
+                    continue
+                fixed = dict(room)
+                fixed["property_id"] = property_id
+                incoming_rooms.append(fixed)
+            merged["rooms"] = merge_scoped_list(current.get("rooms", []), incoming_rooms, lambda item: item.get("id") not in room_ids)
+            room_ids = {room.get("id") for room in incoming_rooms if isinstance(room, dict)} | {
+                room.get("id") for room in current.get("rooms", []) if isinstance(room, dict) and room.get("property_id") in property_ids
+            }
+        if "bookings" in payload:
+            merged["bookings"] = merge_scoped_list(current.get("bookings", []), payload.get("bookings", []), lambda item: item.get("room_id") not in room_ids)
+        if "manualChanges" in payload:
+            merged["manualChanges"] = merge_scoped_list(
+                current.get("manualChanges", []),
+                payload.get("manualChanges", []),
+                lambda item: (
+                    (item.get("target_type") == "common" and item.get("target_id") not in common_area_ids)
+                    or (item.get("target_type") != "common" and item.get("target_id") not in room_ids)
+                ),
+            )
+        if "cleaningNotes" in payload:
+            merged["cleaningNotes"] = merge_scoped_list(
+                current.get("cleaningNotes", []),
+                payload.get("cleaningNotes", []),
+                lambda item: (
+                    (item.get("target_type") == "common" and item.get("target_id") not in common_area_ids)
+                    or (item.get("target_type") != "common" and item.get("target_id") not in room_ids)
+                ),
+            )
+        if "roomDateNotes" in payload:
+            merged["roomDateNotes"] = merge_scoped_list(current.get("roomDateNotes", []), payload.get("roomDateNotes", []), lambda item: item.get("room_id") not in room_ids)
+        if "commonAreas" in payload:
+            incoming_common_areas = []
+            for area in payload.get("commonAreas", []):
+                if not isinstance(area, dict):
+                    continue
+                property_id = str(area.get("property_id") or first_actor_property_id(actor, current))
+                if property_id not in property_ids:
+                    continue
+                fixed = dict(area)
+                fixed["property_id"] = property_id
+                fixed.setdefault("type", "common")
+                incoming_common_areas.append(fixed)
+            merged["commonAreas"] = merge_scoped_list(
+                current.get("commonAreas", []),
+                incoming_common_areas,
+                lambda item: (item.get("property_id") or first_actor_property_id(actor, current)) not in property_ids,
+            )
+        for key in ["last_sync", "sync_errors"]:
+            if key in payload:
+                merged[key] = payload.get(key)
+        validate_property_names_unique(merged)
+        return save_state(merged)
+    merged = dict(payload)
+    for key in ["groups", "users", "properties", "propertyCleaners"]:
+        if key not in merged:
+            merged[key] = current.get(key, [])
+    if "users" in merged:
+        current_by_id = {user.get("id"): user for user in current.get("users", []) if isinstance(user, dict)}
+        fixed_users = []
+        for user in merged.get("users", []):
+            if not isinstance(user, dict):
+                continue
+            old = current_by_id.get(user.get("id"))
+            if old and old.get("password_hash") and not user.get("password_hash"):
+                user = dict(user)
+                user["password_hash"] = old.get("password_hash")
+            fixed_users.append(user)
+        merged["users"] = fixed_users
+    validate_property_names_unique(merged)
+    return save_state(merged)
 
 
-class Handler(BaseHTTPRequestHandler):
-'''
-if patch_index_return_new not in source_text:
-    if patch_index_return_old not in source_text:
-        raise RuntimeError("patch_index_html return hook not found")
-    source_text = source_text.replace(patch_index_return_old, patch_index_return_new, 1)
-ui_patch = (BASE / "pms_ui_patch.js").read_text(encoding="utf-8")
-# Frontend rendering is intentionally centralized in pms_ui_patch.js.
-# Do not append additional owner/cleaner UI override layers here.
-frontend_injector = '''def _pms_inject_html_version_badge(text, content_type):
+def generate_cleaner_code(state):
+    existing = {normalize_cleaner_code(user.get("cleaner_code")) for user in state.get("users", []) if isinstance(user, dict)}
+    for _ in range(100):
+        code = f"CLN-{secrets.randbelow(9000) + 1000}"
+        if code not in existing:
+            return code
+    return f"CLN-{secrets.token_hex(3).upper()}"
+
+
+
+def normalized_property_name(value):
+    return re.sub(r"\s+", "", str(value or "").strip()).lower()
+
+
+def validate_property_names_unique(state):
+    seen = set()
+    for prop in normalize_state(state).get("properties", []):
+        if not isinstance(prop, dict):
+            continue
+        key = normalized_property_name(prop.get("name"))
+        if not key:
+            continue
+        scoped = (prop.get("group_id") or DEFAULT_GROUP_ID, key)
+        if scoped in seen:
+            raise RuntimeError("同一房东下房源名字不能重复")
+        seen.add(scoped)
+
+
+def username_key(value):
+    return str(value or "").strip().lower()
+
+
+def login_name_exists(state, username):
+    key = username_key(username)
+    if not key:
+        return False
+    return find_user_for_login(state, key) is not None
+
+
+def unique_state_id(state, prefix, field="id"):
+    existing = {str(item.get(field) or "") for key in STATE_KEYS for item in state.get(key, []) if isinstance(item, dict)}
+    for _ in range(100):
+        candidate = f"{prefix}_{secrets.token_hex(4)}"
+        if candidate not in existing:
+            return candidate
+    return f"{prefix}_{secrets.token_hex(8)}"
+
+
+def register_owner(payload):
+    if not isinstance(payload, dict):
+        raise RuntimeError("payload must be an object")
+    username = str(payload.get("username") or "").strip()
+    password = str(payload.get("password") or "").strip()
+    name = str(payload.get("name") or "").strip() or username
+    if not username:
+        raise RuntimeError("username is required")
+    if not password:
+        raise RuntimeError("password is required")
+    state = normalize_state(load_main_state())
+    if login_name_exists(state, username):
+        raise RuntimeError("username already exists")
+    group_id = unique_state_id(state, "group")
+    owner_id = unique_state_id(state, "owner")
+    property_id = unique_state_id(state, "property")
+    state["groups"].append({"id": group_id, "name": f"{name}的房东组", "created_at": now_utc_iso()})
+    user = {
+        "id": owner_id,
+        "username": username,
+        "role": "owner",
+        "name": name,
+        "group_ids": [group_id],
+        "password_hash": password_hash(password),
+        "created_at": now_utc_iso(),
+    }
+    state["users"].append(user)
+    state["properties"].append({"id": property_id, "group_id": group_id, "name": "默认房源", "created_at": now_utc_iso()})
+    saved = save_state(state)
+    return saved, public_user(user)
+
+def register_cleaner(payload):
+    if not isinstance(payload, dict):
+        raise RuntimeError("payload must be an object")
+    name = str(payload.get("name") or "").strip()
+    phone = str(payload.get("phone") or "").strip()
+    password = str(payload.get("password") or "").strip()
+    if not name:
+        raise RuntimeError("name is required")
+    if not password:
+        raise RuntimeError("password is required")
+    state = normalize_state(load_main_state())
+    cleaner_code = normalize_cleaner_code(payload.get("cleaner_code")) or generate_cleaner_code(state)
+    if any(normalize_cleaner_code(user.get("cleaner_code")) == cleaner_code for user in state["users"] if isinstance(user, dict)):
+        raise RuntimeError("cleaner code already exists")
+    user = {
+        "id": f"cleaner_{cleaner_code.lower().replace('-', '_')}",
+        "role": "cleaner",
+        "username": name,
+        "name": name,
+        "phone": phone,
+        "cleaner_code": cleaner_code,
+        "password_hash": password_hash(password),
+        "created_at": now_utc_iso(),
+    }
+    state["users"].append(user)
+    saved = save_state(state)
+    return saved, public_user(user)
+
+
+def actor_group_ids(actor):
+    if not actor:
+        return set()
+    if actor.get("role") == "admin":
+        return None
+    return user_group_ids(actor)
+
+
+def actor_property_ids(actor, state):
+    state = normalize_state(state)
+    if not actor or actor.get("role") == "admin":
+        return {prop.get("id") for prop in state.get("properties", []) if isinstance(prop, dict)}
+    if actor.get("role") == "owner":
+        groups = user_group_ids(actor)
+        return {prop.get("id") for prop in state.get("properties", []) if isinstance(prop, dict) and prop.get("group_id") in groups}
+    cleaner_code = normalize_cleaner_code(actor.get("cleaner_code"))
+    return {
+        item.get("property_id")
+        for item in state.get("propertyCleaners", [])
+        if isinstance(item, dict) and normalize_cleaner_code(item.get("cleaner_code")) == cleaner_code
+    }
+
+
+def actor_room_ids(actor, state):
+    property_ids = actor_property_ids(actor, state)
+    return {
+        room.get("id")
+        for room in normalize_state(state).get("rooms", [])
+        if isinstance(room, dict) and room.get("property_id") in property_ids
+    }
+
+
+def first_actor_property_id(actor, state):
+    property_ids = sorted(item for item in actor_property_ids(actor, state) if item)
+    return property_ids[0] if property_ids else DEFAULT_PROPERTY_ID
+
+
+def can_manage_property(actor, state, property_id):
+    if not actor:
+        return False
+    if actor.get("role") == "admin":
+        return True
+    return property_id in actor_property_ids(actor, state)
+
+
+def save_room(room_id, payload, actor=None):
+    room_id = str(room_id or "").strip()
+    if not room_id:
+        raise RuntimeError("room_id is required")
+    if not isinstance(payload, dict):
+        raise RuntimeError("room payload must be an object")
+    state = normalize_state(load_state())
+    room = next((item for item in state["rooms"] if item.get("id") == room_id), None)
+    if room is None:
+        room = {"id": room_id, "type": "room"}
+        state["rooms"].append(room)
+    requested_property_id = str(payload.get("property_id") or room.get("property_id") or first_actor_property_id(actor, state))
+    if actor and not can_manage_property(actor, state, requested_property_id):
+        raise RuntimeError("property permission required")
+    payload = dict(payload)
+    payload["property_id"] = requested_property_id
+    for field in ROOM_FIELDS:
+        if field not in payload:
+            continue
+        if field == "cleaning_fee":
+            try:
+                value = float(payload.get(field) or 0)
+                room[field] = int(value) if value.is_integer() else value
+            except Exception:
+                room[field] = 0
+        else:
+            room[field] = str(payload.get(field) or "")
+    room["id"] = room_id
+    room["type"] = "room"
+    saved = save_state(state)
+    saved_room = next((item for item in saved["rooms"] if item.get("id") == room_id), room)
+    return saved, saved_room
+
+
+def save_property(property_id, payload, actor=None):
+    property_id = str(property_id or "").strip()
+    if not property_id:
+        raise RuntimeError("property_id is required")
+    if not isinstance(payload, dict):
+        raise RuntimeError("property payload must be an object")
+    state = normalize_state(load_state())
+    requested_group_id = str(payload.get("group_id") or state.get("current_group_id") or DEFAULT_GROUP_ID)
+    if actor and actor.get("role") != "admin":
+        groups = sorted(user_group_ids(actor))
+        requested_group_id = groups[0] if groups else DEFAULT_GROUP_ID
+        existing = next((item for item in state["properties"] if item.get("id") == property_id), None)
+        if existing and existing.get("group_id") not in groups:
+            raise RuntimeError("property permission required")
+    prop = next((item for item in state["properties"] if item.get("id") == property_id), None)
+    if prop is None:
+        prop = {"id": property_id, "group_id": requested_group_id}
+        state["properties"].append(prop)
+    proposed_group_id = requested_group_id if actor and actor.get("role") != "admin" else str(payload.get("group_id") or prop.get("group_id") or state.get("current_group_id") or DEFAULT_GROUP_ID)
+    proposed_name = str(payload.get("name") or prop.get("name") or "未命名房源").strip()
+    name_key = normalized_property_name(proposed_name)
+    if name_key and any(
+        item.get("id") != property_id
+        and item.get("group_id") == proposed_group_id
+        and normalized_property_name(item.get("name")) == name_key
+        for item in state["properties"]
+        if isinstance(item, dict)
+    ):
+        raise RuntimeError("同一房东下房源名字不能重复")
+    prop["id"] = property_id
+    prop["group_id"] = proposed_group_id
+    prop["name"] = proposed_name
+    saved = save_state(state)
+    saved_prop = next((item for item in saved["properties"] if item.get("id") == property_id), prop)
+    return saved, saved_prop
+
+
+def update_property_cleaner(payload, actor=None):
+    if not isinstance(payload, dict):
+        raise RuntimeError("payload must be an object")
+    property_id = str(payload.get("property_id") or "").strip()
+    cleaner_code = normalize_cleaner_code(payload.get("cleaner_code"))
+    action = str(payload.get("action") or "bind").strip().lower()
+    if not property_id:
+        raise RuntimeError("property_id is required")
+    if not cleaner_code:
+        raise RuntimeError("cleaner_code is required")
+    state = normalize_state(load_main_state())
+    if not any(prop.get("id") == property_id for prop in state["properties"]):
+        raise RuntimeError("property not found")
+    if actor and not can_manage_property(actor, state, property_id):
+        raise RuntimeError("property permission required")
+    cleaner = next((user for user in state["users"] if isinstance(user, dict) and user.get("role") == "cleaner" and normalize_cleaner_code(user.get("cleaner_code")) == cleaner_code), None)
+    if cleaner is None:
+        raise RuntimeError("cleaner code not found")
+    state["propertyCleaners"] = [
+        item for item in state["propertyCleaners"]
+        if not (item.get("property_id") == property_id and normalize_cleaner_code(item.get("cleaner_code")) == cleaner_code)
+    ]
+    if action not in ("unbind", "delete", "remove"):
+        state["propertyCleaners"].append({"property_id": property_id, "cleaner_code": cleaner_code, "created_at": now_utc_iso()})
+    return save_state(state)
+
+
+def parse_query(path):
+    parsed = urllib.parse.urlparse(path)
+    return parsed, urllib.parse.parse_qs(parsed.query)
+
+
+def query_value(handler, name):
+    _, qs = parse_query(handler.path)
+    return qs.get(name, [""])[0]
+
+
+def cookie_value(handler, name):
+    cookie_header = handler.headers.get("Cookie", "")
+    for part in cookie_header.split(";"):
+        if "=" not in part:
+            continue
+        key, value = part.strip().split("=", 1)
+        if key == name:
+            return urllib.parse.unquote(value)
+    return ""
+
+
+def make_session_token(user_id):
+    expires = int(datetime.now(timezone.utc).timestamp()) + SESSION_SECONDS
+    message = f"{user_id}:{expires}"
+    signature = hmac.new(SESSION_SECRET.encode("utf-8"), message.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{message}:{signature}"
+
+
+def parse_session_token(token):
+    try:
+        user_id, expires, signature = str(token or "").split(":", 2)
+        expires_int = int(expires)
+    except Exception:
+        return ""
+    if expires_int < int(datetime.now(timezone.utc).timestamp()):
+        return ""
+    message = f"{user_id}:{expires}"
+    expected = hmac.new(SESSION_SECRET.encode("utf-8"), message.encode("utf-8"), hashlib.sha256).hexdigest()
+    return user_id if hmac.compare_digest(signature, expected) else ""
+
+
+def find_user_by_id(state, user_id):
+    return next((user for user in state.get("users", []) if isinstance(user, dict) and user.get("id") == user_id), None)
+
+
+def find_user_for_login(state, username):
+    username = str(username or "").strip().lower()
+    if not username:
+        return None
+    for user in state.get("users", []):
+        if not isinstance(user, dict):
+            continue
+        candidates = [
+            str(user.get("username") or ""),
+            str(user.get("name") or ""),
+            str(user.get("cleaner_code") or ""),
+            str(user.get("phone") or ""),
+        ]
+        if username in {item.strip().lower() for item in candidates if item}:
+            return user
+    return None
+
+
+
+def load_main_state():
+    base_loader = globals().get("_pms_external_base_load_state")
+    if callable(base_loader):
+        return normalize_state(base_loader())
+    return normalize_state(load_state())
+
+
+def save_state_from_payload_light(payload, actor=None):
+    original_load_state = globals().get("load_state")
+    original_save_state = globals().get("save_state")
+    external_keys = tuple(globals().get("_PMS_EXTERNAL_STATE_KEYS", ()))
+    base_load_state = globals().get("_pms_external_base_load_state")
+    base_save_state = globals().get("_pms_external_base_save_state") or original_save_state
+
+    def light_load_state():
+        if callable(base_load_state):
+            return normalize_state(base_load_state())
+        if callable(original_load_state):
+            return normalize_state(original_load_state())
+        return normalize_state(default_state())
+
+    def light_save_state(state):
+        compact_state = dict(normalize_state(state))
+        for key in external_keys:
+            compact_state.pop(key, None)
+        if callable(base_save_state):
+            saved = base_save_state(compact_state)
+        else:
+            saved = compact_state
+        return normalize_state(saved)
+
+    globals()["load_state"] = light_load_state
+    globals()["save_state"] = light_save_state
+    try:
+        return save_state_from_payload(payload, actor=actor)
+    finally:
+        if callable(original_load_state):
+            globals()["load_state"] = original_load_state
+        if callable(original_save_state):
+            globals()["save_state"] = original_save_state
+
+
+def pms_public_profile(user):
+    public = {}
+    if not isinstance(user, dict):
+        return public
+    for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids", "default_room_ids", "defaultRoomIds"):
+        value = user.get(key)
+        if value not in (None, ""):
+            public[key] = value
+    return public
+
+
+def update_current_user_profile(payload, actor=None):
+    if not isinstance(payload, dict):
+        raise RuntimeError("payload must be an object")
+    if not actor:
+        raise RuntimeError("login required")
+    display_name = str(payload.get("name") or payload.get("display_name") or payload.get("displayName") or "").strip()
+    if not display_name:
+        raise RuntimeError("display name is required")
+    if len(display_name) > 80:
+        raise RuntimeError("display name is too long")
+
+    state = normalize_state(load_main_state())
+    users = state.setdefault("users", [])
+    actor_id = str(actor.get("id") or "")
+    actor_username = str(actor.get("username") or "").strip().lower()
+    target = None
+    for row in users:
+        if isinstance(row, dict) and actor_id and str(row.get("id") or "") == actor_id:
+            target = row
+            break
+    if target is None and actor_username:
+        for row in users:
+            if isinstance(row, dict) and str(row.get("username") or "").strip().lower() == actor_username:
+                target = row
+                break
+    if target is None:
+        raise RuntimeError("user not found")
+
+    target["name"] = display_name
+    if "default_room_ids" in payload or "defaultRoomIds" in payload:
+        raw_defaults = payload.get("default_room_ids", payload.get("defaultRoomIds"))
+        if raw_defaults is None:
+            raw_defaults = []
+        if not isinstance(raw_defaults, list):
+            raise RuntimeError("default room ids must be a list")
+        if actor.get("role") == "admin":
+            allowed_room_ids = {
+                str(room.get("id") or "")
+                for room in state.get("rooms", [])
+                if isinstance(room, dict) and room.get("id")
+            }
+        else:
+            allowed_room_ids = {str(item or "") for item in actor_room_ids(actor, state)}
+        clean_defaults = []
+        for item in raw_defaults:
+            room_id = str(item or "").strip()
+            if room_id and room_id in allowed_room_ids and room_id not in clean_defaults:
+                clean_defaults.append(room_id)
+        if not clean_defaults:
+            raise RuntimeError("default room selection is empty")
+        target["default_room_ids"] = clean_defaults
+        target["defaultRoomIds"] = clean_defaults
+    target["updated_at"] = now_utc_iso()
+    base_save_state = globals().get("_pms_external_base_save_state")
+    if callable(base_save_state):
+        saved = base_save_state(state)
+    else:
+        saved = save_state(state)
+    public_profile = pms_public_profile(target)
+    updated_actor = dict(actor)
+    updated_actor.update(public_profile)
+    return normalize_state(saved), public_profile, updated_actor
+
+def authenticate_user(username, password):
+    state = normalize_state(load_main_state())
+    user = find_user_for_login(state, username)
+    if not user or not verify_password(user.get("password_hash"), password):
+        return None
+    return user
+
+
+def current_user(handler):
+    user_id = parse_session_token(cookie_value(handler, SESSION_COOKIE))
+    if not user_id:
+        return None
+    return find_user_by_id(normalize_state(load_main_state()), user_id)
+
+
+def require_user(handler, roles=None):
+    user = current_user(handler)
+    if not user:
+        json_response(handler, {"ok": False, "error": "login required"}, 401)
+        return None
+    if roles and user.get("role") not in roles:
+        json_response(handler, {"ok": False, "error": "permission required"}, 403)
+        return None
+    return user
+
+
+def is_owner(handler):
+    user = current_user(handler)
+    return bool(user and user.get("role") in ("admin", "owner"))
+
+
+def is_cleaner(handler):
+    user = current_user(handler)
+    return bool(user and user.get("role") in ("admin", "owner", "cleaner"))
+
+
+def _pms_inject_html_version_badge(text, content_type):
     raw = str(text)
     if "text/html" not in str(content_type or "").lower():
         return raw
@@ -253,7 +1100,8 @@ frontend_injector = '''def _pms_inject_html_version_badge(text, content_type):
 #pmsVersionBadge{{position:fixed;right:12px;bottom:12px;top:auto;z-index:999;display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:6px 9px;font:900 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;white-space:nowrap;box-shadow:0 8px 20px rgba(15,23,42,.10);pointer-events:none;opacity:.88}}
 </style><span id="pmsVersionBadge">PMS v{PMS_PATCH_VERSION}</span>"""
     script = ""
-    if 'id="pmsSingleFrontendPatch"' not in raw:
+    is_app_shell = 'data-pms-app-shell="1"' in raw
+    if is_app_shell and 'id="pmsSingleFrontendPatch"' not in raw:
         try:
             safe_close = "<" + "/script>"
             escaped_close = "<" + chr(92) + "/script>"
@@ -270,54 +1118,62 @@ frontend_injector = '''def _pms_inject_html_version_badge(text, content_type):
     return raw + inject
 
 
-def text_response'''
-source_text, frontend_injector_count = re.subn(
-    r'def _pms_inject_html_version_badge\(text, content_type\):.*?\n\n\ndef text_response',
-    frontend_injector,
-    source_text,
-    count=1,
-    flags=re.S,
-)
-if frontend_injector_count != 1:
-    raise RuntimeError("frontend injector replacement failed")
+def text_response(handler, text, status=200, content_type="text/plain; charset=utf-8"):
+    data = _pms_inject_html_version_badge(text, content_type).encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(data)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    handler.wfile.write(data)
 
-old_get_start = """            parsed, _ = parse_query(self.path)
-            path = parsed.path
-"""
-new_get_start = """            parsed, _ = parse_query(self.path)
-            path = parsed.path
-            if path == "/logout":
-                self.send_response(302)
-                self.send_header("Location", "/login")
-                self.send_header("Set-Cookie", f"{SESSION_COOKIE}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax")
-                self.end_headers()
-                return
-            if urllib.parse.parse_qs(parsed.query).get("key"):
-                self.send_response(302)
-                self.send_header("Location", "/login")
-                self.send_header("Set-Cookie", f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
-                self.end_headers()
-                return
-"""
-if new_get_start not in source_text:
-    if old_get_start not in source_text:
-        raise RuntimeError("GET route hook not found")
-    source_text = source_text.replace(old_get_start, new_get_start, 1)
 
-version_route_hook = '''            if path == "/api/health":
-                json_response(self, {"ok": True, "firebase_project": firebase_project_id(), "driver": "firestore-rest"})
-                return
-'''
-version_route = f'''            if path == "/api/version":
-                json_response(self, {{"ok": True, "version": "{PMS_PATCH_VERSION}"}})
-                return
-''' + version_route_hook
-if 'version": "2026-06-18-mail-save-v2"' not in source_text:
-    if version_route_hook not in source_text:
-        raise RuntimeError("version route hook not found")
-    source_text = source_text.replace(version_route_hook, version_route, 1)
+def json_response(handler, payload, status=200, extra_headers=None):
+    data = json.dumps(plain(payload), ensure_ascii=False).encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", "application/json; charset=utf-8")
+    handler.send_header("Content-Length", str(len(data)))
+    handler.send_header("Cache-Control", "no-store")
+    for key, value in (extra_headers or {}).items():
+        handler.send_header(key, value)
+    handler.end_headers()
+    handler.wfile.write(data)
 
-locked_ical_parser = r'''
+
+def redirect(handler, url):
+    handler.send_response(302)
+    handler.send_header("Location", url)
+    handler.end_headers()
+
+
+def require_owner(handler):
+    if is_owner(handler):
+        return True
+    json_response(handler, {"ok": False, "error": "owner permission required"}, 403)
+    return False
+
+
+def require_cleaner(handler):
+    if is_cleaner(handler):
+        return True
+    json_response(handler, {"ok": False, "error": "permission required"}, 403)
+    return False
+
+
+def parse_date_value(value):
+    value = str(value or "").strip()
+    if not value:
+        return None
+    if "T" in value:
+        value = value.split("T", 1)[0]
+    if re.match(r"^\d{8}$", value):
+        return f"{value[:4]}-{value[4:6]}-{value[6:8]}"
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", value):
+        return value
+    return None
+
+
+
 def ical_clean_text(value):
     return (
         str(value or "")
@@ -424,23 +1280,9 @@ def parse_ics(text, platform, room_id):
         elif key == "STATUS":
             current["status"] = value.strip()
     return events
-'''
-source_text, locked_ical_count = re.subn(
-    r'def parse_ics\(text, platform, room_id\):.*?\n\n\ndef fetch_text',
-    lambda match: locked_ical_parser + "\n\ndef fetch_text",
-    source_text,
-    count=1,
-    flags=re.S,
-)
-if locked_ical_count != 1:
-    raise RuntimeError("iCal lock parser hook not found")
 
-old_fetch_text = '''def fetch_text(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "PMS-Firebase/1.0"})
-    with urllib.request.urlopen(req, timeout=25) as resp:
-        return resp.read().decode("utf-8", errors="replace")
-'''
-new_fetch_text = '''def fetch_text(url):
+
+def fetch_text(url):
     req = urllib.request.Request(url, headers={"User-Agent": "PMS-Firebase/1.0"})
     timeout = float(os.environ.get("PMS_ICAL_FETCH_TIMEOUT_SECONDS", "8"))
     max_bytes = int(os.environ.get("PMS_ICAL_FETCH_MAX_BYTES", "1048576"))
@@ -456,17 +1298,9 @@ new_fetch_text = '''def fetch_text(url):
         host = urllib.parse.urlparse(str(url or "")).netloc or "iCal"
         reason = getattr(exc, "reason", None) or str(exc) or exc.__class__.__name__
         raise RuntimeError(f"iCal fetch failed from {host}: {reason}") from exc
-'''
-if new_fetch_text not in source_text:
-    if old_fetch_text not in source_text:
-        raise RuntimeError("iCal fetch hook not found")
-    source_text = source_text.replace(old_fetch_text, new_fetch_text, 1)
 
-old_sync_function = """def sync_icals(actor=None):
-    state = normalize_state(load_state())
-    allowed_room_ids = actor_room_ids(actor, state) if actor else {room.get("id") for room in state.get("rooms", []) if isinstance(room, dict)}
-"""
-new_sync_function = """def sync_icals(actor=None, property_id=None):
+
+def sync_icals(actor=None, property_id=None):
     state = normalize_state(load_state())
     allowed_property_ids = actor_property_ids(actor, state) if actor else {prop.get("id") for prop in state.get("properties", []) if isinstance(prop, dict)}
     requested_property_id = str(property_id or "").strip()
@@ -479,352 +1313,129 @@ new_sync_function = """def sync_icals(actor=None, property_id=None):
         for room in state.get("rooms", [])
         if isinstance(room, dict) and room.get("property_id") in allowed_property_ids
     }
-"""
-if new_sync_function not in source_text:
-    if old_sync_function not in source_text:
-        raise RuntimeError("iCal sync hook not found")
-    source_text = source_text.replace(old_sync_function, new_sync_function, 1)
-
-old_sync_bookings_start = """    state["bookings"] = [
-        booking
-"""
-new_sync_bookings_start = """    sync_time = datetime.now().isoformat(timespec="seconds")
+    sync_time = datetime.now().isoformat(timespec="seconds")
     state["bookings"] = [
         booking
-"""
-if new_sync_bookings_start not in source_text:
-    if old_sync_bookings_start not in source_text:
-        raise RuntimeError("iCal sync timestamp hook not found")
-    source_text = source_text.replace(old_sync_bookings_start, new_sync_bookings_start, 1)
-
-old_sync_room_start = """        room_id = room.get("id")
-        for platform, url in [("Airbnb", room.get("airbnb_ical", "")), ("Booking", room.get("booking_ical", "")), ("Vrbo", room.get("vrbo_ical", "")), ("Other", room.get("other_ical", ""))]:
-"""
-new_sync_room_start = """        room_id = room.get("id")
+        for booking in state.get("bookings", [])
+        if booking.get("source") != "ical" or booking.get("room_id") not in allowed_room_ids
+    ]
+    errors = []
+    for room in state.get("rooms", []):
+        if room.get("id") not in allowed_room_ids:
+            continue
+        room_id = room.get("id")
         room["last_sync"] = sync_time
         room["sync_error"] = ""
         room["synced_booking_count"] = 0
         for platform, url in [("Airbnb", room.get("airbnb_ical", "")), ("Booking", room.get("booking_ical", "")), ("Vrbo", room.get("vrbo_ical", "")), ("Other", room.get("other_ical", ""))]:
-"""
-if new_sync_room_start not in source_text:
-    if old_sync_room_start not in source_text:
-        raise RuntimeError("iCal sync room log hook not found")
-    source_text = source_text.replace(old_sync_room_start, new_sync_room_start, 1)
-
-old_sync_import = """                state["bookings"].extend(parse_ics(fetch_text(url), platform, room_id))
-"""
-new_sync_import = """                imported = parse_ics(fetch_text(url), platform, room_id)
+            url = (url or "").strip()
+            if not url:
+                continue
+            try:
+                imported = parse_ics(fetch_text(url), platform, room_id)
                 room["synced_booking_count"] = int(room.get("synced_booking_count") or 0) + len(imported)
                 state["bookings"].extend(imported)
-"""
-if new_sync_import not in source_text:
-    if old_sync_import not in source_text:
-        raise RuntimeError("iCal sync import count hook not found")
-    source_text = source_text.replace(old_sync_import, new_sync_import, 1)
-
-old_sync_error = """                errors.append({"room_id": room_id, "platform": platform, "error": str(exc)})
-"""
-new_sync_error = """                message = str(exc)
+            except Exception as exc:
+                message = str(exc)
                 room["sync_error"] = (room.get("sync_error") + "；" if room.get("sync_error") else "") + f"{platform}: {message}"
                 errors.append({"room_id": room_id, "platform": platform, "error": message})
-"""
-if new_sync_error not in source_text:
-    if old_sync_error not in source_text:
-        raise RuntimeError("iCal sync error log hook not found")
-    source_text = source_text.replace(old_sync_error, new_sync_error, 1)
-
-old_sync_last_sync = """    state["last_sync"] = datetime.now().isoformat(timespec="seconds")
-"""
-new_sync_last_sync = """    state["last_sync"] = sync_time
-"""
-if new_sync_last_sync not in source_text:
-    if old_sync_last_sync not in source_text:
-        raise RuntimeError("iCal sync last_sync hook not found")
-    source_text = source_text.replace(old_sync_last_sync, new_sync_last_sync, 1)
-
-old_sync_route = """            if path == "/api/sync":
-                user = require_user(self, ("admin", "owner"))
-                if not user:
-                    return
-                json_response(self, filter_state_for_user(sync_icals(actor=user), user))
-                return
-"""
-new_sync_route = """            if path == "/api/sync":
-                user = require_user(self, ("admin", "owner"))
-                if not user:
-                    return
-                payload = json.loads(raw.decode("utf-8") or "{}") if raw else {}
-                json_response(self, filter_state_for_user(sync_icals(actor=user, property_id=payload.get("property_id")), user))
-                return
-"""
-if new_sync_route not in source_text:
-    if old_sync_route not in source_text:
-        raise RuntimeError("iCal sync route hook not found")
-    source_text = source_text.replace(old_sync_route, new_sync_route, 1)
-
-safe_sync_route = """            if path == "/api/sync":
-                user = require_user(self, ("admin", "owner"))
-                if not user:
-                    return
-                payload = json.loads(raw.decode("utf-8") or "{}") if raw else {}
-                try:
-                    synced = sync_icals(actor=user, property_id=payload.get("property_id"), incoming_channels=payload.get("channelListings"))
-                    json_response(self, {"ok": True, "state": pms_state_response_for_user(synced, user)})
-                except Exception as exc:
-                    message = str(exc) or exc.__class__.__name__
-                    debug_id = hashlib.sha1((message + str(time.time())).encode("utf-8")).hexdigest()[:10]
-                    if "iCal fetch" in message:
-                        public_error = "同步失败：平台 iCal 链接读取失败，请检查对应渠道 iCal 是否仍有效。"
-                    elif "Firestore" in message or "Firebase database" in message:
-                        public_error = "同步失败：数据库保存或读取失败，iCal 没有被完整写入，请稍后重试。"
-                    elif "property permission" in message:
-                        public_error = "同步失败：当前账号没有这个房源的权限。"
-                    else:
-                        public_error = "同步失败：系统没有完成本次 iCal 同步。"
-                    traceback.print_exc()
-                    json_response(self, {"ok": False, "error": public_error, "detail": message[:500], "debug_id": debug_id}, status=500)
-                return
-"""
-if safe_sync_route not in source_text:
-    if new_sync_route not in source_text:
-        raise RuntimeError("safe iCal sync route hook not found")
-    source_text = source_text.replace(new_sync_route, safe_sync_route, 1)
-
-old_visible_room_ids = """    room_ids = {room.get("id") for room in rooms}
-    cleaner_codes = {
-"""
-new_visible_room_ids = """    room_ids = {room.get("id") for room in rooms}
-    first_property = next(iter(property_ids), "")
-    common_areas = [area for area in state.get("commonAreas", []) if isinstance(area, dict) and (area.get("property_id") or first_property) in property_ids]
-    common_area_ids = {area.get("id") for area in common_areas}
-    cleaner_codes = {
-"""
-if new_visible_room_ids not in source_text:
-    if old_visible_room_ids not in source_text:
-        raise RuntimeError("visible common area scope hook not found")
-    source_text = source_text.replace(old_visible_room_ids, new_visible_room_ids, 1)
-
-old_visible_rooms = """    visible["rooms"] = rooms
-    visible["bookings"] = [booking for booking in state.get("bookings", []) if isinstance(booking, dict) and booking.get("room_id") in room_ids]
-"""
-new_visible_rooms = """    visible["rooms"] = rooms
-    visible["commonAreas"] = common_areas
-    visible["bookings"] = [booking for booking in state.get("bookings", []) if isinstance(booking, dict) and booking.get("room_id") in room_ids]
-"""
-if new_visible_rooms not in source_text:
-    if old_visible_rooms not in source_text:
-        raise RuntimeError("visible common area list hook not found")
-    source_text = source_text.replace(old_visible_rooms, new_visible_rooms, 1)
-
-old_common_note_filter = """        if isinstance(item, dict) and (item.get("target_type") == "common" or item.get("target_id") in room_ids)
-"""
-new_common_note_filter = """        if isinstance(item, dict)
-        and (
-            (item.get("target_type") == "common" and item.get("target_id") in common_area_ids)
-            or (item.get("target_type") != "common" and item.get("target_id") in room_ids)
-        )
-"""
-if old_common_note_filter in source_text:
-    source_text = source_text.replace(old_common_note_filter, new_common_note_filter, 2)
-
-old_common_defaults = """        area.setdefault("type", "common")
-        area.setdefault("cleaning_fee", 0)
-"""
-new_common_defaults = """        area.setdefault("type", "common")
-        area.setdefault("property_id", default_property)
-        area.setdefault("cleaning_fee", 0)
-"""
-if new_common_defaults not in source_text:
-    if old_common_defaults not in source_text:
-        raise RuntimeError("common area default property hook not found")
-    source_text = source_text.replace(old_common_defaults, new_common_defaults, 1)
-
-old_common_save = """        for key in ["commonAreas", "last_sync", "sync_errors"]:
-            if key in payload:
-                merged[key] = payload.get(key)
-"""
-new_common_save = """        if "commonAreas" in payload:
-            incoming_common_areas = []
-            for area in payload.get("commonAreas", []):
-                if not isinstance(area, dict):
-                    continue
-                property_id = str(area.get("property_id") or first_actor_property_id(actor, current))
-                if property_id not in property_ids:
-                    continue
-                fixed = dict(area)
-                fixed["property_id"] = property_id
-                fixed.setdefault("type", "common")
-                incoming_common_areas.append(fixed)
-            merged["commonAreas"] = merge_scoped_list(
-                current.get("commonAreas", []),
-                incoming_common_areas,
-                lambda item: (item.get("property_id") or first_actor_property_id(actor, current)) not in property_ids,
-            )
-        for key in ["last_sync", "sync_errors"]:
-            if key in payload:
-                merged[key] = payload.get(key)
-"""
-if new_common_save not in source_text:
-    if old_common_save not in source_text:
-        raise RuntimeError("common area save scope hook not found")
-    source_text = source_text.replace(old_common_save, new_common_save, 1)
-
-old_save_scope_ids = """        property_ids = actor_property_ids(actor, current)
-        room_ids = actor_room_ids(actor, current)
-"""
-new_save_scope_ids = """        property_ids = actor_property_ids(actor, current)
-        room_ids = actor_room_ids(actor, current)
-        common_area_ids = {
-            area.get("id")
-            for area in current.get("commonAreas", [])
-            if isinstance(area, dict)
-            and (area.get("property_id") or first_actor_property_id(actor, current)) in property_ids
-        }
-"""
-if new_save_scope_ids not in source_text:
-    if old_save_scope_ids not in source_text:
-        raise RuntimeError("save scoped common area ids hook not found")
-    source_text = source_text.replace(old_save_scope_ids, new_save_scope_ids, 1)
-
-old_manual_note_scope = """                lambda item: item.get("target_type") != "room" or item.get("target_id") not in room_ids,
-"""
-new_manual_note_scope = """                lambda item: (
-                    (item.get("target_type") == "common" and item.get("target_id") not in common_area_ids)
-                    or (item.get("target_type") != "common" and item.get("target_id") not in room_ids)
-                ),
-"""
-if old_manual_note_scope in source_text:
-    source_text = source_text.replace(old_manual_note_scope, new_manual_note_scope, 2)
-
-owner_register_backend = r'''
-def normalized_property_name(value):
-    return re.sub(r"\s+", "", str(value or "").strip()).lower()
+    state["last_sync"] = sync_time
+    state["sync_errors"] = errors
+    return save_state(state)
 
 
-def validate_property_names_unique(state):
-    seen = set()
-    for prop in normalize_state(state).get("properties", []):
-        if not isinstance(prop, dict):
-            continue
-        key = normalized_property_name(prop.get("name"))
-        if not key:
-            continue
-        scoped = (prop.get("group_id") or DEFAULT_GROUP_ID, key)
-        if scoped in seen:
-            raise RuntimeError("同一房东下房源名字不能重复")
-        seen.add(scoped)
+def ics_escape(text):
+    return str(text or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
 
 
-def username_key(value):
-    return str(value or "").strip().lower()
-
-
-def login_name_exists(state, username):
-    key = username_key(username)
-    if not key:
-        return False
-    return find_user_for_login(state, key) is not None
-
-
-def unique_state_id(state, prefix, field="id"):
-    existing = {str(item.get(field) or "") for key in STATE_KEYS for item in state.get(key, []) if isinstance(item, dict)}
-    for _ in range(100):
-        candidate = f"{prefix}_{secrets.token_hex(4)}"
-        if candidate not in existing:
-            return candidate
-    return f"{prefix}_{secrets.token_hex(8)}"
-
-
-def register_owner(payload):
-    if not isinstance(payload, dict):
-        raise RuntimeError("payload must be an object")
-    username = str(payload.get("username") or "").strip()
-    password = str(payload.get("password") or "").strip()
-    name = str(payload.get("name") or "").strip() or username
-    if not username:
-        raise RuntimeError("username is required")
-    if not password:
-        raise RuntimeError("password is required")
+def make_feed(room_id):
     state = normalize_state(load_state())
-    if login_name_exists(state, username):
-        raise RuntimeError("username already exists")
-    group_id = unique_state_id(state, "group")
-    owner_id = unique_state_id(state, "owner")
-    property_id = unique_state_id(state, "property")
-    state["groups"].append({"id": group_id, "name": f"{name}的房东组", "created_at": now_utc_iso()})
-    user = {
-        "id": owner_id,
-        "username": username,
-        "role": "owner",
-        "name": name,
-        "group_ids": [group_id],
-        "password_hash": password_hash(password),
-        "created_at": now_utc_iso(),
-    }
-    state["users"].append(user)
-    state["properties"].append({"id": property_id, "group_id": group_id, "name": "默认房源", "created_at": now_utc_iso()})
-    saved = save_state(state)
-    return saved, public_user(user)
-'''
-register_cleaner_marker = "\ndef register_cleaner(payload):\n"
-if "def register_owner(payload):" not in source_text:
-    if register_cleaner_marker not in source_text:
-        raise RuntimeError("owner register insertion hook not found")
-    source_text = source_text.replace(register_cleaner_marker, "\n" + owner_register_backend + register_cleaner_marker, 1)
+    room = next((item for item in state["rooms"] if item.get("id") == room_id), None)
+    if not room:
+        return None
+    now = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//PMS Firebase//CN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", f"X-WR-CALNAME:{ics_escape(room.get('name', 'Room'))} PMS Calendar"]
+    for index, booking in enumerate(state.get("bookings", [])):
+        if booking.get("room_id") != room_id or booking.get("platform") == "Airbnb" or not booking.get("checkin") or not booking.get("checkout"):
+            continue
+        uid = f"{room_id}-{booking.get('checkin')}-{booking.get('checkout')}-{index}@pms"
+        summary = f"{booking.get('platform', 'PMS')} booked"
+        lines.extend(["BEGIN:VEVENT", f"UID:{ics_escape(uid)}", f"DTSTAMP:{now}", f"DTSTART;VALUE=DATE:{str(booking.get('checkin')).replace('-', '')}", f"DTEND;VALUE=DATE:{str(booking.get('checkout')).replace('-', '')}", f"SUMMARY:{ics_escape(summary)}", "TRANSP:OPAQUE", "END:VEVENT"])
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(lines) + "\r\n"
 
-source_text = source_text.replace(
-    "        return save_state(merged)\n",
-    "        validate_property_names_unique(merged)\n        return save_state(merged)\n",
-    1,
-)
-source_text = source_text.replace(
-    "    return save_state(merged)\n\n\ndef generate_cleaner_code",
-    "    validate_property_names_unique(merged)\n    return save_state(merged)\n\n\ndef generate_cleaner_code",
-    1,
-)
 
-old_save_property_block = '''    if prop is None:
-        prop = {"id": property_id, "group_id": requested_group_id}
-        state["properties"].append(prop)
-    prop["id"] = property_id
-    prop["group_id"] = requested_group_id if actor and actor.get("role") != "admin" else str(payload.get("group_id") or prop.get("group_id") or state.get("current_group_id") or DEFAULT_GROUP_ID)
-    prop["name"] = str(payload.get("name") or prop.get("name") or "未命名房源").strip()
-'''
-new_save_property_block = '''    if prop is None:
-        prop = {"id": property_id, "group_id": requested_group_id}
-        state["properties"].append(prop)
-    proposed_group_id = requested_group_id if actor and actor.get("role") != "admin" else str(payload.get("group_id") or prop.get("group_id") or state.get("current_group_id") or DEFAULT_GROUP_ID)
-    proposed_name = str(payload.get("name") or prop.get("name") or "未命名房源").strip()
-    name_key = normalized_property_name(proposed_name)
-    if name_key and any(
-        item.get("id") != property_id
-        and item.get("group_id") == proposed_group_id
-        and normalized_property_name(item.get("name")) == name_key
-        for item in state["properties"]
-        if isinstance(item, dict)
-    ):
-        raise RuntimeError("同一房东下房源名字不能重复")
-    prop["id"] = property_id
-    prop["group_id"] = proposed_group_id
-    prop["name"] = proposed_name
-'''
-if new_save_property_block not in source_text:
-    if old_save_property_block not in source_text:
-        raise RuntimeError("property duplicate hook not found")
-    source_text = source_text.replace(old_save_property_block, new_save_property_block, 1)
-
-source_text = source_text.replace(
-    '''    <div class="links">
-      <a href="/cleaner-register">保洁注册</a>
-    </div>''',
-    '''    <div class="links">
+def login_page():
+    return """<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PMS 登录</title>
+<style>
+body{margin:0;background:#f5f7fb;color:#182230;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif}
+main{max-width:460px;margin:10vh auto;padding:0 16px}
+.card{background:#fff;border:1px solid #d9e1ec;border-radius:12px;padding:22px;box-shadow:0 8px 22px rgba(16,24,40,.06)}
+h1{font-size:24px;margin:0 0 8px}.small{color:#667085;font-size:14px;line-height:1.5}
+label{display:block;font-weight:800;margin:14px 0 6px}
+input{width:100%;box-sizing:border-box;border:1px solid #d9e1ec;border-radius:10px;padding:11px;font-size:15px}
+button{width:100%;margin-top:16px;border:0;border-radius:10px;background:#0f766e;color:#fff;font-weight:800;padding:12px 14px;cursor:pointer}
+.links{display:flex;justify-content:space-between;gap:12px;margin-top:14px}.links a{color:#0f766e;text-decoration:none;font-weight:700}
+.err{margin-top:12px;color:#b42318;font-weight:700;min-height:20px}
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>PMS 登录</h1>
+    <div class="small">管理员、房东、保洁都需要账号和密码登录后才能进入对应页面。</div>
+    <label>账号</label>
+    <input id="username" autocomplete="username" autofocus>
+    <label>密码</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <button id="loginBtn" onclick="login()">登录</button>
+    <div id="error" class="err"></div>
+    <div class="links">
       <a href="/owner-register">房东注册</a>
       <a href="/cleaner-register">保洁注册</a>
-    </div>''',
-    1,
-)
+    </div>
+  </div>
+</main>
+<script>
+async function login(){
+  const btn = document.getElementById('loginBtn');
+  const err = document.getElementById('error');
+  btn.disabled = true;
+  btn.textContent = '登录中...';
+  err.textContent = '';
+  try{
+    const res = await fetch('/api/login', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || data.ok === false){ throw new Error(data.error || '登录失败'); }
+    location.href = data.redirect || '/owner';
+  }catch(e){
+    err.textContent = e.message;
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '登录';
+  }
+}
+document.addEventListener('keydown', event => {
+  if(event.key === 'Enter') login();
+});
+</script>
+</body>
+</html>"""
 
-owner_register_page_source = r'''
+
+
 def owner_register_page():
     return """<!doctype html>
 <html lang="zh-CN">
@@ -893,36 +1504,226 @@ document.addEventListener('keydown', event => { if(event.key === 'Enter') regist
 </script>
 </body>
 </html>"""
-'''
-cleaner_page_marker = "\ndef cleaner_register_page():\n"
-if "def owner_register_page():" not in source_text:
-    if cleaner_page_marker not in source_text:
-        raise RuntimeError("owner register page hook not found")
-    source_text = source_text.replace(cleaner_page_marker, "\n" + owner_register_page_source + cleaner_page_marker, 1)
 
-source_text = source_text.replace(
-    '''            if path in ("/", "/login"):
-                text_response(self, login_page(), content_type="text/html; charset=utf-8")
+def cleaner_register_page():
+    return """<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>保洁注册</title>
+<style>
+body{margin:0;background:#f5f7fb;color:#182230;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif}
+main{max-width:520px;margin:8vh auto;padding:0 16px}
+.card{background:#fff;border:1px solid #d9e1ec;border-radius:12px;padding:20px;box-shadow:0 8px 22px rgba(16,24,40,.06)}
+h1{font-size:24px;margin:0 0 8px}.small{color:#667085;font-size:14px;line-height:1.5}
+label{display:block;font-weight:800;margin:14px 0 6px}
+input{width:100%;box-sizing:border-box;border:1px solid #d9e1ec;border-radius:10px;padding:11px;font-size:15px}
+button{margin-top:16px;border:0;border-radius:10px;background:#0f766e;color:#fff;font-weight:800;padding:12px 14px;cursor:pointer}
+.result{margin-top:16px;padding:12px;border-radius:10px;background:#f0fdfa;border:1px solid #99f6e4;word-break:break-all}
+.err{background:#fff1f2;border-color:#fb7185}
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>保洁注册</h1>
+    <div class="small">注册后系统会生成一个保洁编号。把这个编号发给房东，房东可以在对应房源里绑定你。</div>
+    <label>姓名</label>
+    <input id="name" autocomplete="name">
+    <label>电话/微信</label>
+    <input id="phone" autocomplete="tel">
+    <label>登录密码</label>
+    <input id="password" type="password" autocomplete="new-password">
+    <button id="submitBtn" onclick="registerCleaner()">注册并生成编号</button>
+    <div id="result"></div>
+  </div>
+</main>
+<script>
+async function registerCleaner(){
+  const btn = document.getElementById('submitBtn');
+  const result = document.getElementById('result');
+  btn.disabled = true;
+  btn.textContent = '注册中...';
+  result.innerHTML = '';
+  try{
+    const res = await fetch('/api/cleaners/register', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        name: document.getElementById('name').value,
+        phone: document.getElementById('phone').value,
+        password: document.getElementById('password').value
+      })
+    });
+    const data = await res.json();
+    if(!res.ok || data.ok === false){ throw new Error(data.error || '注册失败'); }
+    result.className = 'result';
+    result.innerHTML = '<strong>注册成功</strong><br>你的保洁编号：<strong>' + data.cleaner.cleaner_code + '</strong><br><span class="small">请保存这个编号，并发给需要绑定你的房东。</span>';
+  }catch(e){
+    result.className = 'result err';
+    result.textContent = e.message;
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '注册并生成编号';
+  }
+}
+</script>
+</body>
+</html>"""
+
+
+def render_index_html(raw):
+    text = raw.decode("utf-8")
+    text = _pms_inject_html_version_badge(text, "text/html; charset=utf-8")
+    return text.encode("utf-8")
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_HEAD(self):
+        if urllib.parse.urlparse(self.path).path in ('/', '/login', '/owner-register', '/cleaner-register', '/health', '/api/health'):
+            self.send_response(200)
+            self.end_headers()
+            return
+        self.send_response(404)
+        self.end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+    def do_GET(self):
+        try:
+            parsed, _ = parse_query(self.path)
+            path = parsed.path
+            if path == "/logout":
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.send_header("Set-Cookie", f"{SESSION_COOKIE}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax")
+                self.end_headers()
                 return
-            if path == "/cleaner-register":''',
-    '''            if path in ("/", "/login"):
+            if urllib.parse.parse_qs(parsed.query).get("key"):
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.send_header("Set-Cookie", f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
+                self.end_headers()
+                return
+            if path in ("/", "/login"):
                 text_response(self, login_page(), content_type="text/html; charset=utf-8")
                 return
             if path == "/owner-register":
                 text_response(self, owner_register_page(), content_type="text/html; charset=utf-8")
                 return
-            if path == "/cleaner-register":''',
-    1,
-)
-
-source_text = source_text.replace(
-    '''            if path == "/api/cleaners/register":
-                payload = json.loads(raw.decode("utf-8") or "{}")
-                _, cleaner = register_cleaner(payload)
-                json_response(self, {"ok": True, "cleaner": cleaner})
+            if path == "/cleaner-register":
+                text_response(self, cleaner_register_page(), content_type="text/html; charset=utf-8")
                 return
-            if path.startswith("/api/property/"):''',
-    '''            if path == "/api/cleaners/register":
+            if path == "/health":
+                text_response(self, "OK")
+                return
+            if path == "/api/version":
+                json_response(self, {"ok": True, "version": PMS_PATCH_VERSION})
+                return
+            if path == "/api/health":
+                json_response(self, {"ok": True, "firebase_project": firebase_project_id(), "driver": "firestore-rest"})
+                return
+            if path == "/owner":
+                user = current_user(self)
+                if not user or user.get("role") not in ("admin", "owner"):
+                    redirect(self, "/login")
+                    return
+                self.serve_static("index.html")
+                return
+            if path == "/cleaner":
+                user = current_user(self)
+                if not user or user.get("role") not in ("admin", "owner", "cleaner"):
+                    redirect(self, "/login")
+                    return
+                self.serve_static("index.html")
+                return
+            if path.startswith("/api/cleaning-photo/"):
+                user = require_user(self, ("admin", "owner", "cleaner"))
+                if not user:
+                    return
+                photo_id = path.rsplit("/", 1)[-1]
+                data, content_type = serve_cleaning_task_photo(photo_id, actor=user)
+                pms_photo_binary_response(self, data, content_type)
+                return
+            if path == "/api/state":
+                user = require_user(self, ("admin", "owner", "cleaner"))
+                if not user:
+                    return
+                json_response(self, pms_state_response_for_user(pms_load_state_for_ui(), user))
+                return
+            if path.startswith("/feed/") and path.endswith(".ics"):
+                room_id = urllib.parse.unquote(path[len("/feed/") : -len(".ics")])
+                feed = make_feed(room_id)
+                text_response(self, feed if feed is not None else "not found", status=200 if feed else 404, content_type="text/calendar; charset=utf-8" if feed else "text/plain; charset=utf-8")
+                return
+            if path.lstrip("/") == "index.html" and not current_user(self):
+                redirect(self, "/login")
+                return
+            if self.serve_static(path.lstrip("/")):
+                return
+            text_response(self, "not found", status=404)
+        except Exception:
+            json_response(self, {"ok": False, "error": traceback.format_exc()}, status=500)
+
+    def do_POST(self):
+        try:
+            parsed, _ = parse_query(self.path)
+            path = parsed.path
+            raw = self.rfile.read(int(self.headers.get("Content-Length", "0") or "0"))
+            if path == "/api/login":
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                username = str(payload.get("username") or "").strip()
+                password = str(payload.get("password") or "")
+                user = authenticate_user(username, password)
+                if not user:
+                    json_response(self, {"ok": False, "error": "账号或密码错误"}, status=401)
+                    return
+                token = make_session_token(user.get("id"))
+                redirect_path = "/cleaner" if user.get("role") == "cleaner" else "/owner"
+                json_response(
+                    self,
+                    {"ok": True, "user": public_user(user), "redirect": redirect_path},
+                    extra_headers={"Set-Cookie": f"{SESSION_COOKIE}={urllib.parse.quote(token)}; Path=/; Max-Age={SESSION_SECONDS}; HttpOnly; SameSite=Lax"},
+                )
+                return
+            if path == "/api/logout":
+                json_response(self, {"ok": True}, extra_headers={"Set-Cookie": f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"})
+                return
+            if path == "/api/profile":
+                user = require_user(self, ("admin", "owner", "cleaner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved, public_profile, updated_user = update_current_user_profile(payload, actor=user)
+                json_response(self, {"ok": True, "user": public_profile, "state": pms_state_response_for_user(saved, updated_user)})
+                return
+            if path == "/api/cleaning-photo":
+                user = require_user(self, ("admin", "owner", "cleaner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved, photo = upload_cleaning_task_photo(payload, actor=user)
+                json_response(self, {"ok": True, "photo": photo, "state": pms_state_response_for_user(saved, user)})
+                return
+            if path == "/api/state":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                save_state_from_payload_light(payload, actor=user)
+                try:
+                    _pms_ui_state_cache_clear()
+                except Exception:
+                    pass
+                json_response(self, {"ok": True, "saved_at": now_utc_iso()})
+                return
+            if path == "/api/cleaners/register":
                 payload = json.loads(raw.decode("utf-8") or "{}")
                 _, cleaner = register_cleaner(payload)
                 json_response(self, {"ok": True, "cleaner": cleaner})
@@ -937,23 +1738,176 @@ source_text = source_text.replace(
                     extra_headers={"Set-Cookie": f"{SESSION_COOKIE}={urllib.parse.quote(token)}; Path=/; Max-Age={SESSION_SECONDS}; HttpOnly; SameSite=Lax"},
                 )
                 return
-            if path.startswith("/api/property/"):''',
-    1,
-)
+            # _pms_mail_bridge_http_v1
+            if path == "/api/mail-events/bridge":
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                expected = _pms_gmail_setting("PMS_MAIL_BRIDGE_TOKEN")
+                provided = str(
+                    self.headers.get("X-PMS-Mail-Bridge-Token")
+                    or payload.get("token")
+                    or payload.get("bridge_token")
+                    or ""
+                ).strip()
+                if not expected or not provided or not secrets.compare_digest(str(expected), provided):
+                    json_response(self, {"ok": False, "error": "mail bridge unauthorized"}, status=403)
+                    return
+                payload.pop("token", None)
+                payload.pop("bridge_token", None)
+                bridge_actor = {"id": "mail_bridge", "role": "admin", "username": "mail_bridge", "group_ids": []}
+                saved, rows = parse_mail_events(payload, bridge_actor)
+                json_response(self, {"ok": True, "mailEvents": rows, "count": len(rows), "state": filter_state_for_user(saved, bridge_actor)})
+                return
+            # _pms_property_mail_http_v1
+            if path == "/api/storage-diagnostics":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                json_response(self, {"ok": True, "storage": pms_storage_diagnostics()})
+                return
+            if path == "/api/mail-config":
+                user = require_user(self, ("admin",))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved = save_mail_config_setting(payload, user)
+                json_response(self, {"ok": True, "state": filter_state_for_user(saved, user)})
+                return
+            if path == "/api/property-mail":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved, row = save_property_mail_setting(payload, user)
+                json_response(self, {"ok": True, "propertyMail": row, "state": filter_state_for_user(saved, user)})
+                return
+            if path == "/api/mail-events":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved, rows = save_mail_events(payload, user)
+                json_response(self, {"ok": True, "mailEvents": rows, "state": filter_state_for_user(saved, user)})
+                return
+            if path == "/api/mail-events/parse":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved, rows = parse_mail_events(payload, user)
+                json_response(self, {"ok": True, "mailEvents": rows, "state": filter_state_for_user(saved, user)})
+                return
+            if path == "/api/mail-diagnostics":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                diagnostics = inspect_mail_sync_diagnostics(payload, user)
+                json_response(self, {"ok": True, "diagnostics": diagnostics})
+                return
+            if path == "/api/mail-events/sync":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                try:
+                    saved, rows, details = sync_gmail_mail_events(payload, user)
+                    json_response(self, {"ok": True, "mailEvents": rows, "details": details, "state": filter_state_for_user(saved, user)})
+                except Exception as exc:
+                    message = str(exc) or exc.__class__.__name__
+                    if "GMAIL_CLIENT_ID" in message or "GMAIL_CLIENT_SECRET" in message or "GMAIL_REFRESH_TOKEN" in message or "OAuth 未配置" in message:
+                        public_error = "后台 Gmail OAuth 未配置：Render 需要 GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN"
+                    elif "没有可同步的房源邮箱设置" in message:
+                        public_error = "当前房源没有可同步邮箱：先保存 Airbnb 通知邮箱"
+                    elif "Gmail API" in message or "access_token" in message:
+                        public_error = "Gmail 授权失败：请检查 Render 里的 Gmail refresh token 是否有效"
+                    else:
+                        public_error = "Gmail 同步失败，请点“检查 Gmail”查看配置状态"
+                    traceback.print_exc()
+                    json_response(self, {"ok": False, "error": public_error, "detail": message[:500]}, status=500)
+                return
+            # _pms_ical_diagnostic_http_v1
+            if path == "/api/ical-diagnostics":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                json_response(self, {"ok": True, "diagnostics": inspect_ical_diagnostics(payload, user)})
+                return
+            if path.startswith("/api/property/"):
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                property_id = urllib.parse.unquote(path[len("/api/property/") :])
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                state, prop = save_property(property_id, payload, actor=user)
+                json_response(self, {"ok": True, "state": filter_state_for_user(state, user), "property": prop})
+                return
+            if path == "/api/property-cleaner":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                state = update_property_cleaner(payload, actor=user)
+                json_response(self, {"ok": True, "state": filter_state_for_user(state, user)})
+                return
+            if path.startswith("/api/room/"):
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                room_id = urllib.parse.unquote(path[len("/api/room/") :])
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                state, room = save_room(room_id, payload, actor=user)
+                json_response(self, {"ok": True, "state": filter_state_for_user(state, user), "room": room})
+                return
+            if path == "/api/sync":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}") if raw else {}
+                try:
+                    synced = sync_icals(actor=user, property_id=payload.get("property_id"), incoming_channels=payload.get("channelListings"))
+                    json_response(self, {"ok": True, "state": pms_state_response_for_user(synced, user)})
+                except Exception as exc:
+                    message = str(exc) or exc.__class__.__name__
+                    debug_id = hashlib.sha1((message + str(time.time())).encode("utf-8")).hexdigest()[:10]
+                    if "iCal fetch" in message:
+                        public_error = "同步失败：平台 iCal 链接读取失败，请检查对应渠道 iCal 是否仍有效。"
+                    elif "Firestore" in message or "Firebase database" in message:
+                        public_error = "同步失败：数据库保存或读取失败，iCal 没有被完整写入，请稍后重试。"
+                    elif "property permission" in message:
+                        public_error = "同步失败：当前账号没有这个房源的权限。"
+                    else:
+                        public_error = "同步失败：系统没有完成本次 iCal 同步。"
+                    traceback.print_exc()
+                    json_response(self, {"ok": False, "error": public_error, "detail": message[:500], "debug_id": debug_id}, status=500)
+                return
+            text_response(self, "not found", status=404)
+        except Exception:
+            json_response(self, {"ok": False, "error": traceback.format_exc()}, status=500)
 
-handler_marker = "class Handler(BaseHTTPRequestHandler):\n    def do_OPTIONS"
-if handler_marker in source_text:
-    source_text = source_text.replace(
-        handler_marker,
-        "class Handler(BaseHTTPRequestHandler):\n    def do_HEAD(self):\n        if urllib.parse.urlparse(self.path).path in ('/', '/login', '/owner-register', '/cleaner-register', '/health', '/api/health'):\n            self.send_response(200)\n            self.end_headers()\n            return\n        self.send_response(404)\n        self.end_headers()\n\n    def do_OPTIONS",
-        1,
-    )
+    def serve_static(self, relative_path):
+        relative_path = urllib.parse.unquote(relative_path or "index.html")
+        target = (STATIC / relative_path).resolve()
+        static_root = STATIC.resolve()
+        if target == static_root or static_root not in target.parents:
+            return False
+        if not target.exists() or not target.is_file():
+            return False
+        raw = target.read_bytes()
+        ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        if target.name == "index.html":
+            raw = render_index_html(raw)
+        self.send_response(200)
+        self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text/") else ""))
+        self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Last-Modified", formatdate(target.stat().st_mtime, usegmt=True))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(raw)
+        return True
 
-auto_sync_marker = '''if __name__ == "__main__":
-    print(f"PMS Firebase REST backend started on port {PORT}")
-    HTTPServer((HOST, PORT), Handler).serve_forever()
-'''
-channel_listing_backend = r'''
+
+
 _pms_channel_listing_model_v1 = True
 
 if "channelListings" not in STATE_KEYS:
@@ -2020,14 +2974,8 @@ def make_feed(feed_id):
     if target_listing:
         title += " - " + (target_listing.get("platform") or "channel")
     return "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//PMS System//Channel Feed//EN\r\nCALSCALE:GREGORIAN\r\n" + "\r\n".join(events) + "\r\nEND:VCALENDAR\r\n"
-'''
-if "_pms_channel_listing_model_v1" not in source_text:
-    if auto_sync_marker in source_text:
-        source_text = source_text.replace(auto_sync_marker, channel_listing_backend + "\n" + auto_sync_marker, 1)
-    else:
-        source_text += "\n" + channel_listing_backend + "\n"
 
-property_mail_backend = r'''
+
 _pms_property_mail_forwarding_v1 = True
 
 for _pms_mail_key in ("mailForwardingConfig", "propertyMailForwarding"):
@@ -2246,14 +3194,8 @@ def save_state_from_payload(payload, actor=None):
         current["propertyMailForwarding"] = list(by_property.values())
 
     return save_state(current)
-'''
-if "_pms_property_mail_forwarding_v1" not in source_text:
-    if auto_sync_marker in source_text:
-        source_text = source_text.replace(auto_sync_marker, property_mail_backend + "\n" + auto_sync_marker, 1)
-    else:
-        source_text += "\n" + property_mail_backend + "\n"
 
-mail_events_backend = r'''
+
 _pms_mail_events_v1 = True
 
 if "mailEvents" not in STATE_KEYS:
@@ -2391,14 +3333,8 @@ def save_state_from_payload(payload, actor=None):
     saved = _pms_mail_events_base_save_state_from_payload(working, actor) if working else normalize_state(load_state())
     final_state, _rows = save_mail_events(incoming_mail_events, actor)
     return final_state
-'''
-if "_pms_mail_events_v1" not in source_text:
-    if auto_sync_marker in source_text:
-        source_text = source_text.replace(auto_sync_marker, mail_events_backend + "\n" + auto_sync_marker, 1)
-    else:
-        source_text += "\n" + mail_events_backend + "\n"
 
-mail_raw_parser_backend = r'''
+
 _pms_mail_raw_parser_v1 = True
 
 
@@ -2678,14 +3614,8 @@ def parse_mail_events(payload, actor=None):
     parsed = [_pms_mail_event_from_raw(raw, property_id, state) for raw in rows if isinstance(raw, dict)]
     saved, clean_rows = save_mail_events({"mailEvents": parsed}, actor)
     return saved, clean_rows
-'''
-if "_pms_mail_raw_parser_v1" not in source_text:
-    if auto_sync_marker in source_text:
-        source_text = source_text.replace(auto_sync_marker, mail_raw_parser_backend + "\n" + auto_sync_marker, 1)
-    else:
-        source_text += "\n" + mail_raw_parser_backend + "\n"
 
-gmail_sync_backend = r'''
+
 _pms_gmail_sync_v1 = True
 GMAIL_TOKEN_CACHE = {"token": "", "expiry": 0}
 
@@ -2921,14 +3851,8 @@ def sync_gmail_mail_events(payload, actor=None):
         details.append({"property_id": pid, "source_email": source_email, "target_addresses": target_addresses, "query": query, "emails": len(raw_rows), "events": len(parsed)})
     saved, rows = save_mail_events({"mailEvents": all_events}, actor)
     return saved, rows, details
-'''
-if "_pms_gmail_sync_v1" not in source_text:
-    if auto_sync_marker in source_text:
-        source_text = source_text.replace(auto_sync_marker, gmail_sync_backend + "\n" + auto_sync_marker, 1)
-    else:
-        source_text += "\n" + gmail_sync_backend + "\n"
 
-mail_diagnostics_backend = r'''
+
 _pms_gmail_diagnostics_v1 = True
 
 
@@ -2996,40 +3920,8 @@ def inspect_mail_sync_diagnostics(payload, actor=None):
         diagnostics["gmail_token_ok"] = True
         diagnostics["gmail_bridge_mode"] = True
     return diagnostics
-'''
-if "_pms_gmail_diagnostics_v1" not in source_text:
-    if auto_sync_marker in source_text:
-        source_text = source_text.replace(auto_sync_marker, mail_diagnostics_backend + "\n" + auto_sync_marker, 1)
-    else:
-        source_text += "\n" + mail_diagnostics_backend + "\n"
 
-if "_pms_mail_bridge_http_v1" not in source_text:
-    mail_bridge_route_hook = '''            if path.startswith("/api/property/"):'''
-    mail_bridge_routes = '''            # _pms_mail_bridge_http_v1
-            if path == "/api/mail-events/bridge":
-                payload = json.loads(raw.decode("utf-8") or "{}")
-                expected = _pms_gmail_setting("PMS_MAIL_BRIDGE_TOKEN")
-                provided = str(
-                    self.headers.get("X-PMS-Mail-Bridge-Token")
-                    or payload.get("token")
-                    or payload.get("bridge_token")
-                    or ""
-                ).strip()
-                if not expected or not provided or not secrets.compare_digest(str(expected), provided):
-                    json_response(self, {"ok": False, "error": "mail bridge unauthorized"}, status=403)
-                    return
-                payload.pop("token", None)
-                payload.pop("bridge_token", None)
-                bridge_actor = {"id": "mail_bridge", "role": "admin", "username": "mail_bridge", "group_ids": []}
-                saved, rows = parse_mail_events(payload, bridge_actor)
-                json_response(self, {"ok": True, "mailEvents": rows, "count": len(rows), "state": filter_state_for_user(saved, bridge_actor)})
-                return
-'''
-    if mail_bridge_route_hook not in source_text:
-        raise RuntimeError("mail bridge route hook not found")
-    source_text = source_text.replace(mail_bridge_route_hook, mail_bridge_routes + mail_bridge_route_hook, 1)
 
-cleaning_confirm_backend = r'''
 _pms_cleaning_confirm_v1 = True
 
 if "cleaningTaskConfirmations" not in STATE_KEYS:
@@ -3187,14 +4079,8 @@ def save_state_from_payload(payload, actor=None):
         by_key[key] = clean
     current["cleaningTaskConfirmations"] = list(by_key.values())[-2000:]
     return save_state(current)
-'''
-if "_pms_cleaning_confirm_v1" not in source_text:
-    if auto_sync_marker in source_text:
-        source_text = source_text.replace(auto_sync_marker, cleaning_confirm_backend + "\n" + auto_sync_marker, 1)
-    else:
-        source_text += "\n" + cleaning_confirm_backend + "\n"
 
-cleaning_photo_backend = r'''
+
 _pms_cleaning_photo_v1 = True
 
 import uuid as _pms_photo_uuid
@@ -3543,14 +4429,8 @@ def serve_cleaning_task_photo(photo_id, actor=None):
     if _pms_photo_text(row.get("storage_backend"), 40) == "firestore" or row.get("photo_doc"):
         return _pms_photo_read_firestore(row.get("photo_doc") or row.get("id"))
     raise RuntimeError("direct storage photo")
-'''
-if "_pms_cleaning_photo_v1" not in source_text:
-    if auto_sync_marker in source_text:
-        source_text = source_text.replace(auto_sync_marker, cleaning_photo_backend + "\n" + auto_sync_marker, 1)
-    else:
-        source_text += "\n" + cleaning_photo_backend + "\n"
 
-ical_event_archive_backend = r'''
+
 _pms_ical_event_archive_v1 = True
 
 if "icalEventArchive" not in STATE_KEYS:
@@ -3815,14 +4695,8 @@ def inspect_ical_diagnostics(payload, actor=None):
         and (not channel_id or item.get("channel_listing_id") == channel_id)
     ][:120]
     return data
-'''
-if "_pms_ical_event_archive_v1" not in source_text:
-    if auto_sync_marker in source_text:
-        source_text = source_text.replace(auto_sync_marker, ical_event_archive_backend + "\n" + auto_sync_marker, 1)
-    else:
-        source_text += "\n" + ical_event_archive_backend + "\n"
 
-external_event_storage_backend = r'''
+
 _pms_external_event_storage_v1 = True
 
 _PMS_EXTERNAL_STATE_KEYS = ("icalEventArchive", "mailEvents", "icalSyncHistory")
@@ -4190,174 +5064,8 @@ def pms_load_state_for_ui():
             return _pms_ui_state_cache_store(state)
         time.sleep(delay)
     return _pms_ui_state_cache_store(normalize_state(last_state or load_state()))
-'''
-if "_pms_external_event_storage_v1" not in source_text:
-    if auto_sync_marker in source_text:
-        source_text = source_text.replace(auto_sync_marker, external_event_storage_backend + "\n" + auto_sync_marker, 1)
-    else:
-        source_text += "\n" + external_event_storage_backend + "\n"
 
-if "_pms_property_mail_http_v1" not in source_text:
-    property_mail_route_hook = '''            if path.startswith("/api/property/"):'''
-    property_mail_routes = '''            # _pms_property_mail_http_v1
-            if path == "/api/storage-diagnostics":
-                user = require_user(self, ("admin", "owner"))
-                if not user:
-                    return
-                json_response(self, {"ok": True, "storage": pms_storage_diagnostics()})
-                return
-            if path == "/api/mail-config":
-                user = require_user(self, ("admin",))
-                if not user:
-                    return
-                payload = json.loads(raw.decode("utf-8") or "{}")
-                saved = save_mail_config_setting(payload, user)
-                json_response(self, {"ok": True, "state": filter_state_for_user(saved, user)})
-                return
-            if path == "/api/property-mail":
-                user = require_user(self, ("admin", "owner"))
-                if not user:
-                    return
-                payload = json.loads(raw.decode("utf-8") or "{}")
-                saved, row = save_property_mail_setting(payload, user)
-                json_response(self, {"ok": True, "propertyMail": row, "state": filter_state_for_user(saved, user)})
-                return
-            if path == "/api/mail-events":
-                user = require_user(self, ("admin", "owner"))
-                if not user:
-                    return
-                payload = json.loads(raw.decode("utf-8") or "{}")
-                saved, rows = save_mail_events(payload, user)
-                json_response(self, {"ok": True, "mailEvents": rows, "state": filter_state_for_user(saved, user)})
-                return
-            if path == "/api/mail-events/parse":
-                user = require_user(self, ("admin", "owner"))
-                if not user:
-                    return
-                payload = json.loads(raw.decode("utf-8") or "{}")
-                saved, rows = parse_mail_events(payload, user)
-                json_response(self, {"ok": True, "mailEvents": rows, "state": filter_state_for_user(saved, user)})
-                return
-            if path == "/api/mail-diagnostics":
-                user = require_user(self, ("admin", "owner"))
-                if not user:
-                    return
-                payload = json.loads(raw.decode("utf-8") or "{}")
-                diagnostics = inspect_mail_sync_diagnostics(payload, user)
-                json_response(self, {"ok": True, "diagnostics": diagnostics})
-                return
-            if path == "/api/mail-events/sync":
-                user = require_user(self, ("admin", "owner"))
-                if not user:
-                    return
-                payload = json.loads(raw.decode("utf-8") or "{}")
-                try:
-                    saved, rows, details = sync_gmail_mail_events(payload, user)
-                    json_response(self, {"ok": True, "mailEvents": rows, "details": details, "state": filter_state_for_user(saved, user)})
-                except Exception as exc:
-                    message = str(exc) or exc.__class__.__name__
-                    if "GMAIL_CLIENT_ID" in message or "GMAIL_CLIENT_SECRET" in message or "GMAIL_REFRESH_TOKEN" in message or "OAuth 未配置" in message:
-                        public_error = "后台 Gmail OAuth 未配置：Render 需要 GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN"
-                    elif "没有可同步的房源邮箱设置" in message:
-                        public_error = "当前房源没有可同步邮箱：先保存 Airbnb 通知邮箱"
-                    elif "Gmail API" in message or "access_token" in message:
-                        public_error = "Gmail 授权失败：请检查 Render 里的 Gmail refresh token 是否有效"
-                    else:
-                        public_error = "Gmail 同步失败，请点“检查 Gmail”查看配置状态"
-                    traceback.print_exc()
-                    json_response(self, {"ok": False, "error": public_error, "detail": message[:500]}, status=500)
-                return
-'''
-    if property_mail_route_hook not in source_text:
-        raise RuntimeError("property mail route hook not found")
-    source_text = source_text.replace(property_mail_route_hook, property_mail_routes + property_mail_route_hook, 1)
-
-if "_pms_ical_diagnostic_http_v1" not in source_text:
-    ical_diagnostic_route_hook = '''            if path.startswith("/api/property/"):'''
-    ical_diagnostic_routes = '''            # _pms_ical_diagnostic_http_v1
-            if path == "/api/ical-diagnostics":
-                user = require_user(self, ("admin", "owner"))
-                if not user:
-                    return
-                payload = json.loads(raw.decode("utf-8") or "{}")
-                json_response(self, {"ok": True, "diagnostics": inspect_ical_diagnostics(payload, user)})
-                return
-'''
-    if ical_diagnostic_route_hook not in source_text:
-        raise RuntimeError("iCal diagnostic route hook not found")
-    source_text = source_text.replace(ical_diagnostic_route_hook, ical_diagnostic_routes + ical_diagnostic_route_hook, 1)
-
-state_get_route_old = '''            if path == "/api/state":
-                user = require_user(self, ("admin", "owner", "cleaner"))
-                if not user:
-                    return
-                json_response(self, filter_state_for_user(load_state(), user))
-                return
-'''
-state_get_route_new = '''            if path.startswith("/api/cleaning-photo/"):
-                user = require_user(self, ("admin", "owner", "cleaner"))
-                if not user:
-                    return
-                photo_id = path.rsplit("/", 1)[-1]
-                data, content_type = serve_cleaning_task_photo(photo_id, actor=user)
-                pms_photo_binary_response(self, data, content_type)
-                return
-            if path == "/api/state":
-                user = require_user(self, ("admin", "owner", "cleaner"))
-                if not user:
-                    return
-                json_response(self, pms_state_response_for_user(pms_load_state_for_ui(), user))
-                return
-'''
-if state_get_route_new not in source_text:
-    if state_get_route_old not in source_text:
-        raise RuntimeError("GET /api/state route hook not found")
-    source_text = source_text.replace(state_get_route_old, state_get_route_new, 1)
-
-state_post_route_old = '''            if path == "/api/state":
-                user = require_user(self, ("admin", "owner"))
-                if not user:
-                    return
-                payload = json.loads(raw.decode("utf-8") or "{}")
-                saved = save_state_from_payload(payload, actor=user)
-                json_response(self, {"ok": True, "state": filter_state_for_user(saved, user)})
-                return
-'''
-state_post_route_new = '''            if path == "/api/profile":
-                user = require_user(self, ("admin", "owner", "cleaner"))
-                if not user:
-                    return
-                payload = json.loads(raw.decode("utf-8") or "{}")
-                saved, public_profile, updated_user = update_current_user_profile(payload, actor=user)
-                json_response(self, {"ok": True, "user": public_profile, "state": pms_state_response_for_user(saved, updated_user)})
-                return
-            if path == "/api/cleaning-photo":
-                user = require_user(self, ("admin", "owner", "cleaner"))
-                if not user:
-                    return
-                payload = json.loads(raw.decode("utf-8") or "{}")
-                saved, photo = upload_cleaning_task_photo(payload, actor=user)
-                json_response(self, {"ok": True, "photo": photo, "state": pms_state_response_for_user(saved, user)})
-                return
-            if path == "/api/state":
-                user = require_user(self, ("admin", "owner"))
-                if not user:
-                    return
-                payload = json.loads(raw.decode("utf-8") or "{}")
-                save_state_from_payload_light(payload, actor=user)
-                try:
-                    _pms_ui_state_cache_clear()
-                except Exception:
-                    pass
-                json_response(self, {"ok": True, "saved_at": now_utc_iso()})
-                return
-'''
-if state_post_route_new not in source_text:
-    if state_post_route_old not in source_text:
-        raise RuntimeError("POST /api/state route hook not found")
-    source_text = source_text.replace(state_post_route_old, state_post_route_new, 1)
-
-auto_sync_block = '''_pms_ical_sync_lock = threading.Lock()
+_pms_ical_sync_lock = threading.Lock()
 
 def _pms_run_scheduled_ical_sync():
     if not _pms_ical_sync_lock.acquire(blocking=False):
@@ -4420,226 +5128,4 @@ if __name__ == "__main__":
     _pms_start_ical_auto_sync()
     _pms_start_mail_auto_sync()
     print(f"PMS Firebase REST backend started on port {PORT}")
-    HTTPServer((HOST, PORT), Handler).serve_forever()
-'''
-if "_pms_start_ical_auto_sync" not in source_text:
-    if auto_sync_marker not in source_text:
-        raise RuntimeError("auto iCal sync startup hook not found")
-    source_text = source_text.replace(auto_sync_marker, auto_sync_block, 1)
-
-
-# _pms_light_auth_state_v1
-light_auth_helper = r'''
-def load_main_state():
-    base_loader = globals().get("_pms_external_base_load_state")
-    if callable(base_loader):
-        return normalize_state(base_loader())
-    return normalize_state(load_state())
-
-
-def save_state_from_payload_light(payload, actor=None):
-    original_load_state = globals().get("load_state")
-    original_save_state = globals().get("save_state")
-    external_keys = tuple(globals().get("_PMS_EXTERNAL_STATE_KEYS", ()))
-    base_load_state = globals().get("_pms_external_base_load_state")
-    base_save_state = globals().get("_pms_external_base_save_state") or original_save_state
-
-    def light_load_state():
-        if callable(base_load_state):
-            return normalize_state(base_load_state())
-        if callable(original_load_state):
-            return normalize_state(original_load_state())
-        return normalize_state(default_state())
-
-    def light_save_state(state):
-        compact_state = dict(normalize_state(state))
-        for key in external_keys:
-            compact_state.pop(key, None)
-        if callable(base_save_state):
-            saved = base_save_state(compact_state)
-        else:
-            saved = compact_state
-        return normalize_state(saved)
-
-    globals()["load_state"] = light_load_state
-    globals()["save_state"] = light_save_state
-    try:
-        return save_state_from_payload(payload, actor=actor)
-    finally:
-        if callable(original_load_state):
-            globals()["load_state"] = original_load_state
-        if callable(original_save_state):
-            globals()["save_state"] = original_save_state
-
-
-def pms_public_profile(user):
-    public = {}
-    if not isinstance(user, dict):
-        return public
-    for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids", "default_room_ids", "defaultRoomIds"):
-        value = user.get(key)
-        if value not in (None, ""):
-            public[key] = value
-    return public
-
-
-def update_current_user_profile(payload, actor=None):
-    if not isinstance(payload, dict):
-        raise RuntimeError("payload must be an object")
-    if not actor:
-        raise RuntimeError("login required")
-    display_name = str(payload.get("name") or payload.get("display_name") or payload.get("displayName") or "").strip()
-    if not display_name:
-        raise RuntimeError("display name is required")
-    if len(display_name) > 80:
-        raise RuntimeError("display name is too long")
-
-    state = normalize_state(load_main_state())
-    users = state.setdefault("users", [])
-    actor_id = str(actor.get("id") or "")
-    actor_username = str(actor.get("username") or "").strip().lower()
-    target = None
-    for row in users:
-        if isinstance(row, dict) and actor_id and str(row.get("id") or "") == actor_id:
-            target = row
-            break
-    if target is None and actor_username:
-        for row in users:
-            if isinstance(row, dict) and str(row.get("username") or "").strip().lower() == actor_username:
-                target = row
-                break
-    if target is None:
-        raise RuntimeError("user not found")
-
-    target["name"] = display_name
-    if "default_room_ids" in payload or "defaultRoomIds" in payload:
-        raw_defaults = payload.get("default_room_ids", payload.get("defaultRoomIds"))
-        if raw_defaults is None:
-            raw_defaults = []
-        if not isinstance(raw_defaults, list):
-            raise RuntimeError("default room ids must be a list")
-        if actor.get("role") == "admin":
-            allowed_room_ids = {
-                str(room.get("id") or "")
-                for room in state.get("rooms", [])
-                if isinstance(room, dict) and room.get("id")
-            }
-        else:
-            allowed_room_ids = {str(item or "") for item in actor_room_ids(actor, state)}
-        clean_defaults = []
-        for item in raw_defaults:
-            room_id = str(item or "").strip()
-            if room_id and room_id in allowed_room_ids and room_id not in clean_defaults:
-                clean_defaults.append(room_id)
-        if not clean_defaults:
-            raise RuntimeError("default room selection is empty")
-        target["default_room_ids"] = clean_defaults
-        target["defaultRoomIds"] = clean_defaults
-    target["updated_at"] = now_utc_iso()
-    base_save_state = globals().get("_pms_external_base_save_state")
-    if callable(base_save_state):
-        saved = base_save_state(state)
-    else:
-        saved = save_state(state)
-    public_profile = pms_public_profile(target)
-    updated_actor = dict(actor)
-    updated_actor.update(public_profile)
-    return normalize_state(saved), public_profile, updated_actor
-'''
-light_auth_anchor = "\ndef authenticate_user(username, password):\n"
-if "def load_main_state():" not in source_text:
-    if light_auth_anchor not in source_text:
-        raise RuntimeError("light auth helper hook not found")
-    source_text = source_text.replace(light_auth_anchor, "\n" + light_auth_helper + light_auth_anchor, 1)
-
-light_auth_replacements = [
-    (
-        '''def authenticate_user(username, password):
-    state = normalize_state(load_state())
-    user = find_user_for_login(state, username)''',
-        '''def authenticate_user(username, password):
-    state = normalize_state(load_main_state())
-    user = find_user_for_login(state, username)''',
-        "authenticate user light state hook",
-    ),
-    (
-        '''    return find_user_by_id(normalize_state(load_state()), user_id)''',
-        '''    return find_user_by_id(normalize_state(load_main_state()), user_id)''',
-        "current user light state hook",
-    ),
-    (
-        '''    state = normalize_state(load_state())
-    if login_name_exists(state, username):''',
-        '''    state = normalize_state(load_main_state())
-    if login_name_exists(state, username):''',
-        "owner register light state hook",
-    ),
-    (
-        '''    state = normalize_state(load_state())
-    cleaner_code = normalize_cleaner_code(payload.get("cleaner_code")) or generate_cleaner_code(state)''',
-        '''    state = normalize_state(load_main_state())
-    cleaner_code = normalize_cleaner_code(payload.get("cleaner_code")) or generate_cleaner_code(state)''',
-        "cleaner register light state hook",
-    ),
-    (
-        '''    state = normalize_state(load_state())
-    if not any(prop.get("id") == property_id for prop in state["properties"]):''',
-        '''    state = normalize_state(load_main_state())
-    if not any(prop.get("id") == property_id for prop in state["properties"]):''',
-        "property cleaner light state hook",
-    ),
-]
-for old, new, label in light_auth_replacements:
-    if new not in source_text:
-        if old not in source_text:
-            raise RuntimeError(label + " not found")
-        source_text = source_text.replace(old, new, 1)
-
-
-# _pms_cleaner_login_name_v1
-cleaner_login_candidates_old = '''        candidates = [
-            str(user.get("username") or ""),
-            str(user.get("cleaner_code") or ""),
-            str(user.get("phone") or ""),
-        ]'''
-cleaner_login_candidates_new = '''        candidates = [
-            str(user.get("username") or ""),
-            str(user.get("name") or ""),
-            str(user.get("cleaner_code") or ""),
-            str(user.get("phone") or ""),
-        ]'''
-if cleaner_login_candidates_new not in source_text:
-    if cleaner_login_candidates_old not in source_text:
-        raise RuntimeError("cleaner login candidates hook not found")
-    source_text = source_text.replace(cleaner_login_candidates_old, cleaner_login_candidates_new, 1)
-
-cleaner_register_user_old = '''    user = {
-        "id": f"cleaner_{cleaner_code.lower().replace('-', '_')}",
-        "role": "cleaner",
-        "name": name,
-        "phone": phone,
-        "cleaner_code": cleaner_code,
-        "password_hash": password_hash(password),
-        "created_at": now_utc_iso(),
-    }'''
-cleaner_register_user_new = '''    user = {
-        "id": f"cleaner_{cleaner_code.lower().replace('-', '_')}",
-        "role": "cleaner",
-        "username": name,
-        "name": name,
-        "phone": phone,
-        "cleaner_code": cleaner_code,
-        "password_hash": password_hash(password),
-        "created_at": now_utc_iso(),
-    }'''
-if cleaner_register_user_new not in source_text:
-    if cleaner_register_user_old not in source_text:
-        raise RuntimeError("cleaner register username hook not found")
-    source_text = source_text.replace(cleaner_register_user_old, cleaner_register_user_new, 1)
-
-source_text = source_text.replace(
-    "HTTPServer((HOST, PORT), Handler).serve_forever()",
-    "ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()",
-)
-
-exec(compile(source_text, __file__, "exec"))
+    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
