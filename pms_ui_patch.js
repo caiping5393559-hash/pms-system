@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-03-v47-property-timezone-v1';
+  const VERSION = '2026-07-03-v48-work-date-today-fix';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -143,6 +143,12 @@
   function parseDate(value){
     const parts = String(value || '').slice(0,10).split('-').map(Number);
     return new Date(parts[0] || 1970, (parts[1] || 1) - 1, parts[2] || 1);
+  }
+  function normalizeDateInputValue(value){
+    const text = String(value || '').trim().replace(/\//g, '-');
+    const match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if(!match) return '';
+    return `${match[1]}-${String(match[2]).padStart(2,'0')}-${String(match[3]).padStart(2,'0')}`;
   }
   function fmtDate(date){
     const y = date.getFullYear();
@@ -704,7 +710,7 @@
       div.innerHTML = html;
       owner.appendChild(div);
     };
-    pane('ownerDailyWork', `<div class="card"><h2>指定日期工作表</h2><div class="toolbar"><span class="small">日期：</span><input id="workDate" type="date" onchange="renderDailyWork()"><button class="smallbtn primary" onclick="document.getElementById('workDate').value=TODAY;renderDailyWork()">今天</button><button class="smallbtn" onclick="document.getElementById('workDate').value=addDays(document.getElementById('workDate').value||TODAY,1);renderDailyWork()">下一天</button><button class="smallbtn" onclick="document.getElementById('workDate').value=addDays(document.getElementById('workDate').value||TODAY,-1);renderDailyWork()">上一天</button></div><div id="dailyWorkMetrics" class="grid"></div></div><div id="dailyWorkContent"></div>`);
+    pane('ownerDailyWork', `<div class="card"><h2>指定日期工作表</h2><div class="toolbar"><span class="small">日期：</span><input id="workDate" type="date" onchange="setWorkDate(this.value)"><button class="smallbtn primary" onclick="setWorkDateToday()">今天</button><button class="smallbtn" onclick="shiftWorkDate(1)">下一天</button><button class="smallbtn" onclick="shiftWorkDate(-1)">上一天</button></div><div id="dailyWorkMetrics" class="grid"></div></div><div id="dailyWorkContent"></div>`);
     pane('ownerCalendar', `<div class="card"><h2>未来房态总览</h2><div class="toolbar"><span class="small">默认未来 14 天，可切换 28 天，也可指定日期范围：</span><button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">未来14天</button><button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">未来28天</button><input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()"><input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()"><span id="ownerRoomFilterSummary" class="badge blue"></span><button id="calendarVacancyOnlyBtn" class="smallbtn" onclick="toggleCalendarVacancyOnly()">只看空房</button><span id="calendarVacancySummary" class="badge green"></span></div><div class="scroll"><div id="calendarGrid" class="timeline"></div></div></div><div class="card"><h2 id="futureStatsTitle">当前区间每个房间预订统计</h2><div id="sixMonthStats"></div></div><div class="card"><div class="toolbar"><strong id="futureBookingsTitle">当前区间预订列表</strong><select id="platformFilter" onchange="renderOwnerBookings()"><option value="">全部平台</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>Other</option><option>微信直订</option></select><span id="bookingRoomFilterSummary" class="badge blue"></span></div><div id="ownerBookings"></div></div>`);
     pane('ownerCleaning', `<div id="ownerCleaningShell"></div>`);
     pane('ownerRooms', `<div id="roomSettingsUnifiedShell" class="room-settings-shell"><div id="roomSettings"></div></div>`);
@@ -1509,10 +1515,26 @@
         !locks.some(b => roomEntityId(b.room_id) === entity && b.checkin <= date && b.checkout > date);
     });
   }
+  function currentWorkDate(){
+    const wd = qs('workDate');
+    return normalizeDateInputValue(wd && wd.value) || today();
+  }
+  function setWorkDateImpl(value){
+    const wd = qs('workDate');
+    const next = normalizeDateInputValue(value) || today();
+    if(wd) wd.value = next;
+    renderDailyWorkImpl();
+  }
+  function setWorkDateTodayImpl(){
+    setWorkDateImpl(today());
+  }
+  function shiftWorkDateImpl(days){
+    setWorkDateImpl(addDay(currentWorkDate(), Number(days || 0)));
+  }
   function renderDailyWorkImpl(){
     const wd = qs('workDate');
-    if(wd && !wd.value) wd.value = today();
-    const d = (wd && wd.value) || today();
+    if(wd) wd.value = normalizeDateInputValue(wd.value) || today();
+    const d = currentWorkDate();
     const real = ownerRealBookings();
     const locks = ownerLockBookings().filter(b => b.checkin <= d && b.checkout > d).sort((a,b) => roomName(a.room_id).localeCompare(roomName(b.room_id),'zh-Hans-CN'));
     const checkouts = real.filter(b => b.checkout === d).sort((a,b) => roomName(a.room_id).localeCompare(roomName(b.room_id),'zh-Hans-CN'));
@@ -2567,6 +2589,9 @@
     renderOwnerTab: renderOwnerTabImpl,
     showCleaningSubTab: showCleaningSubTabImpl,
     setCleaningWorkDate: setCleaningWorkDateImpl,
+    setWorkDate: setWorkDateImpl,
+    setWorkDateToday: setWorkDateTodayImpl,
+    shiftWorkDate: shiftWorkDateImpl,
     renderOwnerMetrics: renderOwnerMetricsImpl,
     renderDailyWork: renderDailyWorkImpl,
     renderOwnerCalendar: renderOwnerCalendarImpl,
@@ -2664,6 +2689,9 @@
     ['showOwnerTab', showOwnerTabImpl],
     ['showCleaningSubTab', showCleaningSubTabImpl],
     ['setCleaningWorkDate', setCleaningWorkDateImpl],
+    ['setWorkDate', setWorkDateImpl],
+    ['setWorkDateToday', setWorkDateTodayImpl],
+    ['shiftWorkDate', shiftWorkDateImpl],
     ['applyRoleMode', applyRoleModeImpl],
     ['initApp', initAppImpl],
     ['refreshAll', refreshPropertyHub],
