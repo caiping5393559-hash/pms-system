@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_PATCH_VERSION = "2026-07-04-v49-multi-cleaning-photo-upload"
+PMS_PATCH_VERSION = "2026-07-04-v50-backend-entrypoint-consolidation"
 BASE = Path(__file__).resolve().parent
 STATIC = BASE / "static"
 STATE_PATH = BASE / "state.json"
@@ -74,7 +74,7 @@ ROOM_FIELDS = [
 ]
 
 
-def default_state():
+def _pms_core_default_state():
     return {
         "groups": [{"id": DEFAULT_GROUP_ID, "name": "默认房东组"}],
         "users": [
@@ -209,7 +209,7 @@ def user_group_ids(user):
     return {str(item) for item in (user or {}).get("group_ids", []) if item}
 
 
-def filter_state_for_user(state, user):
+def _pms_core_filter_state_for_user(state, user):
     state = plain(normalize_state(state))
     role = (user or {}).get("role")
     if role == "admin":
@@ -292,8 +292,8 @@ def filter_state_for_user(state, user):
     return visible
 
 
-def normalize_state(raw):
-    state = default_state()
+def _pms_core_normalize_state(raw):
+    state = _pms_core_default_state()
     if isinstance(raw, dict):
         if "property_cleaners" in raw and "propertyCleaners" not in raw:
             raw["propertyCleaners"] = raw.get("property_cleaners")
@@ -477,7 +477,7 @@ def write_local_state(state):
     STATE_PATH.write_text(json.dumps(normalize_state(state), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def load_state():
+def _pms_core_load_state():
     if not firebase_credentials_configured():
         if STATE_PATH.is_file():
             return normalize_state(json.loads(STATE_PATH.read_text(encoding="utf-8")))
@@ -496,7 +496,7 @@ def load_state():
     return normalize_state(raw) if any(key in raw for key in STATE_KEYS) else load_seed_state()
 
 
-def save_state(state):
+def _pms_core_save_state(state):
     state = normalize_state(state)
     if not firebase_credentials_configured():
         write_local_state(state)
@@ -524,7 +524,7 @@ def merge_scoped_list(current_items, incoming_items, keep_current):
     return [item for item in current_items if isinstance(item, dict) and keep_current(item)] + incoming_items
 
 
-def save_state_from_payload(payload, actor=None):
+def _pms_core_save_state_from_payload(payload, actor=None):
     if not isinstance(payload, dict):
         raise RuntimeError("state payload must be an object")
     current = normalize_state(load_state())
@@ -1118,17 +1118,7 @@ def _pms_inject_html_version_badge(text, content_type):
         badge = f"""<style id="pmsVersionBadgeServerStyle">
 #pmsVersionBadge{{position:fixed;right:12px;bottom:12px;top:auto;z-index:999;display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:6px 9px;font:900 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;white-space:nowrap;box-shadow:0 8px 20px rgba(15,23,42,.10);pointer-events:none;opacity:.88}}
 </style><span id="pmsVersionBadge">PMS v{PMS_PATCH_VERSION}</span>"""
-    script = ""
-    is_app_shell = 'data-pms-app-shell="1"' in raw
-    if is_app_shell and 'id="pmsSingleFrontendPatch"' not in raw:
-        try:
-            safe_close = "<" + "/script>"
-            escaped_close = "<" + chr(92) + "/script>"
-            script_body = (BASE / "pms_ui_patch.js").read_text(encoding="utf-8").replace(safe_close, escaped_close)
-            script = '<script id="pmsSingleFrontendPatch">' + chr(10) + script_body + chr(10) + safe_close
-        except Exception as exc:
-            script = '<script>console.error("PMS frontend patch load failed")</script>'
-    inject = badge + script
+    inject = badge
     if not inject:
         return raw
     marker = "</body>"
@@ -1319,7 +1309,7 @@ def fetch_text(url):
         raise RuntimeError(f"iCal fetch failed from {host}: {reason}") from exc
 
 
-def sync_icals(actor=None, property_id=None):
+def _pms_legacy_sync_icals(actor=None, property_id=None):
     state = normalize_state(load_state())
     allowed_property_ids = actor_property_ids(actor, state) if actor else {prop.get("id") for prop in state.get("properties", []) if isinstance(prop, dict)}
     requested_property_id = str(property_id or "").strip()
@@ -1367,7 +1357,7 @@ def ics_escape(text):
     return str(text or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
 
 
-def make_feed(room_id):
+def _pms_legacy_make_feed(room_id):
     state = normalize_state(load_state())
     room = next((item for item in state["rooms"] if item.get("id") == room_id), None)
     if not room:
@@ -1934,8 +1924,8 @@ if "channelListings" not in STATE_KEYS:
 if "icalSyncHistory" not in STATE_KEYS:
     STATE_KEYS.append("icalSyncHistory")
 
-_pms_channel_base_default_state = default_state
-def default_state():
+_pms_channel_base_default_state = _pms_core_default_state
+def _pms_channel_default_state():
     state = _pms_channel_base_default_state()
     state.setdefault("channelListings", [])
     state.setdefault("icalSyncHistory", [])
@@ -2043,8 +2033,8 @@ def _pms_channel_clear_room_legacy_fields(state, room_id):
         return
 
 
-_pms_channel_base_normalize_state = normalize_state
-def normalize_state(raw):
+_pms_channel_base_normalize_state = _pms_core_normalize_state
+def _pms_channel_normalize_state(raw):
     state = _pms_channel_base_normalize_state(raw)
     state.setdefault("channelListings", [])
     state.setdefault("icalSyncHistory", [])
@@ -2473,7 +2463,7 @@ def _pms_channel_diagnostic_status(events, date_text):
     return "empty"
 
 
-def inspect_ical_diagnostics(payload, actor=None):
+def _pms_channel_inspect_ical_diagnostics(payload, actor=None):
     state = normalize_state(load_state())
     allowed_property_ids = _pms_channel_allowed_property_ids(actor, state)
     allowed_room_ids = {
@@ -2541,8 +2531,8 @@ def inspect_ical_diagnostics(payload, actor=None):
     }
 
 
-_pms_channel_base_filter_state_for_user = filter_state_for_user
-def filter_state_for_user(state, actor):
+_pms_channel_base_filter_state_for_user = _pms_core_filter_state_for_user
+def _pms_channel_filter_state_for_user(state, actor):
     filtered = _pms_channel_base_filter_state_for_user(state, actor)
     normalized = normalize_state(state)
     if not actor or actor.get("role") == "admin":
@@ -2561,7 +2551,7 @@ def filter_state_for_user(state, actor):
     return filtered
 
 
-_pms_channel_base_save_state_from_payload = save_state_from_payload
+_pms_channel_base_save_state_from_payload = _pms_core_save_state_from_payload
 def _pms_channel_room_has_sync(state, room_id):
     room = next((item for item in state.get("rooms", []) if isinstance(item, dict) and item.get("id") == room_id), {})
     legacy_fields = ("airbnb_ical", "booking_ical", "vrbo_ical", "other_ical")
@@ -2607,7 +2597,7 @@ def _pms_channel_guard_structural_delete(payload, actor=None):
             if _pms_channel_room_has_sync(current, room.get("id")):
                 raise RuntimeError("这个房间还有 iCal/渠道同步，不能删除。请先清空 iCal/渠道后再删除房间。")
 
-def save_state_from_payload(payload, actor=None):
+def _pms_channel_save_state_from_payload(payload, actor=None):
     working = dict(payload or {})
     if "properties" in working or "rooms" in working:
         _pms_channel_guard_structural_delete(working, actor)
@@ -2850,7 +2840,7 @@ def _pms_channel_restore_historical_archive_bookings(state, successful_listing_i
     return restored
 
 
-def sync_icals(actor=None, property_id=None, incoming_channels=None):
+def _pms_channel_sync_icals(actor=None, property_id=None, incoming_channels=None):
     state = normalize_state(load_state())
     allowed_property_ids = _pms_channel_allowed_property_ids(actor, state)
     if property_id:
@@ -3052,7 +3042,7 @@ def _pms_emergency_empty_feed_ids():
     raw = str(os.environ.get("PMS_ICAL_EMPTY_FEED_IDS", "") or "")
     return {item.strip().replace(".ics", "") for item in raw.split(",") if item.strip()}
 
-def make_feed(feed_id):
+def _pms_channel_make_feed(feed_id):
     normalized_feed_id = str(feed_id or "").replace(".ics", "")
     state = normalize_state(load_state())
     room_id, target_channel_id, target_listing = _pms_channel_feed_target(state, feed_id)
@@ -3107,8 +3097,8 @@ for _pms_mail_key in ("mailForwardingConfig", "propertyMailForwarding"):
     if _pms_mail_key not in STATE_KEYS:
         STATE_KEYS.append(_pms_mail_key)
 
-_pms_mail_base_default_state = default_state
-def default_state():
+_pms_mail_base_default_state = _pms_channel_default_state
+def _pms_mail_default_state():
     state = _pms_mail_base_default_state()
     state.setdefault("mailForwardingConfig", [])
     state.setdefault("propertyMailForwarding", [])
@@ -3196,8 +3186,8 @@ def _pms_mail_clean_property_setting(item, state=None):
     }
 
 
-_pms_mail_base_normalize_state = normalize_state
-def normalize_state(raw):
+_pms_mail_base_normalize_state = _pms_channel_normalize_state
+def _pms_mail_normalize_state(raw):
     state = _pms_mail_base_normalize_state(raw)
     configs = state.get("mailForwardingConfig", [])
     state["mailForwardingConfig"] = [_pms_mail_clean_config(configs[0] if configs else {})]
@@ -3214,8 +3204,8 @@ def normalize_state(raw):
     return state
 
 
-_pms_mail_base_filter_state_for_user = filter_state_for_user
-def filter_state_for_user(state, actor):
+_pms_mail_base_filter_state_for_user = _pms_channel_filter_state_for_user
+def _pms_mail_filter_state_for_user(state, actor):
     normalized = normalize_state(state)
     filtered = _pms_mail_base_filter_state_for_user(normalized, actor)
     role = (actor or {}).get("role")
@@ -3277,8 +3267,8 @@ def save_property_mail_setting(payload, actor=None):
     return saved, saved_row
 
 
-_pms_mail_base_save_state_from_payload = save_state_from_payload
-def save_state_from_payload(payload, actor=None):
+_pms_mail_base_save_state_from_payload = _pms_channel_save_state_from_payload
+def _pms_mail_save_state_from_payload(payload, actor=None):
     working = dict(payload or {})
     incoming_config = working.pop("mailForwardingConfig", None)
     incoming_property_mail = working.pop("propertyMailForwarding", None)
@@ -3326,8 +3316,8 @@ _pms_mail_events_v1 = True
 if "mailEvents" not in STATE_KEYS:
     STATE_KEYS.append("mailEvents")
 
-_pms_mail_events_base_default_state = default_state
-def default_state():
+_pms_mail_events_base_default_state = _pms_mail_default_state
+def _pms_mail_events_default_state():
     state = _pms_mail_events_base_default_state()
     state.setdefault("mailEvents", [])
     return state
@@ -3385,8 +3375,8 @@ def _pms_mail_event_clean(item, state=None):
     }
 
 
-_pms_mail_events_base_normalize_state = normalize_state
-def normalize_state(raw):
+_pms_mail_events_base_normalize_state = _pms_mail_normalize_state
+def _pms_mail_events_normalize_state(raw):
     state = _pms_mail_events_base_normalize_state(raw)
     valid_properties = _pms_mail_event_property_ids(state)
     by_id = {}
@@ -3401,8 +3391,8 @@ def normalize_state(raw):
     return state
 
 
-_pms_mail_events_base_filter_state_for_user = filter_state_for_user
-def filter_state_for_user(state, actor):
+_pms_mail_events_base_filter_state_for_user = _pms_mail_filter_state_for_user
+def _pms_mail_events_filter_state_for_user(state, actor):
     normalized = normalize_state(state)
     filtered = _pms_mail_events_base_filter_state_for_user(normalized, actor)
     role = (actor or {}).get("role")
@@ -3449,8 +3439,8 @@ def save_mail_events(payload, actor=None):
     return save_state(state), saved_rows
 
 
-_pms_mail_events_base_save_state_from_payload = save_state_from_payload
-def save_state_from_payload(payload, actor=None):
+_pms_mail_events_base_save_state_from_payload = _pms_mail_save_state_from_payload
+def _pms_mail_events_save_state_from_payload(payload, actor=None):
     working = dict(payload or {})
     incoming_mail_events = working.pop("mailEvents", None)
     if incoming_mail_events is None:
@@ -4052,8 +4042,8 @@ _pms_cleaning_confirm_v1 = True
 if "cleaningTaskConfirmations" not in STATE_KEYS:
     STATE_KEYS.append("cleaningTaskConfirmations")
 
-_pms_cleaning_confirm_base_default_state = default_state
-def default_state():
+_pms_cleaning_confirm_base_default_state = _pms_mail_events_default_state
+def _pms_cleaning_confirm_default_state():
     state = _pms_cleaning_confirm_base_default_state()
     state.setdefault("cleaningTaskConfirmations", [])
     return state
@@ -4144,8 +4134,8 @@ def _pms_cleaning_confirm_clean(row):
     }
 
 
-_pms_cleaning_confirm_base_normalize_state = normalize_state
-def normalize_state(raw):
+_pms_cleaning_confirm_base_normalize_state = _pms_mail_events_normalize_state
+def _pms_cleaning_confirm_normalize_state(raw):
     state = _pms_cleaning_confirm_base_normalize_state(raw)
     state.setdefault("cleaningTaskConfirmations", [])
     state["cleaningTaskConfirmations"] = [
@@ -4156,8 +4146,8 @@ def normalize_state(raw):
     return state
 
 
-_pms_cleaning_confirm_base_filter_state_for_user = filter_state_for_user
-def filter_state_for_user(state, actor):
+_pms_cleaning_confirm_base_filter_state_for_user = _pms_mail_events_filter_state_for_user
+def _pms_cleaning_confirm_filter_state_for_user(state, actor):
     filtered = _pms_cleaning_confirm_base_filter_state_for_user(state, actor)
     normalized = normalize_state(state)
     if not actor or actor.get("role") == "admin":
@@ -4176,8 +4166,8 @@ def filter_state_for_user(state, actor):
     return filtered
 
 
-_pms_cleaning_confirm_base_save_state_from_payload = save_state_from_payload
-def save_state_from_payload(payload, actor=None):
+_pms_cleaning_confirm_base_save_state_from_payload = _pms_mail_events_save_state_from_payload
+def _pms_cleaning_confirm_save_state_from_payload(payload, actor=None):
     working = dict(payload or {})
     incoming_confirmations = working.pop("cleaningTaskConfirmations", None)
     if incoming_confirmations is None:
@@ -4271,15 +4261,15 @@ def _pms_photo_clean(row):
     return {key: value for key, value in cleaned.items() if value not in ("", None, 0)}
 
 
-_pms_photo_base_default_state = default_state
-def default_state():
+_pms_photo_base_default_state = _pms_cleaning_confirm_default_state
+def _pms_photo_default_state():
     state = _pms_photo_base_default_state()
     state.setdefault("cleaningTaskPhotos", [])
     return state
 
 
-_pms_photo_base_normalize_state = normalize_state
-def normalize_state(raw):
+_pms_photo_base_normalize_state = _pms_cleaning_confirm_normalize_state
+def _pms_photo_normalize_state(raw):
     state = _pms_photo_base_normalize_state(raw)
     state.setdefault("cleaningTaskPhotos", [])
     state["cleaningTaskPhotos"] = [
@@ -4314,8 +4304,8 @@ def _pms_photo_target_allowed(row, room_ids, common_ids):
     return target_id in room_ids
 
 
-_pms_photo_base_filter_state_for_user = filter_state_for_user
-def filter_state_for_user(state, actor):
+_pms_photo_base_filter_state_for_user = _pms_cleaning_confirm_filter_state_for_user
+def _pms_photo_filter_state_for_user(state, actor):
     filtered = _pms_photo_base_filter_state_for_user(state, actor)
     normalized = normalize_state(state)
     room_ids, common_ids = _pms_photo_allowed_targets(normalized, actor)
@@ -4460,8 +4450,8 @@ def _pms_photo_cleanup_state(state, delete_objects=False):
     return normalized
 
 
-_pms_photo_base_save_state = save_state
-def save_state(state):
+_pms_photo_base_save_state = _pms_core_save_state
+def _pms_photo_save_state(state):
     return _pms_photo_base_save_state(_pms_photo_cleanup_state(state, delete_objects=True))
 
 
@@ -4667,15 +4657,15 @@ def _pms_ical_archive_clean(item):
     }
 
 
-_pms_ical_archive_base_default_state = default_state
-def default_state():
+_pms_ical_archive_base_default_state = _pms_photo_default_state
+def _pms_ical_archive_default_state():
     state = _pms_ical_archive_base_default_state()
     state.setdefault("icalEventArchive", [])
     return state
 
 
-_pms_ical_archive_base_normalize_state = normalize_state
-def normalize_state(raw):
+_pms_ical_archive_base_normalize_state = _pms_photo_normalize_state
+def _pms_ical_archive_normalize_state(raw):
     state = _pms_ical_archive_base_normalize_state(raw)
     archive = {}
     for item in state.get("icalEventArchive", []):
@@ -4792,8 +4782,8 @@ def _pms_ical_archive_update(state, listing, synced_at, sync_status, raw_events,
     return state
 
 
-_pms_ical_archive_base_filter_state_for_user = filter_state_for_user
-def filter_state_for_user(state, actor):
+_pms_ical_archive_base_filter_state_for_user = _pms_photo_filter_state_for_user
+def _pms_ical_archive_filter_state_for_user(state, actor):
     filtered = _pms_ical_archive_base_filter_state_for_user(state, actor)
     normalized = normalize_state(state)
     role = (actor or {}).get("role")
@@ -4811,8 +4801,8 @@ def filter_state_for_user(state, actor):
     return filtered
 
 
-_pms_ical_archive_base_inspect_ical_diagnostics = inspect_ical_diagnostics
-def inspect_ical_diagnostics(payload, actor=None):
+_pms_ical_archive_base_inspect_ical_diagnostics = _pms_channel_inspect_ical_diagnostics
+def _pms_ical_archive_inspect_ical_diagnostics(payload, actor=None):
     data = _pms_ical_archive_base_inspect_ical_diagnostics(payload, actor)
     state = normalize_state(load_state())
     allowed_property_ids = _pms_channel_allowed_property_ids(actor, state)
@@ -4954,8 +4944,8 @@ def _pms_external_write(key, rows):
     })
 
 
-_pms_external_base_load_state = load_state
-def load_state():
+_pms_external_base_load_state = _pms_core_load_state
+def _pms_external_load_state():
     state = _pms_external_base_load_state()
     if firebase_credentials_configured():
         for key in _PMS_EXTERNAL_STATE_KEYS:
@@ -4966,8 +4956,8 @@ def load_state():
     return normalize_state(state)
 
 
-_pms_external_base_save_state = save_state
-def save_state(state):
+_pms_external_base_save_state = _pms_photo_save_state
+def _pms_external_save_state(state):
     state = normalize_state(state)
     if not firebase_credentials_configured():
         return _pms_external_base_save_state(state)
@@ -5198,6 +5188,43 @@ def pms_load_state_for_ui():
             return _pms_ui_state_cache_store(state)
         time.sleep(delay)
     return _pms_ui_state_cache_store(normalize_state(last_state or load_state()))
+
+
+def default_state():
+    return _pms_ical_archive_default_state()
+
+
+def normalize_state(raw):
+    return _pms_ical_archive_normalize_state(raw)
+
+
+def filter_state_for_user(state, actor):
+    return _pms_ical_archive_filter_state_for_user(state, actor)
+
+
+def save_state_from_payload(payload, actor=None):
+    return _pms_cleaning_confirm_save_state_from_payload(payload, actor)
+
+
+def load_state():
+    return _pms_external_load_state()
+
+
+def save_state(state):
+    return _pms_external_save_state(state)
+
+
+def sync_icals(actor=None, property_id=None, incoming_channels=None):
+    return _pms_channel_sync_icals(actor=actor, property_id=property_id, incoming_channels=incoming_channels)
+
+
+def make_feed(feed_id):
+    return _pms_channel_make_feed(feed_id)
+
+
+def inspect_ical_diagnostics(payload, actor=None):
+    return _pms_ical_archive_inspect_ical_diagnostics(payload, actor)
+
 
 _pms_ical_sync_lock = threading.Lock()
 

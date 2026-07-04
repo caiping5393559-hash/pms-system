@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-04-v49-multi-cleaning-photo-upload';
+  const VERSION = '2026-07-04-v50-backend-entrypoint-consolidation';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
