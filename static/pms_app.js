@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-04-v59-room-area-features';
+  const VERSION = '2026-07-04-v61-room-kitchen-default';
   window.__PMS_PATCH_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -321,6 +321,18 @@
       ['none','无卫生间']
     ].map(row => `<option value="${row[0]}" ${row[0] === value ? 'selected' : ''}>${row[1]}</option>`).join('');
   }
+  function roomHasKitchen(roomOrId){
+    const room = typeof roomOrId === 'object' && roomOrId ? roomOrId : getRooms().find(x => String(x.id) === String(roomOrId));
+    if(!room) return false;
+    if(Object.prototype.hasOwnProperty.call(room,'has_kitchen') || Object.prototype.hasOwnProperty.call(room,'hasKitchen')) return !!(room.has_kitchen || room.hasKitchen);
+    const raw = String(room.kitchen_type || room.kitchenType || room.kitchen || '').toLowerCase();
+    return ['private','yes','true','1','kitchen','kitchenette','private_kitchen'].includes(raw);
+  }
+  function roomKitchenLabel(roomOrId){return roomHasKitchen(roomOrId) ? '有房内厨房/小厨房' : '无房内厨房';}
+  function readRoomHasKitchen(roomId){
+    const el = qs('roomKitchen_' + safe(roomId));
+    return !!(el && el.checked);
+  }
   function roomAppliances(roomOrId){
     const room = typeof roomOrId === 'object' && roomOrId ? roomOrId : getRooms().find(x => String(x.id) === String(roomOrId));
     const raw = room && room.appliances;
@@ -342,7 +354,7 @@
     return ROOM_APPLIANCE_OPTIONS.filter(row => qs('roomAppliance_' + safe(roomId) + '_' + row[0]) && qs('roomAppliance_' + safe(roomId) + '_' + row[0]).checked).map(row => row[0]);
   }
   function presetRequiresPrivateBathroom(presetId){
-    return ['weekly_kitchen_bath_detail','monthly_drain_deodorize'].includes(String(presetId || ''));
+    return false;
   }
   function presetRequiresAppliances(presetId){
     return String(presetId || '') === 'monthly_appliance_detail';
@@ -410,7 +422,7 @@
   function commonAreaComponentControls(area){
     const c = commonAreaComponents(area);
     const id = safe(area.id);
-    return `<div class="area-component-grid"><label><input id="areaHasKitchen_${id}" type="checkbox" ${c.has_kitchen ? 'checked' : ''}> 共享厨房</label><input id="areaKitchenCount_${id}" type="number" min="1" step="1" value="${esc(c.kitchen_count)}"><label><input id="areaHasBathroom_${id}" type="checkbox" ${c.has_bathroom ? 'checked' : ''}> 共享卫生间</label><input id="areaBathroomCount_${id}" type="number" min="1" step="1" value="${esc(c.bathroom_count)}"><label><input id="areaHasGeneral_${id}" type="checkbox" ${c.has_general ? 'checked' : ''}> 其他公区</label><input id="areaGeneralCount_${id}" type="number" min="1" step="1" value="${esc(c.general_count)}"></div>`;
+    return `<div class="area-component-list"><label class="area-component-item"><span><input id="areaHasKitchen_${id}" type="checkbox" ${c.has_kitchen ? 'checked' : ''}> 共享厨房</span><input id="areaKitchenCount_${id}" type="number" min="1" step="1" value="${esc(c.kitchen_count)}"></label><label class="area-component-item"><span><input id="areaHasBathroom_${id}" type="checkbox" ${c.has_bathroom ? 'checked' : ''}> 共享卫生间</span><input id="areaBathroomCount_${id}" type="number" min="1" step="1" value="${esc(c.bathroom_count)}"></label><label class="area-component-item"><span><input id="areaHasGeneral_${id}" type="checkbox" ${c.has_general ? 'checked' : ''}> 其他公区</span><input id="areaGeneralCount_${id}" type="number" min="1" step="1" value="${esc(c.general_count)}"></label></div>`;
   }
   function commonAreaReason(area){
     const c = commonAreaComponents(area);
@@ -542,9 +554,48 @@
     return getNotes().filter(n => n && n.recurring_task);
   }
   function defaultTaskApplicable(room,presetId){
-    if(presetRequiresPrivateBathroom(presetId) && roomBathroomType(room) !== 'private') return {ok:false, reason:'no_private_bath'};
+    const id = String(presetId || '');
+    if(['weekly_kitchen_bath_detail','monthly_drain_deodorize'].includes(id) && roomBathroomType(room) !== 'private' && !roomHasKitchen(room)) return {ok:false, reason:'no_room_plumbing'};
+    if(presetRequiresPrivateBathroom(id) && roomBathroomType(room) !== 'private') return {ok:false, reason:'no_private_bath'};
     if(presetRequiresAppliances(presetId) && !roomHasAppliances(room)) return {ok:false, reason:'no_room_appliances'};
     return {ok:true, reason:''};
+  }
+  function checkoutDefaultNote(room){
+    const parts = ['垃圾清空','床品毛巾更换'];
+    if(roomHasKitchen(room)) parts.push('房间内厨房/小厨房台面、水槽和餐具检查');
+    const bath = roomBathroomType(room);
+    if(bath === 'private') parts.push('独立卫生间清洁');
+    else if(bath === 'shared') parts.push('本房间使用共享卫生间，卫生间清洁归入公区任务');
+    else parts.push('本房间无卫生间，卫生间清洁不在本房间任务内');
+    parts.push('地面吸尘拖地','高频接触点擦拭','补齐耗材','拍照记录异常');
+    return parts.join('、') + '。';
+  }
+  function kitchenBathDefaultTitleNote(room){
+    const bath = roomBathroomType(room);
+    const hasKitchen = roomHasKitchen(room);
+    if(bath === 'private' && hasKitchen) return ['厨卫深清和水垢检查','检查房间内厨房油污、水槽、台面、淋浴玻璃、马桶边角、地漏和水垢；在当天保洁量少时补做。'];
+    if(hasKitchen) return ['房间厨房深清和水垢检查','检查房间内厨房油污、水槽、台面和小厨房区域水垢；在当天保洁量少时补做。'];
+    return ['卫浴深清和水垢检查','检查独立卫生间淋浴玻璃、马桶边角、地漏和水垢；在当天保洁量少时补做。'];
+  }
+  function drainDefaultTitleNote(room){
+    const bath = roomBathroomType(room);
+    const hasKitchen = roomHasKitchen(room);
+    if(bath === 'private' && hasKitchen) return ['排水口/卫浴/厨房异味维护','检查淋浴、洗手池、房间内厨房水槽、马桶和地漏异味；只使用适合管道的产品，并按产品说明操作。'];
+    if(hasKitchen) return ['厨房水槽异味维护','检查房间内厨房水槽和小厨房区域异味；只使用适合管道的产品，并按产品说明操作。'];
+    return ['排水口/马桶异味维护','检查淋浴、洗手池、马桶和地漏异味；只使用适合管道的产品，并按产品说明操作。'];
+  }
+  function syncDefaultRoomTaskContent(note,room){
+    const preset = recurringPresetById(note && note.template_id);
+    if(!preset) return 0;
+    const updated = makeDefaultRoomTask(room,preset);
+    let changed = 0;
+    ['title','note','task_mode','schedule_type','weekday','interval_days','flex_days','workload_sensitive','attach_to_checkout','can_defer'].forEach(key => {
+      if(note[key] !== updated[key]){
+        note[key] = updated[key];
+        changed += 1;
+      }
+    });
+    return changed;
   }
   function syncRoomDefaultTaskApplicability(room){
     if(!room || !room.id) return 0;
@@ -557,22 +608,27 @@
         note.enabled = false;
         note.inactive = true;
         note.auto_disabled_reason = check.reason;
-      }else if(['no_private_bath','no_room_appliances'].includes(String(note.auto_disabled_reason || ''))){
+      }else if(['no_private_bath','no_room_appliances','no_room_plumbing'].includes(String(note.auto_disabled_reason || ''))){
         note.enabled = true;
         delete note.inactive;
         delete note.auto_disabled_reason;
         changed += 1;
       }
+      if(check.ok) changed += syncDefaultRoomTaskContent(note,room);
     });
     return changed;
   }
   function makeDefaultRoomTask(room,preset){
     const interval = Math.max(1, Number(preset.interval || (preset.schedule === 'weekly' ? 7 : 30)));
     const isBase = preset.id === 'checkout_turnover_standard';
-    const bathroom = roomBathroomType(room);
+    let title = preset.title;
     let note = preset.note;
-    if(isBase && bathroom !== 'private'){
-      note = '垃圾清空、床品毛巾更换、厨房台面和餐具检查、地面吸尘拖地、高频接触点擦拭、补齐耗材、拍照记录异常；本房间无独立卫生间，卫生间清洁归入公区共享卫生间任务。';
+    if(isBase){
+      note = checkoutDefaultNote(room);
+    }else if(preset.id === 'weekly_kitchen_bath_detail'){
+      [title,note] = kitchenBathDefaultTitleNote(room);
+    }else if(preset.id === 'monthly_drain_deodorize'){
+      [title,note] = drainDefaultTitleNote(room);
     }
     if(preset.id === 'monthly_appliance_detail' && roomHasAppliances(room)){
       note = `${note} 本房间独有电器：${roomApplianceLabel(room)}。`;
@@ -589,7 +645,7 @@
       task_mode:isBase ? 'regular' : 'deep',
       target_id:room.id,
       target_type:'room',
-      title:preset.title,
+      title,
       note,
       priority:'普通',
       schedule_type:isBase ? 'daily' : 'interval',
@@ -611,9 +667,11 @@
     DEFAULT_ROOM_TASK_PRESET_IDS.forEach(id => {
       const preset = recurringPresetById(id);
       const key = defaultRoomTaskKey(room.id,id);
-      if(presetRequiresPrivateBathroom(id) && roomBathroomType(room) !== 'private') return;
+      if(!preset || preset.target !== 'room') return;
+      const check = defaultTaskApplicable(room,id);
+      if(!check.ok) return;
       if(presetRequiresAppliances(id) && !roomHasAppliances(room)) return;
-      if(!preset || preset.target !== 'room' || existing.has(key)) return;
+      if(existing.has(key)) return;
       notes.push(makeDefaultRoomTask(room,preset));
       existing.add(key);
       added += 1;
@@ -1092,7 +1150,7 @@
       .room-head{border:1px solid #d8e1ef;background:#f8fafc;border-radius:8px;padding:10px}
       .room-setting-card .property-subcard{border:0;background:transparent;padding:12px 0 0;margin-top:12px;border-top:1px dashed var(--line)}
       .room-setting-card .property-subcard .property-detail-head{padding:0;border:0;margin:0}
-      .room-basics{display:grid;grid-template-columns:minmax(180px,1fr) minmax(120px,.45fr) minmax(150px,.55fr) auto;gap:8px;align-items:end;width:100%}
+      .room-basics{display:grid;grid-template-columns:minmax(180px,1fr) minmax(120px,.45fr) minmax(150px,.55fr) minmax(190px,.75fr) minmax(220px,1fr) auto;gap:8px;align-items:end;width:100%}
       .room-index-section{display:grid;gap:12px;border:1px solid var(--line);background:#fff;border-radius:8px;padding:14px}
       .room-index-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
       .room-index-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
@@ -1109,12 +1167,21 @@
       .channel-list{display:grid;gap:10px;margin-top:10px}
       .channel-card{border:1px solid #bae6fd;background:#f8fcff;border-radius:8px;padding:10px;display:grid;gap:8px}
       .channel-grid{display:grid;grid-template-columns:130px minmax(190px,1fr) minmax(190px,1fr) minmax(140px,.8fr) auto;gap:8px;align-items:end}
-      .channel-grid.area-grid{grid-template-columns:minmax(150px,1fr) 150px 90px 120px 150px auto}
+      .channel-grid.area-grid{grid-template-columns:minmax(180px,1fr) minmax(420px,2.2fr) minmax(120px,.45fr) minmax(150px,.55fr) auto}
+      .channel-grid.area-grid>div:nth-child(2){grid-column:auto!important}
+      .common-area-list{display:grid;gap:10px;margin-top:10px}
+      .common-area-card{border:1px solid #bae6fd;background:#f8fcff;border-radius:8px;padding:12px;display:grid;gap:10px}
+      .common-area-form{display:grid;grid-template-columns:minmax(180px,1fr) minmax(420px,2.2fr) minmax(120px,.45fr) minmax(150px,.55fr) auto;gap:10px;align-items:end}
+      .common-area-field{display:grid;gap:5px;min-width:0}
+      .common-area-field>span,.common-area-components-title{font-size:12px;font-weight:900;color:#475569}
+      .common-area-actions{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
       .check-grid{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
       .check-grid label{display:inline-flex;align-items:center;gap:5px;font-weight:800}
       .appliance-grid{grid-column:1/-1}
-      .area-component-grid{display:grid;grid-template-columns:max-content 90px max-content 90px max-content 90px;gap:8px;align-items:center}
-      .area-component-grid label{font-weight:900;display:inline-flex;align-items:center;gap:5px}
+      .area-component-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;align-items:stretch}
+      .area-component-item{border:1px solid #d8e1ef;background:#fff;border-radius:8px;padding:8px;display:grid;grid-template-columns:minmax(0,1fr) 70px;gap:8px;align-items:center;font-weight:900;color:#0f172a}
+      .area-component-item span{display:inline-flex;align-items:center;gap:6px;min-width:0;white-space:nowrap}
+      .area-component-item input[type=number]{width:100%;min-width:0}
       .feed-line,.readonly-line{word-break:break-all;border:1px solid #d8e1ef;background:#f8fafc;border-radius:8px;padding:8px 10px;font-size:12px;color:#475569}
       .sync-status{display:inline-flex;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:900;border:1px solid #d8e1ef;background:#f8fafc;color:#475569}
       .sync-status.ok{border-color:#86efac;background:#f0fdf4;color:#166534}.sync-status.error{border-color:#fb7185;background:#fff1f2;color:#be123c}.sync-status.warn{border-color:#fbbf24;background:#fffbeb;color:#92400e}
@@ -1207,7 +1274,7 @@
       .task-guidance-grid ul{margin:8px 0 0;padding-left:18px;color:#475569;font-size:13px;line-height:1.55}
       #recurringTaskManager table{font-size:13px}
       #recurringTaskManager td{vertical-align:top}
-      @media(max-width:900px){.room-basics,.channel-grid,.property-edit-grid,.area-component-grid,.cleaning-task-row{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top,.cleaning-work-head{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}.cleaning-work-meta{justify-content:flex-start;min-width:0}}
+      @media(max-width:900px){.room-basics,.channel-grid,.property-edit-grid,.common-area-form,.cleaning-task-row{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top,.cleaning-work-head{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}.common-area-actions{justify-content:flex-start}.common-area-actions>*{width:100%}.cleaning-work-meta{justify-content:flex-start;min-width:0}}
       @media(max-width:600px){
         #cleaner .card,#ownerCleaningShell .card{padding:10px}
         .cleaning-list-card{padding:8px;background:#f8fafc}
@@ -1923,7 +1990,7 @@
     const type = row.target_type || 'room';
     const prop = showProp ? `<span class="badge blue">${esc(propName(targetPropId(row.target_id,type)))}</span>` : '';
     const source = showSource && row.source ? `<span class="badge">${esc(row.source)}</span>` : '';
-    const title = `${type === 'common' ? '公区' : '房间'}：${esc(targetName(row.target_id,type))}`;
+    const title = esc(targetName(row.target_id,type));
     const note = row.cancel_review_task ? esc(row.reason || '') : `${esc(row.reason || '')}${inlineNotes(row.date,row.target_id,type)}`;
     const items = (!row.cancel_review_task && cleaningConfirmRequired(row)) ? cleaningRowItems(row) : [];
     const body = row.cancel_review_task
@@ -2649,8 +2716,8 @@
     const editing = ui.editingRoom === room.id;
     const channels = channelRows(room.id);
     const roomHead = editing
-      ? `<div class="room-basics"><div><label>房间名称</label><input id="roomName_${safe(room.id)}" value="${esc(room.name || '')}"></div><div><label>单次保洁费</label><input id="roomFee_${safe(room.id)}" type="number" value="${esc(room.cleaning_fee || 0)}"></div><div><label>卫生间</label><select id="roomBathroom_${safe(room.id)}">${roomBathroomOptions(room.bathroom_type || 'private')}</select></div><div><label>房间独有电器</label>${roomApplianceCheckboxes(room)}<div class="small">默认不选；只有勾选后才会生成家电细节清洁任务。</div></div><div class="property-actions"><button class="smallbtn primary" onclick="saveRoomBasics('${esc(room.id)}',this)">保存</button><button class="smallbtn" onclick="cancelRoomBasics()">取消</button></div></div>`
-      : `<div><strong>${esc(room.name || room.id)}</strong><div class="small">清洁费：${money(room.cleaning_fee || 0)} · ${roomBathroomLabel(room)} · 电器：${esc(roomApplianceLabel(room))} · ${channels.length} 个渠道</div></div><div class="property-actions"><button class="smallbtn" onclick="editRoomBasics('${esc(room.id)}')">修改</button><button class="smallbtn" onclick="deleteRoomUi('${esc(room.id)}',this)">删除</button></div>`;
+      ? `<div class="room-basics"><div><label>房间名称</label><input id="roomName_${safe(room.id)}" value="${esc(room.name || '')}"></div><div><label>单次保洁费</label><input id="roomFee_${safe(room.id)}" type="number" value="${esc(room.cleaning_fee || 0)}"></div><div><label>卫生间</label><select id="roomBathroom_${safe(room.id)}">${roomBathroomOptions(room.bathroom_type || 'private')}</select></div><div><label>房间厨房</label><div class="check-grid"><label><input id="roomKitchen_${safe(room.id)}" type="checkbox" ${roomHasKitchen(room) ? 'checked' : ''}> 房间内有厨房/小厨房</label></div><div class="small">默认不选；不选时房间保洁不包含厨房打扫。</div></div><div><label>房间独有电器</label>${roomApplianceCheckboxes(room)}<div class="small">默认不选；只有勾选后才会生成家电细节清洁任务。</div></div><div class="property-actions"><button class="smallbtn primary" onclick="saveRoomBasics('${esc(room.id)}',this)">保存</button><button class="smallbtn" onclick="cancelRoomBasics()">取消</button></div></div>`
+      : `<div><strong>${esc(room.name || room.id)}</strong><div class="small">清洁费：${money(room.cleaning_fee || 0)} · ${roomBathroomLabel(room)} · ${roomKitchenLabel(room)} · 电器：${esc(roomApplianceLabel(room))} · ${channels.length} 个渠道</div></div><div class="property-actions"><button class="smallbtn" onclick="editRoomBasics('${esc(room.id)}')">修改</button><button class="smallbtn" onclick="deleteRoomUi('${esc(room.id)}',this)">删除</button></div>`;
     return `<div class="room-setting-card"><div class="room-head">${roomHead}</div><div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">渠道 / iCal</h3><div class="small">同一个真实房间只建一次；多个 Airbnb 账号或平台都作为渠道挂在这里。</div></div><button class="smallbtn primary" onclick="addChannelListing('${esc(room.id)}')">添加渠道</button></div><div class="channel-list">${channels.length ? channels.map(ch => renderChannel(room,ch)).join('') : '<div class="empty-panel">还没有渠道。点击“添加渠道”后粘贴 Airbnb/平台导出的 iCal。</div>'}</div></div></div>`;
   }
   function renderCleanerPanel(prop){
@@ -3236,6 +3303,7 @@
       room.name = name;
       room.cleaning_fee = Number((qs('roomFee_' + safe(id)) && qs('roomFee_' + safe(id)).value) || 0);
       room.bathroom_type = (qs('roomBathroom_' + safe(id)) && qs('roomBathroom_' + safe(id)).value) || room.bathroom_type || 'private';
+      room.has_kitchen = readRoomHasKitchen(id);
       room.appliances = readRoomAppliances(id);
       ensureDefaultRoomCleaningTasksForRoom(room);
     }
@@ -3246,7 +3314,7 @@
   async function addRoomImpl(propId){
     const id = 'room_' + Date.now();
     const propertyId = propId || (selectedProp() && selectedProp().id) || (propList()[0] && propList()[0].id) || 'property_default';
-    const room = {id, property_id: propertyId, name: nextRoomName(propertyId), cleaning_fee: 30, bathroom_type:'private', appliances:[], type:'room', created_at:nowIso()};
+    const room = {id, property_id: propertyId, name: nextRoomName(propertyId), cleaning_fee: 30, bathroom_type:'private', has_kitchen:false, appliances:[], type:'room', created_at:nowIso()};
     getRooms().push(room);
     ensureDefaultRoomCleaningTasksForRoom(room);
     setOwnerPropertyIds([propertyId]);
