@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-04-v57-cleaner-mobile-ramp';
+  const VERSION = '2026-07-04-v58-cleaner-compact-tasks';
   window.__PMS_PATCH_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -1099,17 +1099,24 @@
       .cleaning-work-body{display:grid;gap:10px;padding:12px 14px}
       .cleaning-work-note{color:#475569;line-height:1.5}
       .cleaning-task-rows{display:grid;gap:8px}
-      .cleaning-task-row{display:grid;grid-template-columns:minmax(260px,1fr) minmax(150px,.36fr) minmax(150px,.32fr);gap:10px;align-items:start;border:1px solid #d8e1ef;background:#fff;border-radius:8px;padding:10px}
+      .cleaning-task-row{display:grid;grid-template-columns:minmax(260px,1fr) minmax(120px,.24fr) minmax(130px,.28fr);gap:10px;align-items:start;border:1px solid #d8e1ef;background:#fff;border-radius:8px;padding:10px}
       .cleaning-task-row.done{border-color:#86efac;background:#f0fdf4}
       .cleaning-task-row.pending{border-color:#fbbf24;background:#fffbeb}
       .cleaning-task-main{display:grid;gap:6px;min-width:0}
       .cleaning-task-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:900;color:#0f172a}
+      .cleaning-task-title-text{min-width:0}
       .cleaning-task-index{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:999px;background:#e0f2fe;color:#0369a1;font-size:12px;font-weight:900;flex:0 0 auto}
       .cleaning-task-note{color:#475569;line-height:1.45}
       .cleaning-task-actions{display:grid;gap:6px}
       .cleaning-task-actions>.small{font-size:12px;color:#64748b;font-weight:900}
       .cleaning-task-actions .photo-cell{min-width:0}
       .cleaning-task-actions .mail-actions{justify-content:flex-start}
+      .cleaning-task-photo-panel{display:grid;gap:6px;min-width:120px}
+      .cleaning-task-photo-panel>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border:1px solid #cbd5e1;background:#fff;color:#0f172a;border-radius:999px;padding:8px 12px;font-weight:900;line-height:1}
+      .cleaning-task-photo-panel>summary::-webkit-details-marker{display:none}
+      .cleaning-task-photo-panel[open]>summary{margin-bottom:4px}
+      .cleaning-task-photo-panel .photo-cell{min-width:0}
+      .cleaning-task-confirm{min-width:120px}
       .task-guidance-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:8px 0 14px}
       .task-guidance-grid .note-card{margin:0;background:#f8fafc}
       .task-guidance-grid ul{margin:8px 0 0;padding-left:18px;color:#475569;font-size:13px;line-height:1.55}
@@ -1129,21 +1136,37 @@
         .cleaning-work-meta>div{display:grid;gap:4px}
         .cleaning-work-body{padding:10px;gap:8px}
         .cleaning-work-note{font-size:13px;line-height:1.45}
-        .cleaning-task-rows{gap:8px}
-        .cleaning-task-row{grid-template-columns:1fr!important;padding:10px;gap:8px}
-        .cleaning-task-title{font-size:15px;gap:6px}
-        .cleaning-task-note{font-size:13px;line-height:1.45}
-        .cleaning-task-actions{border-top:1px dashed #d8e1ef;padding-top:8px}
+        .cleaning-task-rows{gap:6px}
+        .cleaning-task-row{grid-template-columns:minmax(0,1fr) auto auto!important;align-items:center;padding:7px 8px;gap:6px}
+        .cleaning-task-main{gap:2px}
+        .cleaning-task-title{font-size:14px;line-height:1.18;gap:5px;flex-wrap:nowrap;min-width:0}
+        .cleaning-task-title-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+        .cleaning-task-index{width:20px;height:20px;font-size:11px}
+        .cleaning-task-title .sync-status{font-size:11px;padding:2px 6px;white-space:nowrap}
+        .cleaning-task-note{font-size:12px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .cleaning-task-actions{border-top:0;padding-top:0}
         .cleaning-task-actions>.small{display:none}
-        .photo-cell{gap:8px;min-width:0}
-        .photo-cell .mail-actions,.cleaning-task-actions .mail-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-        .photo-cell .mail-actions .smallbtn,.cleaning-task-actions .mail-actions .smallbtn{width:100%;min-height:44px;justify-content:center;padding:10px 12px}
+        .cleaning-task-photo-panel{min-width:0;justify-self:end}
+        .cleaning-task-photo-panel>summary{min-height:34px;padding:7px 9px;font-size:13px}
+        .cleaning-task-photo-panel[open]{grid-column:1/-1;justify-self:stretch;border-top:1px dashed #d8e1ef;padding-top:6px}
+        .cleaning-task-photo-panel[open]>summary{width:max-content}
+        .cleaning-task-confirm{min-width:0;justify-self:end}
+        .cleaning-task-confirm .mail-actions{display:flex;gap:6px;justify-content:flex-end}
+        .cleaning-task-confirm .smallbtn{width:auto;min-height:34px;justify-content:center;padding:7px 10px;font-size:13px}
+        .cleaning-task-confirm .task-defer-btn{padding-left:8px;padding-right:8px}
+        .photo-cell{gap:6px;min-width:0}
+        .photo-cell .mail-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+        .photo-cell .mail-actions .smallbtn{width:100%;min-height:38px;justify-content:center;padding:8px 10px}
         .task-confirm-item{padding:0;border:0;background:transparent}
         .photo-list a{min-height:36px}
         .sync-status,.badge{white-space:normal;text-align:center}
       }
       @media(max-width:380px){
-        .photo-cell .mail-actions,.cleaning-task-actions .mail-actions{grid-template-columns:1fr}
+        .photo-cell .mail-actions{grid-template-columns:1fr}
+        .cleaning-task-row{grid-template-columns:minmax(0,1fr) auto!important}
+        .cleaning-task-confirm{grid-column:1/-1;justify-self:stretch}
+        .cleaning-task-confirm .mail-actions{justify-content:stretch}
+        .cleaning-task-confirm .smallbtn{flex:1}
         .cleaning-work-name{font-size:15px}
       }
     `;
@@ -1554,7 +1577,30 @@
   function cleaningRowItems(row){
     if(!row || !row.date || !row.target_id) return [];
     const subtasks = (Array.isArray(row.subtasks) ? row.subtasks : []).filter(item => item && item.key);
-    return subtasks.length ? subtasks : [cleaningRowMainTask(row)];
+    return sortCleaningRowItems(row, subtasks.length ? subtasks : [cleaningRowMainTask(row)]);
+  }
+  function cleaningItemImportance(item,index){
+    const id = String((item && (item.template_id || item.templateId || item.note_id || item.noteId || item.id)) || '').toLowerCase();
+    const text = [id, item && item.title, item && item.note, item && item.source].map(v => String(v || '').toLowerCase()).join(' ');
+    let score = 500 + Number(index || 0);
+    if(item && item.main_task) score -= 450;
+    if(id.includes('checkout_turnover_standard') || /基础|退房|turnover|checkout/.test(text)) score -= 420;
+    if(item && item.can_defer === false) score -= 120;
+    if(/厨卫|卫生|马桶|排水|水垢|bath|kitchen|drain/.test(text)) score -= 70;
+    if(/耗材|布草|库存|supply|linen/.test(text)) score -= 50;
+    if(/防虫|pest/.test(text)) score -= 30;
+    if(id.includes('weekly')) score += 20;
+    if(id.includes('biweekly')) score += 80;
+    if(id.includes('monthly')) score += 140;
+    if(id.includes('quarterly')) score += 220;
+    if(item && item.can_defer !== false) score += 90;
+    if(item && item.key && subtaskDone(item.key)) score += 1000;
+    return score;
+  }
+  function sortCleaningRowItems(row,items){
+    return (items || []).map((item,index) => ({item,index,score:cleaningItemImportance(item,index)}))
+      .sort((a,b) => a.score - b.score || a.index - b.index)
+      .map(x => x.item);
   }
   function cleaningConfirmRequired(row){
     if(!row || !row.date) return false;
@@ -1768,15 +1814,17 @@
     const doneRow = subtaskConfirmation(key);
     if(doneRow) return `<div class="task-confirm-item done"><span class="sync-status ok">已完成</span><div class="small">${esc(doneRow.completed_at || doneRow.created_at || '')}</div></div>`;
     const canComplete = row.date <= today();
-    const completeBtn = canComplete ? `<button class="smallbtn primary" onclick="markCleaningSubtaskDone('${encodeURIComponent(key)}',this)">完成</button>` : '<span class="sync-status warn">未到日期</span>';
-    const deferBtn = item && item.can_defer ? `<button class="smallbtn" onclick="deferCleaningSubtask('${encodeURIComponent(key)}',this)">下次退房再做</button>` : '';
+    const completeBtn = canComplete ? `<button class="smallbtn primary task-done-btn" onclick="markCleaningSubtaskDone('${encodeURIComponent(key)}',this)">完成</button>` : '<span class="sync-status warn">未到日期</span>';
+    const deferBtn = item && item.can_defer ? `<button class="smallbtn task-defer-btn" onclick="deferCleaningSubtask('${encodeURIComponent(key)}',this)">下次做</button>` : '';
     return `<div class="mail-actions">${completeBtn}${deferBtn}</div>`;
   }
   function cleaningTaskRow(row,item,index,total){
     const done = subtaskDone(item.key);
     const cls = done ? 'done' : 'pending';
     const status = done ? '<span class="sync-status ok">已完成</span>' : '<span class="sync-status warn">待完成</span>';
-    return `<div class="cleaning-task-row ${cls}"><div class="cleaning-task-main"><div class="cleaning-task-title"><span class="cleaning-task-index">${index + 1}</span><span>${esc(item.title || '保洁任务')}</span>${status}</div>${item.note ? `<div class="cleaning-task-note">${esc(item.note)}</div>` : ''}</div><div class="cleaning-task-actions"><div class="small">照片</div>${cleaningPhotoControls(row,item)}</div><div class="cleaning-task-actions"><div class="small">确认</div>${cleaningTaskConfirmControl(row,item)}</div></div>`;
+    const photoCount = cleaningPhotosForRow(row,item).length;
+    const photoLabel = photoCount ? `照片 ${photoCount}` : '照片';
+    return `<div class="cleaning-task-row ${cls}"><div class="cleaning-task-main"><div class="cleaning-task-title"><span class="cleaning-task-index">${index + 1}</span><span class="cleaning-task-title-text">${esc(item.title || '保洁任务')}</span>${status}</div>${item.note ? `<div class="cleaning-task-note">${esc(item.note)}</div>` : ''}</div><details class="cleaning-task-photo-panel"><summary>${esc(photoLabel)}</summary>${cleaningPhotoControls(row,item)}</details><div class="cleaning-task-actions cleaning-task-confirm">${cleaningTaskConfirmControl(row,item)}</div></div>`;
   }
   function cleaningRowProgressBadge(row){
     if(row.cancel_review_task) return cleaningReviewControls(row);
