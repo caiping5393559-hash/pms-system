@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-04-v54-backend-default-cleaning-tasks';
+  const VERSION = '2026-07-04-v55-cleaning-card-ui';
   window.__PMS_PATCH_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
 
@@ -1056,12 +1056,34 @@
       .task-confirm-item,.task-photo-item{border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:8px;display:grid;gap:6px}
       .task-confirm-item.done{border-color:#86efac;background:#f0fdf4}
       .task-confirm-list .mail-actions,.task-photo-list .mail-actions{justify-content:flex-start}
+      .cleaning-work-list{display:grid;gap:12px}
+      .cleaning-work-card{border:1px solid #d8e1ef;background:#fff;border-radius:8px;overflow:hidden}
+      .cleaning-work-card.today{border-color:#fbbf24;background:#fffbeb}
+      .cleaning-work-card.review{border-color:#fb923c;background:#fff7ed}
+      .cleaning-work-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0}
+      .cleaning-work-card.today .cleaning-work-head{background:#fef3c7}
+      .cleaning-work-title{display:grid;gap:6px;min-width:0}
+      .cleaning-work-name{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:18px;font-weight:900;color:#0f172a}
+      .cleaning-work-meta{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;min-width:190px}
+      .cleaning-work-body{display:grid;gap:10px;padding:12px 14px}
+      .cleaning-work-note{color:#475569;line-height:1.5}
+      .cleaning-task-rows{display:grid;gap:8px}
+      .cleaning-task-row{display:grid;grid-template-columns:minmax(260px,1fr) minmax(150px,.36fr) minmax(150px,.32fr);gap:10px;align-items:start;border:1px solid #d8e1ef;background:#fff;border-radius:8px;padding:10px}
+      .cleaning-task-row.done{border-color:#86efac;background:#f0fdf4}
+      .cleaning-task-row.pending{border-color:#fbbf24;background:#fffbeb}
+      .cleaning-task-main{display:grid;gap:6px;min-width:0}
+      .cleaning-task-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:900;color:#0f172a}
+      .cleaning-task-index{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:999px;background:#e0f2fe;color:#0369a1;font-size:12px;font-weight:900;flex:0 0 auto}
+      .cleaning-task-note{color:#475569;line-height:1.45}
+      .cleaning-task-actions{display:grid;gap:6px}
+      .cleaning-task-actions .photo-cell{min-width:0}
+      .cleaning-task-actions .mail-actions{justify-content:flex-start}
       .task-guidance-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:8px 0 14px}
       .task-guidance-grid .note-card{margin:0;background:#f8fafc}
       .task-guidance-grid ul{margin:8px 0 0;padding-left:18px;color:#475569;font-size:13px;line-height:1.55}
       #recurringTaskManager table{font-size:13px}
       #recurringTaskManager td{vertical-align:top}
-      @media(max-width:900px){.room-basics,.channel-grid,.property-edit-grid{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}}
+      @media(max-width:900px){.room-basics,.channel-grid,.property-edit-grid,.cleaning-task-row{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top,.cleaning-work-head{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}.cleaning-work-meta{justify-content:flex-start;min-width:0}}
     `;
     document.head.appendChild(style);
   }
@@ -1675,11 +1697,50 @@
       return `<div class="task-confirm-item"><div class="small">${esc(item.title || '保洁任务')}</div><div class="mail-actions">${completeBtn}${deferBtn}</div></div>`;
     }).join('')}</div>`;
   }
+  function cleaningTaskConfirmControl(row,item){
+    if(!row) return '';
+    if(row.cancel_review_task) return cleaningReviewControls(row);
+    if(!cleaningConfirmRequired(row)) return '<span class="sync-status ok">历史记录</span>';
+    const key = String((item && item.key) || '');
+    ui.confirmRows[key] = {row, item};
+    const doneRow = subtaskConfirmation(key);
+    if(doneRow) return `<div class="task-confirm-item done"><span class="sync-status ok">已完成</span><div class="small">${esc(doneRow.completed_at || doneRow.created_at || '')}</div></div>`;
+    const canComplete = row.date <= today();
+    const completeBtn = canComplete ? `<button class="smallbtn primary" onclick="markCleaningSubtaskDone('${encodeURIComponent(key)}',this)">完成</button>` : '<span class="sync-status warn">未到日期</span>';
+    const deferBtn = item && item.can_defer ? `<button class="smallbtn" onclick="deferCleaningSubtask('${encodeURIComponent(key)}',this)">下次退房再做</button>` : '';
+    return `<div class="mail-actions">${completeBtn}${deferBtn}</div>`;
+  }
+  function cleaningTaskRow(row,item,index,total){
+    const done = subtaskDone(item.key);
+    const cls = done ? 'done' : 'pending';
+    const status = done ? '<span class="sync-status ok">已完成</span>' : '<span class="sync-status warn">待完成</span>';
+    return `<div class="cleaning-task-row ${cls}"><div class="cleaning-task-main"><div class="cleaning-task-title"><span class="cleaning-task-index">${index + 1}</span><span>${esc(item.title || '保洁任务')}</span>${status}</div>${item.note ? `<div class="cleaning-task-note">${esc(item.note)}</div>` : ''}</div><div class="cleaning-task-actions"><div class="small">照片</div>${cleaningPhotoControls(row,item)}</div><div class="cleaning-task-actions"><div class="small">确认</div>${cleaningTaskConfirmControl(row,item)}</div></div>`;
+  }
+  function cleaningRowProgressBadge(row){
+    if(row.cancel_review_task) return cleaningReviewControls(row);
+    if(!cleaningConfirmRequired(row)) return '<span class="sync-status ok">历史记录</span>';
+    const items = cleaningRowItems(row);
+    const done = items.filter(item => subtaskDone(item.key)).length;
+    const cls = done === items.length ? 'ok' : 'warn';
+    return `<span class="sync-status ${cls}">${done}/${items.length} 已完成</span>`;
+  }
+  function cleaningWorkCard(row,showProp,showSource){
+    const type = row.target_type || 'room';
+    const prop = showProp ? `<span class="badge blue">${esc(propName(targetPropId(row.target_id,type)))}</span>` : '';
+    const source = showSource && row.source ? `<span class="badge">${esc(row.source)}</span>` : '';
+    const title = `${type === 'common' ? '公区' : '房间'}：${esc(targetName(row.target_id,type))}`;
+    const note = row.cancel_review_task ? esc(row.reason || '') : `${esc(row.reason || '')}${inlineNotes(row.date,row.target_id,type)}`;
+    const items = (!row.cancel_review_task && cleaningConfirmRequired(row)) ? cleaningRowItems(row) : [];
+    const body = row.cancel_review_task
+      ? `<div class="cleaning-work-note">${note}</div><div>${cleaningReviewControls(row)}</div>`
+      : `<div class="cleaning-work-note">${note || '按下方任务逐项完成。'}</div>${items.length ? `<div class="cleaning-task-rows">${items.map((item,i) => cleaningTaskRow(row,item,i,items.length)).join('')}</div>` : `<div class="cleaning-task-rows"><div class="cleaning-task-row done"><div class="cleaning-task-main"><div class="cleaning-task-title"><span>${esc(row.reason || '保洁记录')}</span><span class="sync-status ok">无需逐项确认</span></div></div><div></div><div>${cleaningConfirmControls(row)}</div></div></div>`}`;
+    return `<div class="cleaning-work-card ${row.date === today() ? 'today' : ''} ${row.cancel_review_task ? 'review' : ''}"><div class="cleaning-work-head"><div class="cleaning-work-title"><div class="cleaning-work-name">${objectBadge(type)} <span>${title}</span>${prop}${source}</div><div class="small">日期：${esc(row.date)}</div></div><div class="cleaning-work-meta">${cleaningRowProgressBadge(row)}<div>${rowFeeText(row)}</div></div></div><div class="cleaning-work-body">${body}</div></div>`;
+  }
   function cleaningTableScoped(items, showSource=true){
     const rows = dedupeCleaningRowsImpl(items || []).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
     if(!rows.length) return `<div class="card"><p class="small">暂无记录</p></div>`;
     const showProp = ownerPropIds().length !== 1;
-    return `<div class="card"><table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>类型</th><th>对象</th>${showSource?'<th>来源</th>':''}<th>费用</th><th>备注/任务</th><th>照片</th><th>确认</th></tr>${rows.map(row => `<tr class="${row.date === today() ? 'today-row' : ''} ${row.cancel_review_task ? 'review-row' : ''}"><td>${esc(row.date)}</td>${showProp?`<td>${esc(propName(targetPropId(row.target_id,row.target_type)))}</td>`:''}<td>${objectBadge(row.target_type)}</td><td><span class="badge ${row.target_type === 'common' ? 'orange' : ''}">${esc(targetName(row.target_id,row.target_type))}</span></td>${showSource?`<td>${esc(row.source || '')}</td>`:''}<td>${rowFeeText(row)}</td><td>${cleaningTaskDetails(row)}</td><td>${cleaningPhotoColumn(row)}</td><td>${cleaningConfirmControls(row)}</td></tr>`).join('')}</table></div>`;
+    return `<div class="card cleaning-list-card"><div class="cleaning-work-list">${rows.map(row => cleaningWorkCard(row,showProp,showSource)).join('')}</div></div>`;
   }
 
   function ensureOwnerPropertyHost(){
