@@ -19,7 +19,10 @@ import urllib.error
 import threading
 import time
 
-PMS_PATCH_VERSION = "2026-07-04-v55-cleaning-card-ui"
+PMS_PATCH_VERSION = "2026-07-04-v57-cleaner-mobile-ramp"
+PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
+PMS_CLEANING_TASK_RAMP_DAYS = 7
+PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
 BASE = Path(__file__).resolve().parent
 STATIC = BASE / "static"
 STATE_PATH = BASE / "state.json"
@@ -4582,6 +4585,27 @@ def _pms_default_room_task_key(room_id, preset_id):
     return f"room_default|{room_id or ''}|{preset_id or ''}"
 
 
+def _pms_default_room_task_start_date(is_base):
+    if is_base:
+        return datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+    return PMS_CLEANING_TASK_DEEP_START_DATE
+
+
+def _pms_apply_cleaning_task_launch_ramp(notes):
+    for item in notes:
+        if not isinstance(item, dict):
+            continue
+        if not item.get("recurring_task") or not item.get("default_room_task"):
+            continue
+        if str(item.get("template_id") or "") == "checkout_turnover_standard":
+            continue
+        start_date = str(item.get("start_date") or "")[:10]
+        if not start_date or start_date < PMS_CLEANING_TASK_DEEP_START_DATE:
+            item["start_date"] = PMS_CLEANING_TASK_DEEP_START_DATE
+            item["launch_ramp_applied"] = True
+    return notes
+
+
 def _pms_default_room_task(room, preset):
     room_id = str(room.get("id") or "")
     is_base = bool(preset.get("base"))
@@ -4610,7 +4634,7 @@ def _pms_default_room_task(room, preset):
         "flex_days": 0 if is_base else int(preset.get("flex") or 0),
         "workload_sensitive": not is_base,
         "amount": 0,
-        "start_date": datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat(),
+        "start_date": _pms_default_room_task_start_date(is_base),
         "created_by": "系统默认",
         "created_at": now_utc_iso(),
     }
@@ -4640,7 +4664,7 @@ def _pms_ensure_default_room_cleaning_tasks(state):
                 continue
             notes.append(_pms_default_room_task(room, preset))
             existing.add(key)
-    state["cleaningNotes"] = notes[-3000:]
+    state["cleaningNotes"] = _pms_apply_cleaning_task_launch_ramp(notes)[-3000:]
     return state
 
 

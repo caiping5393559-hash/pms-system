@@ -1,7 +1,9 @@
 (function(){
-  const VERSION = '2026-07-04-v55-cleaning-card-ui';
+  const VERSION = '2026-07-04-v57-cleaner-mobile-ramp';
   window.__PMS_PATCH_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
+  const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
+  const CLEANING_TASK_RAMP_DAYS = 7;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
     selectedPropertyIds: null,
@@ -457,6 +459,34 @@
   function defaultRoomTaskKey(roomId,presetId){
     return 'room_default|' + String(roomId || '') + '|' + String(presetId || '');
   }
+  function defaultDeepTaskStartDate(){
+    return addDay(CLEANING_TASK_LAUNCH_DATE, CLEANING_TASK_RAMP_DAYS);
+  }
+  function defaultPresetStartDate(isBase){
+    return isBase ? today() : defaultDeepTaskStartDate();
+  }
+  function isDefaultDeepRoomTask(note){
+    return !!(note && note.recurring_task && note.default_room_task && String(note.template_id || '') !== 'checkout_turnover_standard');
+  }
+  function effectiveRecurringStartDate(note, first){
+    const normalized = normalizeDateInputValue(first) || today();
+    if(isDefaultDeepRoomTask(note) && normalized < defaultDeepTaskStartDate()) return defaultDeepTaskStartDate();
+    return normalized;
+  }
+  function rampDefaultRoomCleaningTasks(){
+    let changed = 0;
+    const start = defaultDeepTaskStartDate();
+    getNotes().forEach(note => {
+      if(!isDefaultDeepRoomTask(note)) return;
+      const current = normalizeDateInputValue(note.start_date);
+      if(!current || current < start){
+        note.start_date = start;
+        note.launch_ramp_applied = true;
+        changed += 1;
+      }
+    });
+    return changed;
+  }
   function allRecurringTaskNotes(){
     return getNotes().filter(n => n && n.recurring_task);
   }
@@ -489,7 +519,7 @@
       flex_days:isBase ? 0 : Math.max(0, Number(preset.flex || 0)),
       workload_sensitive:!isBase,
       amount:Number(preset.amount || 0),
-      start_date:today(),
+      start_date:defaultPresetStartDate(isBase),
       created_by:'系统默认',
       created_at:nowIso()
     };
@@ -511,7 +541,7 @@
     return added;
   }
   function ensureDefaultRoomCleaningTasks(){
-    let added = 0;
+    let added = rampDefaultRoomCleaningTasks();
     getRooms().forEach(room => { added += ensureDefaultRoomCleaningTasksForRoom(room); });
     return added;
   }
@@ -1056,6 +1086,7 @@
       .task-confirm-item,.task-photo-item{border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:8px;display:grid;gap:6px}
       .task-confirm-item.done{border-color:#86efac;background:#f0fdf4}
       .task-confirm-list .mail-actions,.task-photo-list .mail-actions{justify-content:flex-start}
+      .cleaning-list-card{padding:10px}
       .cleaning-work-list{display:grid;gap:12px}
       .cleaning-work-card{border:1px solid #d8e1ef;background:#fff;border-radius:8px;overflow:hidden}
       .cleaning-work-card.today{border-color:#fbbf24;background:#fffbeb}
@@ -1076,6 +1107,7 @@
       .cleaning-task-index{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:999px;background:#e0f2fe;color:#0369a1;font-size:12px;font-weight:900;flex:0 0 auto}
       .cleaning-task-note{color:#475569;line-height:1.45}
       .cleaning-task-actions{display:grid;gap:6px}
+      .cleaning-task-actions>.small{font-size:12px;color:#64748b;font-weight:900}
       .cleaning-task-actions .photo-cell{min-width:0}
       .cleaning-task-actions .mail-actions{justify-content:flex-start}
       .task-guidance-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:8px 0 14px}
@@ -1084,6 +1116,36 @@
       #recurringTaskManager table{font-size:13px}
       #recurringTaskManager td{vertical-align:top}
       @media(max-width:900px){.room-basics,.channel-grid,.property-edit-grid,.cleaning-task-row{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top,.cleaning-work-head{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}.cleaning-work-meta{justify-content:flex-start;min-width:0}}
+      @media(max-width:600px){
+        #cleaner .card,#ownerCleaningShell .card{padding:10px}
+        .cleaning-list-card{padding:8px;background:#f8fafc}
+        .cleaning-work-list{gap:10px}
+        .cleaning-work-card{border-radius:8px}
+        .cleaning-work-head{display:grid;grid-template-columns:1fr;gap:8px;padding:10px}
+        .cleaning-work-title{gap:4px}
+        .cleaning-work-name{font-size:16px;gap:6px}
+        .cleaning-work-meta{display:grid;grid-template-columns:1fr;gap:6px;justify-content:stretch;min-width:0}
+        .cleaning-work-meta .sync-status{justify-content:center;text-align:center}
+        .cleaning-work-meta>div{display:grid;gap:4px}
+        .cleaning-work-body{padding:10px;gap:8px}
+        .cleaning-work-note{font-size:13px;line-height:1.45}
+        .cleaning-task-rows{gap:8px}
+        .cleaning-task-row{grid-template-columns:1fr!important;padding:10px;gap:8px}
+        .cleaning-task-title{font-size:15px;gap:6px}
+        .cleaning-task-note{font-size:13px;line-height:1.45}
+        .cleaning-task-actions{border-top:1px dashed #d8e1ef;padding-top:8px}
+        .cleaning-task-actions>.small{display:none}
+        .photo-cell{gap:8px;min-width:0}
+        .photo-cell .mail-actions,.cleaning-task-actions .mail-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+        .photo-cell .mail-actions .smallbtn,.cleaning-task-actions .mail-actions .smallbtn{width:100%;min-height:44px;justify-content:center;padding:10px 12px}
+        .task-confirm-item{padding:0;border:0;background:transparent}
+        .photo-list a{min-height:36px}
+        .sync-status,.badge{white-space:normal;text-align:center}
+      }
+      @media(max-width:380px){
+        .photo-cell .mail-actions,.cleaning-task-actions .mail-actions{grid-template-columns:1fr}
+        .cleaning-work-name{font-size:15px}
+      }
     `;
     document.head.appendChild(style);
   }
@@ -1283,7 +1345,7 @@
   function recurringDatesForNote(note,start,end,applyOwnerScope=true){
     if(!note || !note.target_id) return [];
     const type = note.schedule_type || 'interval';
-    const first = normalizeDateInputValue(note.start_date) || normalizeDateInputValue(note.date) || String(note.created_at || '').slice(0,10) || today();
+    const first = effectiveRecurringStartDate(note, normalizeDateInputValue(note.start_date) || normalizeDateInputValue(note.date) || String(note.created_at || '').slice(0,10) || today());
     const out = [];
     const seen = new Set();
     if(type === 'daily'){
@@ -2252,7 +2314,7 @@
     const flex = qs('recurringFlexDays'); if(flex) flex.value = String(preset.flex || 0);
     const amount = qs('recurringAmount'); if(amount) amount.value = String(preset.amount || 0);
     const mode = qs('recurringTaskMode'); if(mode) mode.value = (preset.schedule === 'interval' && Number(preset.interval || 0) >= 14) ? 'deep' : 'regular';
-    const start = qs('recurringStartDate'); if(start && !start.value) start.value = today();
+    const start = qs('recurringStartDate'); if(start && !start.value) start.value = defaultPresetStartDate(preset.id === 'checkout_turnover_standard');
     const note = qs('recurringNote'); if(note) note.value = preset.note || '';
     const attach = qs('recurringAttachToCheckout'); if(attach) attach.value = preset.attach === false || preset.target === 'common' ? 'false' : 'true';
     const defer = qs('recurringCanDefer'); if(defer) defer.value = preset.id === 'checkout_turnover_standard' ? 'false' : 'true';
