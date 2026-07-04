@@ -1,6 +1,7 @@
 (function(){
-  const VERSION = '2026-07-04-v51-recurring-cleaning-tasks';
+  const VERSION = '2026-07-04-v53-cleaning-subtasks-common-areas';
   window.__PMS_PATCH_VERSION = VERSION;
+  const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
     selectedPropertyIds: null,
@@ -16,8 +17,12 @@
     calendarVacancyOnly: false,
     cleaningSubTab: 'today',
     cleaningWorkDate: '',
+    editingRecurringTaskId: '',
+    recurringPropertyFilter: '',
+    recurringRoomFilter: '',
     mail: {mailForwardingConfig: [], propertyMailForwarding: [], mailEvents: []},
     photoRows: {},
+    confirmRows: {},
     booted: false,
     loading: false
   });
@@ -29,6 +34,7 @@
   ui.calendarVacancyOnly = !!ui.calendarVacancyOnly;
   ui.roomSettingsPanel = ui.roomSettingsPanel || 'summary';
   ui.roomDefaultsApplied = !!ui.roomDefaultsApplied;
+  ui.editingRecurringTaskId = ui.editingRecurringTaskId || '';
   ui.cleaningSubTab = ['today','finance','manual','notes'].includes(ui.cleaningSubTab) ? ui.cleaningSubTab : 'today';
   ui.cleaningWorkDate = ui.cleaningWorkDate || '';
 
@@ -171,6 +177,7 @@
   function monthKey(value){return String(value || '').slice(0,7);}
 
   const CLEANING_TASK_PRESETS = [
+    {id:'checkout_turnover_standard', title:'每次退房基础保洁', category:'基础/退房', target:'room', schedule:'daily', weekday:1, interval:1, flex:0, amount:0, attach:true, note:'垃圾清空、床品毛巾更换、厨房台面和餐具检查、卫浴清洁、地面吸尘拖地、高频触摸点擦拭、补齐耗材、拍照记录异常。'},
     {id:'weekly_trash_bins', title:'每周垃圾桶推出/收回', category:'外部/垃圾', target:'common', schedule:'weekly', weekday:4, interval:7, flex:0, amount:0, note:'按当地垃圾日，把垃圾桶推出到指定位置；垃圾车收走后再收回。'},
     {id:'weekly_kitchen_bath_detail', title:'厨卫深清和水垢检查', category:'厨卫', target:'room', schedule:'weekly', weekday:2, interval:7, flex:1, amount:0, note:'检查厨房油污、水槽、淋浴玻璃、马桶边角、地漏和水垢；在当天保洁量少时补做。'},
     {id:'weekly_supply_audit', title:'耗材库存和布草检查', category:'补给/布草', target:'room', schedule:'weekly', weekday:3, interval:7, flex:1, amount:0, note:'检查厕纸、纸巾、垃圾袋、洗手液、洗衣液、备用毛巾和床品，记录缺货。'},
@@ -182,6 +189,20 @@
     {id:'monthly_air_filter_vents', title:'空调滤网/通风口检查', category:'通风', target:'room', schedule:'interval', weekday:1, interval:30, flex:7, amount:0, note:'检查空调滤网、回风口、排风扇和出风口积灰；需要更换时记录给房东确认。'},
     {id:'quarterly_mattress_sofa', title:'床垫/沙发/枕芯保护层检查', category:'布草/家具', target:'room', schedule:'interval', weekday:1, interval:90, flex:14, amount:0, note:'检查床垫保护套、枕芯、沙发垫、床架缝隙和可见污渍，必要时拍照反馈。'},
     {id:'quarterly_curtains_blinds', title:'窗帘百叶/灯具/高处灰尘', category:'高处/软装', target:'room', schedule:'interval', weekday:1, interval:90, flex:14, amount:0, note:'清理窗帘、百叶、灯具、风扇、高处置物架和装饰物积灰。'}
+  ];
+
+  const DEFAULT_ROOM_TASK_PRESET_IDS = [
+    'checkout_turnover_standard',
+    'weekly_kitchen_bath_detail',
+    'weekly_supply_audit',
+    'biweekly_window_tracks_screens',
+    'biweekly_under_furniture_edges',
+    'monthly_drain_deodorize',
+    'monthly_pest_ipm_check',
+    'monthly_appliance_detail',
+    'monthly_air_filter_vents',
+    'quarterly_mattress_sofa',
+    'quarterly_curtains_blinds'
   ];
 
   const CLEANING_GUIDANCE_GROUPS = [
@@ -266,6 +287,30 @@
     const r = getRooms().find(x => String(x.id) === String(id));
     return (r && (r.name || r.id)) || id || '';
   }
+  function roomBathroomType(roomOrId){
+    const room = typeof roomOrId === 'object' && roomOrId ? roomOrId : getRooms().find(x => String(x.id) === String(roomOrId));
+    const raw = String((room && (room.bathroom_type || room.bathroomType || room.bathroom)) || 'private').toLowerCase();
+    if(['shared','common','public'].includes(raw)) return 'shared';
+    if(['none','no','without'].includes(raw)) return 'none';
+    return 'private';
+  }
+  function roomBathroomLabel(roomOrId){
+    const value = roomBathroomType(roomOrId);
+    if(value === 'shared') return '共享卫生间';
+    if(value === 'none') return '无卫生间';
+    return '独立卫生间';
+  }
+  function roomBathroomOptions(selected){
+    const value = roomBathroomType({bathroom_type:selected || 'private'});
+    return [
+      ['private','独立卫生间'],
+      ['shared','共享卫生间'],
+      ['none','无卫生间']
+    ].map(row => `<option value="${row[0]}" ${row[0] === value ? 'selected' : ''}>${row[1]}</option>`).join('');
+  }
+  function presetRequiresPrivateBathroom(presetId){
+    return ['weekly_kitchen_bath_detail','monthly_drain_deodorize'].includes(String(presetId || ''));
+  }
   function normalizeRoomName(value){return String(value || '').trim().replace(/\s+/g,' ').toLowerCase();}
   function roomNameExists(propId,name,exceptId=''){
     const key = normalizeRoomName(name);
@@ -290,6 +335,37 @@
     const list = type === 'common' ? getAreas() : getRooms();
     const row = list.find(x => String(x.id) === String(id)) || {};
     return Number(row.cleaning_fee || 0);
+  }
+  function commonAreaKind(area){
+    const raw = String((area && (area.area_type || area.areaType || area.kind)) || 'general').toLowerCase();
+    if(['shared_kitchen','kitchen','厨房'].includes(raw)) return 'shared_kitchen';
+    if(['shared_bathroom','bathroom','卫生间','bath'].includes(raw)) return 'shared_bathroom';
+    return 'general';
+  }
+  function commonAreaKindLabel(area){
+    const kind = commonAreaKind(area);
+    if(kind === 'shared_kitchen') return '共享厨房';
+    if(kind === 'shared_bathroom') return '共享卫生间';
+    return '普通公区';
+  }
+  function commonAreaCount(area){
+    const n = Math.max(1, Number((area && (area.unit_count || area.unitCount || area.count)) || 1));
+    return Number.isFinite(n) ? n : 1;
+  }
+  function commonAreaOptions(selected){
+    const value = commonAreaKind({area_type:selected || 'general'});
+    return [
+      ['general','普通公区'],
+      ['shared_kitchen','共享厨房'],
+      ['shared_bathroom','共享卫生间']
+    ].map(row => `<option value="${row[0]}" ${row[0] === value ? 'selected' : ''}>${row[1]}</option>`).join('');
+  }
+  function commonAreaReason(area){
+    const count = commonAreaCount(area);
+    const label = commonAreaKindLabel(area);
+    if(commonAreaKind(area) === 'shared_kitchen') return `共享厨房每日清洁（${count} 个）：台面、水槽、灶台、垃圾、地面和公共耗材。`;
+    if(commonAreaKind(area) === 'shared_bathroom') return `共享卫生间每日清洁（${count} 个）：马桶、洗手台、镜面、淋浴区、地面、垃圾和耗材。`;
+    return `${label}每日清洁（${count} 个）：公共地面、垃圾、台面和公共用品。`;
   }
   function money(value){
     const n = Number(value || 0);
@@ -377,6 +453,68 @@
   function propRooms(propId){return getRooms().filter(r => String(roomPropId(r.id)) === String(propId));}
   function propAreas(propId){return getAreas().filter(a => String(areaPropId(a.id)) === String(propId));}
   function propCleaners(propId){return getPropertyCleaners().filter(x => String(x.property_id) === String(propId));}
+
+  function defaultRoomTaskKey(roomId,presetId){
+    return 'room_default|' + String(roomId || '') + '|' + String(presetId || '');
+  }
+  function allRecurringTaskNotes(){
+    return getNotes().filter(n => n && n.recurring_task);
+  }
+  function makeDefaultRoomTask(room,preset){
+    const interval = Math.max(1, Number(preset.interval || (preset.schedule === 'weekly' ? 7 : 30)));
+    const isBase = preset.id === 'checkout_turnover_standard';
+    const bathroom = roomBathroomType(room);
+    let note = preset.note;
+    if(isBase && bathroom !== 'private'){
+      note = '垃圾清空、床品毛巾更换、厨房台面和餐具检查、地面吸尘拖地、高频接触点擦拭、补齐耗材、拍照记录异常；本房间无独立卫生间，卫生间清洁归入公区共享卫生间任务。';
+    }
+    return {
+      id:'recurring_default_' + safe(room.id) + '_' + safe(preset.id),
+      recurring_task:true,
+      enabled:true,
+      default_room_task:true,
+      default_task_key:defaultRoomTaskKey(room.id,preset.id),
+      template_id:preset.id,
+      attach_to_checkout:true,
+      can_defer:!isBase,
+      task_mode:isBase ? 'regular' : 'deep',
+      target_id:room.id,
+      target_type:'room',
+      title:preset.title,
+      note,
+      priority:'普通',
+      schedule_type:isBase ? 'daily' : 'interval',
+      weekday:Number(preset.weekday == null ? 1 : preset.weekday),
+      interval_days:isBase ? 1 : interval,
+      flex_days:isBase ? 0 : Math.max(0, Number(preset.flex || 0)),
+      workload_sensitive:!isBase,
+      amount:Number(preset.amount || 0),
+      start_date:today(),
+      created_by:'系统默认',
+      created_at:nowIso()
+    };
+  }
+  function ensureDefaultRoomCleaningTasksForRoom(room){
+    if(!room || !room.id) return 0;
+    const notes = getNotes();
+    const existing = new Set(allRecurringTaskNotes().map(n => n.default_task_key || (n.default_room_task ? defaultRoomTaskKey(n.target_id,n.template_id) : '')));
+    let added = 0;
+    DEFAULT_ROOM_TASK_PRESET_IDS.forEach(id => {
+      const preset = recurringPresetById(id);
+      const key = defaultRoomTaskKey(room.id,id);
+      if(presetRequiresPrivateBathroom(id) && roomBathroomType(room) !== 'private') return;
+      if(!preset || preset.target !== 'room' || existing.has(key)) return;
+      notes.push(makeDefaultRoomTask(room,preset));
+      existing.add(key);
+      added += 1;
+    });
+    return added;
+  }
+  function ensureDefaultRoomCleaningTasks(){
+    let added = 0;
+    getRooms().forEach(room => { added += ensureDefaultRoomCleaningTasksForRoom(room); });
+    return added;
+  }
 
   function dataCount(state){
     const s = (state && state.state) || state || {};
@@ -844,7 +982,7 @@
       .room-head{border:1px solid #d8e1ef;background:#f8fafc;border-radius:8px;padding:10px}
       .room-setting-card .property-subcard{border:0;background:transparent;padding:12px 0 0;margin-top:12px;border-top:1px dashed var(--line)}
       .room-setting-card .property-subcard .property-detail-head{padding:0;border:0;margin:0}
-      .room-basics{display:grid;grid-template-columns:minmax(180px,1fr) minmax(120px,.45fr) auto;gap:8px;align-items:end;width:100%}
+      .room-basics{display:grid;grid-template-columns:minmax(180px,1fr) minmax(120px,.45fr) minmax(150px,.55fr) auto;gap:8px;align-items:end;width:100%}
       .room-index-section{display:grid;gap:12px;border:1px solid var(--line);background:#fff;border-radius:8px;padding:14px}
       .room-index-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
       .room-index-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
@@ -861,6 +999,7 @@
       .channel-list{display:grid;gap:10px;margin-top:10px}
       .channel-card{border:1px solid #bae6fd;background:#f8fcff;border-radius:8px;padding:10px;display:grid;gap:8px}
       .channel-grid{display:grid;grid-template-columns:130px minmax(190px,1fr) minmax(190px,1fr) minmax(140px,.8fr) auto;gap:8px;align-items:end}
+      .channel-grid.area-grid{grid-template-columns:minmax(150px,1fr) 150px 90px 120px 150px auto}
       .feed-line,.readonly-line{word-break:break-all;border:1px solid #d8e1ef;background:#f8fafc;border-radius:8px;padding:8px 10px;font-size:12px;color:#475569}
       .sync-status{display:inline-flex;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:900;border:1px solid #d8e1ef;background:#f8fafc;color:#475569}
       .sync-status.ok{border-color:#86efac;background:#f0fdf4;color:#166534}.sync-status.error{border-color:#fb7185;background:#fff1f2;color:#be123c}.sync-status.warn{border-color:#fbbf24;background:#fffbeb;color:#92400e}
@@ -910,6 +1049,13 @@
       .photo-status{font-size:12px;color:#64748b;font-weight:800;min-height:16px}
       .photo-status.ok{color:#047857}
       .photo-status.error{color:#b91c1c}
+      .clean-subtask-list,.task-confirm-list,.task-photo-list{display:grid;gap:8px;margin-top:8px}
+      .clean-subtask{border:1px solid #d8e1ef;background:#f8fafc;border-radius:8px;padding:8px}
+      .clean-subtask.done{border-color:#86efac;background:#f0fdf4}
+      .clean-subtask-title{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:900}
+      .task-confirm-item,.task-photo-item{border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:8px;display:grid;gap:6px}
+      .task-confirm-item.done{border-color:#86efac;background:#f0fdf4}
+      .task-confirm-list .mail-actions,.task-photo-list .mail-actions{justify-content:flex-start}
       .task-guidance-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:8px 0 14px}
       .task-guidance-grid .note-card{margin:0;background:#f8fafc}
       .task-guidance-grid ul{margin:8px 0 0;padding-left:18px;color:#475569;font-size:13px;line-height:1.55}
@@ -986,6 +1132,9 @@
     const entity = type === 'room' ? roomEntityId(row && row.target_id) : String(row && row.target_id || '');
     return [row && row.date, type, entity].map(x => String(x || '')).join('|');
   }
+  function checkoutAttachKey(row){
+    return cleanTargetKey(row);
+  }
   function isGeneratedCleaning(row){
     if(!row || row.finance_adjustment || row.note_task || row.type === 'manual_add' || row.cancel_review_task || row.type === 'cancel_review_task') return false;
     if((row.target_type || 'room') === 'common') return true;
@@ -1001,6 +1150,7 @@
     if(sources.size) base.source = Array.from(sources).join(' + ');
     if(reasons.size) base.reason = Array.from(reasons).join('；');
     if(!base.booking && row.booking) base.booking = row.booking;
+    if(row.subtasks || base.subtasks) base.subtasks = (base.subtasks || []).concat(row.subtasks || []);
     return base;
   }
   function dedupeCleaningRowsImpl(rows){
@@ -1028,7 +1178,7 @@
     const rows = [];
     getAreas().forEach(area => {
       if(area.daily_default !== false){
-        dateRange(s,e).forEach(date => rows.push({date, target_id: area.id, target_type: 'common', source: '公区每日保洁', type: 'system_common', actual: true, reason: '公区默认每日打扫'}));
+        dateRange(s,e).forEach(date => rows.push({date, target_id: area.id, target_type: 'common', source: commonAreaKindLabel(area), type: 'system_common', actual: true, reason: commonAreaReason(area)}));
       }
     });
     return rows;
@@ -1052,7 +1202,7 @@
     }).length;
   }
   function chooseRecurringTaskDate(note, dueDate, start, end, applyOwnerScope){
-    const flex = note.workload_sensitive === false ? 0 : Math.max(0, Math.min(21, Number(note.flex_days || 0)));
+    const flex = note.workload_sensitive === false ? 0 : Math.max(0, Math.min(60, Number(note.flex_days || 0)));
     const candidates = [];
     for(let offset = -flex; offset <= flex; offset++){
       const d = addDay(dueDate, offset);
@@ -1063,6 +1213,51 @@
     candidates.sort((a,b) => a.load - b.load || a.offset - b.offset || String(a.date).localeCompare(String(b.date)));
     return candidates[0] ? candidates[0].date : '';
   }
+  function roomCheckoutDates(roomId,start,end){
+    const entity = roomEntityId(roomId);
+    return Array.from(new Set(realBookingsImpl().filter(b => roomEntityId(b.room_id) === entity && (!start || b.checkout >= start) && (!end || b.checkout <= end)).map(b => b.checkout).filter(Boolean))).sort();
+  }
+  function chooseCheckoutTaskDate(note,dueDate,start,end){
+    const flex = Math.max(0, Math.min(60, Number(note.flex_days || 0)));
+    const scanStart = addDay(dueDate, -flex);
+    const scanEnd = addDay(dueDate, flex || 1);
+    let candidates = roomCheckoutDates(note.target_id, scanStart, scanEnd).filter(d => (!start || d >= start) && (!end || d <= end));
+    if(!candidates.length){
+      candidates = roomCheckoutDates(note.target_id, dueDate, addDay(dueDate, Math.max(60, Number(note.interval_days || 30) + flex))).filter(d => (!start || d >= start) && (!end || d <= end));
+    }
+    const scored = candidates.map(date => ({date, offset:Math.abs(daysBetweenSafe(dueDate,date)), load:baseCleaningLoad(date,true)}));
+    scored.sort((a,b) => a.offset - b.offset || a.load - b.load || String(a.date).localeCompare(String(b.date)));
+    return scored[0] ? scored[0].date : '';
+  }
+  function nextCheckoutDateForRoom(roomId,afterDate){
+    return roomCheckoutDates(roomId, addDay(afterDate,1), addDay(afterDate,365))[0] || '';
+  }
+  function applyRecurringDeferrals(note,dates,start,end){
+    const map = new Map();
+    const skip = new Set();
+    (Array.isArray(note && note.deferred_occurrences) ? note.deferred_occurrences : []).forEach(d => {
+      const from = String(d.from_date || '').slice(0,10);
+      const to = String(d.to_date || '').slice(0,10);
+      if(from && to){
+        skip.add(from);
+        map.set(from,to);
+      }
+    });
+    const out = [];
+    dates.forEach(date => {
+      if(skip.has(date)){
+        const to = map.get(date);
+        if(to && (!start || to >= start) && (!end || to <= end)) out.push(to);
+      }else{
+        out.push(date);
+      }
+    });
+    (Array.isArray(note && note.deferred_occurrences) ? note.deferred_occurrences : []).forEach(d => {
+      const to = String(d.to_date || '').slice(0,10);
+      if(to && (!start || to >= start) && (!end || to <= end)) out.push(to);
+    });
+    return Array.from(new Set(out)).sort();
+  }
   function recurringDatesForNote(note,start,end,applyOwnerScope=true){
     if(!note || !note.target_id) return [];
     const type = note.schedule_type || 'interval';
@@ -1070,33 +1265,37 @@
     const out = [];
     const seen = new Set();
     if(type === 'daily'){
-      dateRange(start,end).forEach(d => {
+      const dates = note.attach_to_checkout ? roomCheckoutDates(note.target_id,start,end) : dateRange(start,end);
+      dates.forEach(d => {
         if(d >= first && !seen.has(d)){seen.add(d); out.push(d);}
       });
-      return out;
+      return applyRecurringDeferrals(note,out,start,end);
     }
     if(type === 'weekly'){
       const weekday = Number(note.weekday || 1);
       dateRange(start,end).forEach(d => {
-        if(d >= first && parseDate(d).getDay() === weekday && !seen.has(d)){seen.add(d); out.push(d);}
+        if(d >= first && parseDate(d).getDay() === weekday && !seen.has(d)){
+          const selected = note.attach_to_checkout ? chooseCheckoutTaskDate(note,d,start,end) : d;
+          if(selected && !seen.has(selected)){seen.add(selected); out.push(selected);}
+        }
       });
-      return out;
+      return applyRecurringDeferrals(note,out,start,end);
     }
     const interval = Math.max(1, Number(note.interval_days || 30));
-    const flex = note.workload_sensitive === false ? 0 : Math.max(0, Math.min(21, Number(note.flex_days || 0)));
+    const flex = note.workload_sensitive === false ? 0 : Math.max(0, Math.min(60, Number(note.flex_days || 0)));
     let due = first;
     const scanStart = addDay(start, -flex);
     const scanEnd = addDay(end, flex);
     while(due < scanStart) due = addDay(due, interval);
     while(due <= scanEnd){
-      const selected = chooseRecurringTaskDate(note, due, start, end, applyOwnerScope);
+      const selected = note.attach_to_checkout ? chooseCheckoutTaskDate(note, due, start, end) : chooseRecurringTaskDate(note, due, start, end, applyOwnerScope);
       if(selected && !seen.has(selected)){
         seen.add(selected);
         out.push(selected);
       }
       due = addDay(due, interval);
     }
-    return out.sort();
+    return applyRecurringDeferrals(note,out,start,end);
   }
   function recurringTaskRows(start,end,applyOwnerScope=true){
     const rows = [];
@@ -1118,11 +1317,50 @@
           recurring_task: true,
           note_id: note.id || '',
           priority: note.priority || '普通',
-          schedule_text: recurringScheduleText(note)
+          schedule_text: recurringScheduleText(note),
+          attach_to_checkout: !!note.attach_to_checkout,
+          can_defer: note.can_defer !== false,
+          task_note: note
         });
       });
     });
     return rows;
+  }
+  function cleaningSubtaskFromRow(row){
+    const note = row.task_note || {};
+    const key = [row.date, row.target_type || 'room', row.target_id, row.note_id || row.id || row.title || row.reason].map(x => String(x || '')).join('|');
+    return {
+      key,
+      date: row.date,
+      target_id: row.target_id,
+      target_type: row.target_type || 'room',
+      title: note.title || row.title || row.source || '保洁任务',
+      note: note.note || row.reason || '',
+      source: row.source || '',
+      amount: Number(row.amount || 0),
+      can_defer: note.can_defer !== false && row.can_defer !== false,
+      note_id: row.note_id || '',
+      required: true
+    };
+  }
+  function attachRecurringRowsToCleanings(rows,recurringRows){
+    const out = (rows || []).map(r => ({...r}));
+    const byCheckout = new Map();
+    out.forEach(row => {
+      if((row.target_type || 'room') === 'room' && (row.booking || row.type === 'system')) byCheckout.set(checkoutAttachKey(row), row);
+    });
+    (recurringRows || []).forEach(task => {
+      if(task.attach_to_checkout && (task.target_type || 'room') === 'room'){
+        const base = byCheckout.get(checkoutAttachKey(task));
+        if(base){
+          base.subtasks = base.subtasks || [];
+          base.subtasks.push(cleaningSubtaskFromRow(task));
+          return;
+        }
+      }
+      out.push(task);
+    });
+    return out;
   }
   function noteTaskRows(start,end,applyOwnerScope=true){
     return getNotes().filter(n => {
@@ -1188,20 +1426,85 @@
         });
       }
     });
-    return dedupeCleaningRowsImpl(rows.filter(r => r.actual).concat(noteTaskRows(s,e,applyOwnerScope), recurringTaskRows(s,e,applyOwnerScope), cancelReviewTaskRows(s,e,false,applyOwnerScope)));
+    const recurringRows = recurringTaskRows(s,e,applyOwnerScope);
+    const mergedRows = attachRecurringRowsToCleanings(rows.filter(r => r.actual).concat(noteTaskRows(s,e,applyOwnerScope)), recurringRows);
+    return dedupeCleaningRowsImpl(mergedRows.concat(cancelReviewTaskRows(s,e,false,applyOwnerScope)));
   }
   function scopedCleaningRows(start,end){
     return actualCleaningRowsImpl(start,end).filter(r => targetMatches(r.target_id, r.target_type));
   }
   function rowAmount(row){
     if(row.cancel_review_task && String(row.review_status || 'pending') !== 'clean_needed') return 0;
+    const subtaskAmount = (Array.isArray(row.subtasks) ? row.subtasks : []).reduce((sum,item) => sum + Number(item.amount || 0), 0);
     if(row.recurring_task) return Number(row.amount || 0);
     if(row.type === 'manual_add' || row.note_task) return Number(row.amount || targetFee(row.target_id,row.target_type));
-    return targetFee(row.target_id,row.target_type);
+    return targetFee(row.target_id,row.target_type) + subtaskAmount;
   }
   function rowFeeText(row){
     if(row.cancel_review_task && String(row.review_status || 'pending') !== 'clean_needed') return '<span class="sync-status warn">待确认</span>';
-    return money(rowAmount(row));
+    const amount = money(rowAmount(row));
+    if(!cleaningConfirmRequired(row)) return amount;
+    const items = cleaningRowItems(row);
+    if(items.length && !cleaningRowComplete(row)) return `${amount}<div class="sync-status warn">任务未完成，暂不结算</div>`;
+    if(items.length) return `${amount}<div class="sync-status ok">已完成，可结算</div>`;
+    return amount;
+  }
+  function cleaningRowMainTask(row){
+    const type = row.target_type || 'room';
+    const title = row.cancel_review_task ? '房东确认退房保洁' : (type === 'common' ? '公区每日保洁' : '退房基础保洁');
+    const key = [row.date,type,row.target_id,row.type || '',row.review_note_id || row.note_id || '',title].map(x => String(x || '')).join('|');
+    return {
+      key,
+      date: row.date,
+      target_id: row.target_id,
+      target_type: type,
+      title,
+      note: row.reason || '',
+      source: row.source || '',
+      amount: 0,
+      can_defer: false,
+      required: true,
+      main_task: true
+    };
+  }
+  function cleaningRowItems(row){
+    if(!row || !row.date || !row.target_id) return [];
+    const subtasks = (Array.isArray(row.subtasks) ? row.subtasks : []).filter(item => item && item.key);
+    return subtasks.length ? subtasks : [cleaningRowMainTask(row)];
+  }
+  function cleaningConfirmRequired(row){
+    if(!row || !row.date) return false;
+    if(Array.isArray(row.subtasks) && row.subtasks.length) return true;
+    return String(row.date) >= CLEANING_CONFIRM_REQUIRED_FROM;
+  }
+  function subtaskConfirmation(key){
+    const target = String(key || '');
+    for(let i=getConfirmations().length - 1;i>=0;i--){
+      const row = getConfirmations()[i] || {};
+      const rowKey = String(row.task_key || row.taskKey || '');
+      if(rowKey === target && String(row.status || 'done') === 'done') return row;
+    }
+    return null;
+  }
+  function subtaskDone(key){return !!subtaskConfirmation(key);}
+  function cleaningRowComplete(row){
+    if(!cleaningConfirmRequired(row)) return true;
+    const items = cleaningRowItems(row);
+    return !!items.length && items.every(item => subtaskDone(item.key));
+  }
+  function cleaningTaskDetails(row){
+    const base = `${esc(row.reason || '')}${row.cancel_review_task ? '' : inlineNotes(row.date,row.target_id,row.target_type)}`;
+    if(row.cancel_review_task) return base;
+    if(!cleaningConfirmRequired(row)) return base;
+    const items = cleaningRowItems(row);
+    if(!items.length) return base;
+    const list = items.map(item => {
+      const done = subtaskDone(item.key);
+      const cls = done ? 'done' : 'pending';
+      const status = done ? '已完成' : '待完成';
+      return `<div class="clean-subtask ${cls}"><div class="clean-subtask-title"><span>${esc(item.title || '保洁任务')}</span><span class="sync-status ${done ? 'ok' : 'warn'}">${status}</span></div>${item.note ? `<div class="small">${esc(item.note)}</div>` : ''}</div>`;
+    }).join('');
+    return `${base}<div class="clean-subtask-list">${list}</div>`;
   }
   function roomDateNoteFor(date, roomId){return getRoomNotes().filter(n => n.date === date && String(n.room_id) === String(roomId));}
   function noteFor(date,targetId,targetType){return getNotes().filter(n => !n.recurring_task && n.date === date && String(n.target_id) === String(targetId) && (n.target_type || 'room') === (targetType || 'room'));}
@@ -1234,21 +1537,29 @@
     const key = cleaningTaskKey(row);
     return `<div class="mail-actions"><span class="sync-status warn">等待房东确认</span><button class="smallbtn primary" onclick="resolveCancellationReview('${key}','keep',this)">确认需要保洁</button><button class="smallbtn" onclick="resolveCancellationReview('${key}','move_next_day',this)">改到第二天</button><button class="smallbtn" onclick="resolveCancellationReview('${key}','cancel',this)">不需要保洁</button></div>`;
   }
-  function cleaningPhotoTaskKey(row){
+  function cleaningPhotoTaskKey(row,item=null){
+    if(item && item.key) return 'subtask|' + String(item.key);
     return [row && row.date, row && (row.target_type || 'room'), row && row.target_id, row && (row.type || ''), row && (row.source || ''), row && (row.review_note_id || row.note_id || '')].map(x => String(x || '')).join('|');
   }
-  function cleaningPhotosForRow(row){
-    const key = cleaningPhotoTaskKey(row);
+  function cleaningPhotosForRow(row,item=null){
+    const key = cleaningPhotoTaskKey(row,item);
     return getPhotos().filter(p => p && String(p.task_key || p.taskKey || '') === key);
   }
-  function cleaningPhotoControls(row){
+  function cleaningPhotoControls(row,item=null){
     if(!row || !row.date || !row.target_id) return '';
-    const key = cleaningPhotoTaskKey(row);
-    ui.photoRows[key] = {date: row.date, target_id: row.target_id, target_type: row.target_type || 'room', task_key: key};
+    const key = cleaningPhotoTaskKey(row,item);
+    ui.photoRows[key] = {
+      date: (item && item.date) || row.date,
+      target_id: (item && item.target_id) || row.target_id,
+      target_type: (item && item.target_type) || row.target_type || 'room',
+      task_key: key,
+      subtask_key: item && item.key || '',
+      subtask_title: item && item.title || ''
+    };
     const cameraId = 'cleanPhotoCamera_' + safe(key);
     const fileId = 'cleanPhotoFile_' + safe(key);
     const statusId = 'cleanPhotoStatus_' + safe(key);
-    const photos = cleaningPhotosForRow(row);
+    const photos = cleaningPhotosForRow(row,item);
     const canUpload = row.date <= today();
     const upload = canUpload ? `<div class="mail-actions"><label class="smallbtn" for="${cameraId}">拍照</label><label class="smallbtn" for="${fileId}">上传多张</label></div><input id="${cameraId}" data-upload-source="camera" type="file" accept="image/*" capture="environment" multiple onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><input id="${fileId}" data-upload-source="file" type="file" accept="image/*" multiple onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><div id="${statusId}" class="photo-status"></div>` : '';
     const list = photos.length ? `<div class="photo-list">${photos.map((p,i) => {
@@ -1257,6 +1568,12 @@
     }).join('')}</div>` : '<span class="small">未上传</span>';
     const expiry = photos.length ? `<div class="photo-expiry">7天后自动删除</div>` : '';
     return `<div class="photo-cell">${upload}${list}${expiry}</div>`;
+  }
+  function cleaningPhotoColumn(row){
+    if(!row || row.cancel_review_task) return cleaningPhotoControls(row);
+    const items = cleaningRowItems(row);
+    if(items.length <= 1) return cleaningPhotoControls(row, items[0]);
+    return `<div class="task-photo-list">${items.map(item => `<div class="task-photo-item"><div class="small"><b>${esc(item.title || '保洁任务')}</b></div>${cleaningPhotoControls(row,item)}</div>`).join('')}</div>`;
   }
   function chooseCleaningPhoto(encodedKey,mode){
     const key = decodeURIComponent(encodedKey || '');
@@ -1339,11 +1656,30 @@
       document.title = oldTitle;
     }
   }
+  function cleaningConfirmControls(row){
+    if(!row) return '';
+    if(row.cancel_review_task) return cleaningReviewControls(row);
+    if(!cleaningConfirmRequired(row)) return '<span class="sync-status ok">历史记录</span>';
+    const items = cleaningRowItems(row);
+    if(!items.length) return '';
+    const canComplete = row.date <= today();
+    return `<div class="task-confirm-list">${items.map(item => {
+      const key = String(item.key || '');
+      ui.confirmRows[key] = {row, item};
+      const doneRow = subtaskConfirmation(key);
+      if(doneRow){
+        return `<div class="task-confirm-item done"><span class="sync-status ok">已完成</span><div class="small">${esc(doneRow.completed_at || doneRow.created_at || '')}</div></div>`;
+      }
+      const completeBtn = canComplete ? `<button class="smallbtn primary" onclick="markCleaningSubtaskDone('${encodeURIComponent(key)}',this)">完成</button>` : '<span class="sync-status warn">未到日期</span>';
+      const deferBtn = item.can_defer ? `<button class="smallbtn" onclick="deferCleaningSubtask('${encodeURIComponent(key)}',this)">下次退房再做</button>` : '';
+      return `<div class="task-confirm-item"><div class="small">${esc(item.title || '保洁任务')}</div><div class="mail-actions">${completeBtn}${deferBtn}</div></div>`;
+    }).join('')}</div>`;
+  }
   function cleaningTableScoped(items, showSource=true){
     const rows = dedupeCleaningRowsImpl(items || []).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
     if(!rows.length) return `<div class="card"><p class="small">暂无记录</p></div>`;
     const showProp = ownerPropIds().length !== 1;
-    return `<div class="card"><table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>类型</th><th>对象</th>${showSource?'<th>来源</th>':''}<th>费用</th><th>备注/任务</th><th>照片</th><th>确认</th></tr>${rows.map(row => `<tr class="${row.date === today() ? 'today-row' : ''} ${row.cancel_review_task ? 'review-row' : ''}"><td>${esc(row.date)}</td>${showProp?`<td>${esc(propName(targetPropId(row.target_id,row.target_type)))}</td>`:''}<td>${objectBadge(row.target_type)}</td><td><span class="badge ${row.target_type === 'common' ? 'orange' : ''}">${esc(targetName(row.target_id,row.target_type))}</span></td>${showSource?`<td>${esc(row.source || '')}</td>`:''}<td>${rowFeeText(row)}</td><td>${esc(row.reason || '')}${row.cancel_review_task ? '' : inlineNotes(row.date,row.target_id,row.target_type)}</td><td>${cleaningPhotoControls(row)}</td><td>${cleaningReviewControls(row)}</td></tr>`).join('')}</table></div>`;
+    return `<div class="card"><table><tr><th>日期</th>${showProp?'<th>房源</th>':''}<th>类型</th><th>对象</th>${showSource?'<th>来源</th>':''}<th>费用</th><th>备注/任务</th><th>照片</th><th>确认</th></tr>${rows.map(row => `<tr class="${row.date === today() ? 'today-row' : ''} ${row.cancel_review_task ? 'review-row' : ''}"><td>${esc(row.date)}</td>${showProp?`<td>${esc(propName(targetPropId(row.target_id,row.target_type)))}</td>`:''}<td>${objectBadge(row.target_type)}</td><td><span class="badge ${row.target_type === 'common' ? 'orange' : ''}">${esc(targetName(row.target_id,row.target_type))}</span></td>${showSource?`<td>${esc(row.source || '')}</td>`:''}<td>${rowFeeText(row)}</td><td>${cleaningTaskDetails(row)}</td><td>${cleaningPhotoColumn(row)}</td><td>${cleaningConfirmControls(row)}</td></tr>`).join('')}</table></div>`;
   }
 
   function ensureOwnerPropertyHost(){
@@ -1808,20 +2144,37 @@
   function renderCleaningGuidance(){
     return `<div class="task-guidance-grid">${CLEANING_GUIDANCE_GROUPS.map(group => `<div class="note-card"><div class="note-title">${esc(group[0])}</div><ul>${group[1].map(item => `<li>${esc(item)}</li>`).join('')}</ul></div>`).join('')}</div>`;
   }
+  function recurringFilterRooms(){
+    return ownerRooms().filter(r => !ui.recurringPropertyFilter || String(roomPropId(r.id)) === String(ui.recurringPropertyFilter));
+  }
+  function renderRecurringTaskFilters(){
+    const propOptions = `<option value="">全部房源</option>` + propList().filter(p => propMatches(p.id)).map(p => `<option value="${esc(p.id)}" ${String(ui.recurringPropertyFilter) === String(p.id) ? 'selected' : ''}>${esc(p.name || p.id)}</option>`).join('');
+    const roomOptions = `<option value="">全部房间/公区</option>` + recurringFilterRooms().map(r => `<option value="room:${esc(r.id)}" ${String(ui.recurringRoomFilter) === 'room:'+String(r.id) ? 'selected' : ''}>${esc(propName(roomPropId(r.id)))} / ${esc(roomName(r.id))}</option>`).join('') + ownerAreas().filter(a => !ui.recurringPropertyFilter || String(areaPropId(a.id)) === String(ui.recurringPropertyFilter)).map(a => `<option value="common:${esc(a.id)}" ${String(ui.recurringRoomFilter) === 'common:'+String(a.id) ? 'selected' : ''}>${esc(propName(areaPropId(a.id)))} / ${esc(targetName(a.id,'common'))}</option>`).join('');
+    return `<div class="toolbar"><select onchange="setRecurringPropertyFilter(this.value)">${propOptions}</select><select onchange="setRecurringRoomFilter(this.value)">${roomOptions}</select></div>`;
+  }
   function renderRecurringTaskList(){
-    const rows = getRecurringTaskNotes(true).filter(n => targetMatches(n.target_id,n.target_type || 'room')).sort((a,b) => targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN') || recurringScheduleText(a).localeCompare(recurringScheduleText(b),'zh-Hans-CN'));
-    if(!rows.length) return '<p class="small">暂无周期任务。可以先选一个模板，再选择房间或公区保存。</p>';
-    return `<table><tr><th>启用</th><th>对象</th><th>任务</th><th>周期</th><th>弹性</th><th>费用</th><th>操作</th></tr>${rows.map(n => {
+    const filter = parseTarget(ui.recurringRoomFilter || '');
+    const rows = getRecurringTaskNotes(true).filter(n => {
+      const type = n.target_type || 'room';
+      if(!targetMatches(n.target_id,type)) return false;
+      if(ui.recurringPropertyFilter && String(targetPropId(n.target_id,type)) !== String(ui.recurringPropertyFilter)) return false;
+      if(filter.id && (String(type) !== String(filter.type) || String(n.target_id) !== String(filter.id))) return false;
+      return true;
+    }).sort((a,b) => propName(targetPropId(a.target_id,a.target_type)).localeCompare(propName(targetPropId(b.target_id,b.target_type)),'zh-Hans-CN') || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN') || recurringScheduleText(a).localeCompare(recurringScheduleText(b),'zh-Hans-CN'));
+    if(!rows.length) return renderRecurringTaskFilters() + '<p class="small">暂无周期任务。可以先选一个模板，再选择房间或公区保存。</p>';
+    return `${renderRecurringTaskFilters()}<table><tr><th>启用</th><th>房源</th><th>对象</th><th>任务</th><th>周期</th><th>弹性</th><th>费用</th><th>操作</th></tr>${rows.map(n => {
       const flex = n.schedule_type === 'weekly' || n.schedule_type === 'daily' ? '固定' : `前后 ${Number(n.flex_days || 0)} 天`;
-      return `<tr><td><input type="checkbox" ${(n.enabled === false || n.inactive) ? '' : 'checked'} onchange="toggleRecurringTask('${esc(n.id)}',this.checked)"></td><td>${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))}</td><td><b>${esc(n.title || '周期任务')}</b><div class="small">${esc(n.note || '')}</div></td><td>${esc(recurringScheduleText(n))}</td><td>${esc(flex)}</td><td>${money(n.amount || 0)}</td><td><button class="smallbtn danger" onclick="deleteRecurringTask('${esc(n.id)}')">删除</button></td></tr>`;
+      return `<tr><td><input type="checkbox" ${(n.enabled === false || n.inactive) ? '' : 'checked'} onchange="toggleRecurringTask('${esc(n.id)}',this.checked)"></td><td>${esc(propName(targetPropId(n.target_id,n.target_type)))}</td><td>${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))}</td><td><b>${esc(n.title || '周期任务')}</b><div class="small">${esc(n.note || '')}</div></td><td>${esc(recurringScheduleText(n))}</td><td>${esc(flex)}</td><td>${money(n.amount || 0)}</td><td><button class="smallbtn" onclick="editRecurringTask('${esc(n.id)}')">修改</button><button class="smallbtn danger" onclick="deleteRecurringTask('${esc(n.id)}')">删除</button></td></tr>`;
     }).join('')}</table>`;
   }
   function renderRecurringTaskManagerImpl(){
     const el = qs('recurringTaskManager');
     if(!el) return;
     const presetOptions = CLEANING_TASK_PRESETS.map(p => `<option value="${esc(p.id)}">${esc(p.category)} · ${esc(p.title)}</option>`).join('');
-    el.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2 style="margin:0">周期/深度保洁任务</h2><div class="small">房东可以把每周、每 14 天、每 30 天左右的项目放进任务库；间隔型任务会优先安排到前后几天里保洁量较少的一天。</div></div></div><div class="formgrid"><div><label>任务模板</label><select id="recurringPreset" onchange="applyRecurringPreset()">${presetOptions}</select></div><div><label>对象</label><select id="recurringTarget">${cleanTargetOptions()}</select></div><div><label>任务名称</label><input id="recurringTitle"></div><div><label>周期类型</label><select id="recurringScheduleType"><option value="weekly">每周固定</option><option value="interval">按间隔弹性安排</option><option value="daily">每天</option></select></div><div><label>每周几</label><select id="recurringWeekday">${[0,1,2,3,4,5,6].map(i => `<option value="${i}">${weekdayName(i)}</option>`).join('')}</select></div><div><label>间隔天数</label><input id="recurringIntervalDays" type="number" min="1" max="365"></div><div><label>弹性天数</label><input id="recurringFlexDays" type="number" min="0" max="21"></div><div><label>额外费用</label><input id="recurringAmount" type="number" step="0.01" placeholder="不额外收费填 0"></div><div><label>开始日期</label><input id="recurringStartDate" type="date"></div><div><label>类型</label><select id="recurringTaskMode"><option value="regular">周期任务</option><option value="deep">深度保洁</option></select></div></div><label style="margin-top:12px">任务说明</label><textarea id="recurringNote" placeholder="写给保洁看的具体操作。"></textarea><div class="toolbar"><button class="smallbtn primary" onclick="addRecurringTask()">添加周期任务</button><span class="small">杀虫类任务默认做成“巡检/必要时按标签处理”，不要固定要求乱喷药。</span></div><h3>默认项目库</h3>${renderCleaningGuidance()}<h3>已启用/已保存任务</h3><div id="recurringTaskList">${renderRecurringTaskList()}</div></div>`;
-    applyRecurringPresetImpl();
+    const editing = !!ui.editingRecurringTaskId;
+    el.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2 style="margin:0">周期/深度保洁任务</h2><div class="small">房东可以把每周、每 14 天、每 30 天左右的项目放进任务库；间隔型任务会优先安排到保洁量较少的退房日。</div></div></div><div class="formgrid"><div><label>任务模板</label><select id="recurringPreset" onchange="applyRecurringPreset()">${presetOptions}</select></div><div><label>对象</label><select id="recurringTarget">${cleanTargetOptions()}</select></div><div><label>任务名称</label><input id="recurringTitle"></div><div><label>周期类型</label><select id="recurringScheduleType"><option value="weekly">每周固定</option><option value="interval">按间隔弹性安排</option><option value="daily">每天</option></select></div><div><label>每周几</label><select id="recurringWeekday">${[0,1,2,3,4,5,6].map(i => `<option value="${i}">${weekdayName(i)}</option>`).join('')}</select></div><div><label>间隔天数</label><input id="recurringIntervalDays" type="number" min="1" max="365"></div><div><label>弹性天数</label><input id="recurringFlexDays" type="number" min="0" max="60"></div><div><label>额外费用</label><input id="recurringAmount" type="number" step="0.01" placeholder="不额外收费填 0"></div><div><label>开始日期</label><input id="recurringStartDate" type="date"></div><div><label>类型</label><select id="recurringTaskMode"><option value="regular">周期任务</option><option value="deep">深度保洁</option></select></div><div><label>归属</label><select id="recurringAttachToCheckout"><option value="true">放到退房保洁下</option><option value="false">单独生成任务</option></select></div><div><label>是否可顺延</label><select id="recurringCanDefer"><option value="true">可移到下一次退房</option><option value="false">必须本次完成</option></select></div></div><label style="margin-top:12px">任务说明</label><textarea id="recurringNote" placeholder="写给保洁看的具体操作。"></textarea><div class="toolbar"><button class="smallbtn primary" onclick="addRecurringTask()">${editing ? '保存任务修改' : '添加周期任务'}</button>${editing ? '<button class="smallbtn" onclick="cancelRecurringTaskEdit()">取消修改</button>' : ''}<span class="small">基础退房保洁默认必须完成；深度项目可以按下一次退房顺延。</span></div><h3>默认项目库</h3>${renderCleaningGuidance()}<h3>已启用/已保存任务</h3><div id="recurringTaskList">${renderRecurringTaskList()}</div></div>`;
+    if(editing) loadRecurringTaskFormImpl(ui.editingRecurringTaskId);
+    else applyRecurringPresetImpl();
   }
   function applyRecurringPresetImpl(){
     const preset = recurringPresetById(qs('recurringPreset') && qs('recurringPreset').value);
@@ -1840,6 +2193,41 @@
     const mode = qs('recurringTaskMode'); if(mode) mode.value = (preset.schedule === 'interval' && Number(preset.interval || 0) >= 14) ? 'deep' : 'regular';
     const start = qs('recurringStartDate'); if(start && !start.value) start.value = today();
     const note = qs('recurringNote'); if(note) note.value = preset.note || '';
+    const attach = qs('recurringAttachToCheckout'); if(attach) attach.value = preset.attach === false || preset.target === 'common' ? 'false' : 'true';
+    const defer = qs('recurringCanDefer'); if(defer) defer.value = preset.id === 'checkout_turnover_standard' ? 'false' : 'true';
+  }
+  function loadRecurringTaskFormImpl(id){
+    const row = getRecurringTaskNotes(true).find(n => String(n.id) === String(id));
+    if(!row) return;
+    const target = qs('recurringTarget'); if(target) target.value = `${row.target_type || 'room'}:${row.target_id}`;
+    const title = qs('recurringTitle'); if(title) title.value = row.title || '';
+    const schedule = qs('recurringScheduleType'); if(schedule) schedule.value = row.schedule_type || 'interval';
+    const weekday = qs('recurringWeekday'); if(weekday) weekday.value = String(row.weekday == null ? 1 : row.weekday);
+    const interval = qs('recurringIntervalDays'); if(interval) interval.value = String(row.interval_days || 30);
+    const flex = qs('recurringFlexDays'); if(flex) flex.value = String(row.flex_days || 0);
+    const amount = qs('recurringAmount'); if(amount) amount.value = String(row.amount || 0);
+    const mode = qs('recurringTaskMode'); if(mode) mode.value = row.task_mode || 'regular';
+    const start = qs('recurringStartDate'); if(start) start.value = normalizeDateInputValue(row.start_date) || today();
+    const note = qs('recurringNote'); if(note) note.value = row.note || '';
+    const attach = qs('recurringAttachToCheckout'); if(attach) attach.value = row.attach_to_checkout ? 'true' : 'false';
+    const defer = qs('recurringCanDefer'); if(defer) defer.value = row.can_defer === false ? 'false' : 'true';
+  }
+  function editRecurringTaskImpl(id){
+    ui.editingRecurringTaskId = id || '';
+    renderRecurringTaskManagerImpl();
+  }
+  function cancelRecurringTaskEditImpl(){
+    ui.editingRecurringTaskId = '';
+    renderRecurringTaskManagerImpl();
+  }
+  function setRecurringPropertyFilterImpl(value){
+    ui.recurringPropertyFilter = value || '';
+    ui.recurringRoomFilter = '';
+    renderRecurringTaskManagerImpl();
+  }
+  function setRecurringRoomFilterImpl(value){
+    ui.recurringRoomFilter = value || '';
+    renderRecurringTaskManagerImpl();
   }
   function addRecurringTaskImpl(){
     const target = parseTarget(qs('recurringTarget') && qs('recurringTarget').value);
@@ -1849,11 +2237,15 @@
     if(!title) return alert('请填写任务名称。');
     const schedule = (qs('recurringScheduleType') && qs('recurringScheduleType').value) || 'interval';
     const interval = Math.max(1, Number((qs('recurringIntervalDays') && qs('recurringIntervalDays').value) || 30));
-    const flex = schedule === 'interval' ? Math.max(0, Math.min(21, Number((qs('recurringFlexDays') && qs('recurringFlexDays').value) || 0))) : 0;
-    getNotes().unshift({
-      id:'recurring_'+Date.now(),
+    const flex = schedule === 'interval' ? Math.max(0, Math.min(60, Number((qs('recurringFlexDays') && qs('recurringFlexDays').value) || 0))) : 0;
+    const editingId = ui.editingRecurringTaskId || '';
+    let row = editingId ? getRecurringTaskNotes(true).find(n => String(n.id) === String(editingId)) : null;
+    const isNew = !row;
+    if(!row) row = {id:'recurring_'+Date.now(), recurring_task:true, created_at:nowIso(), created_by:userName('房东')};
+    Object.assign(row, {
       recurring_task:true,
       enabled:true,
+      inactive:false,
       task_mode:(qs('recurringTaskMode') && qs('recurringTaskMode').value) || 'regular',
       target_id:target.id,
       target_type:target.type,
@@ -1867,9 +2259,12 @@
       workload_sensitive:schedule === 'interval',
       amount:Number((qs('recurringAmount') && qs('recurringAmount').value) || 0),
       start_date:(qs('recurringStartDate') && qs('recurringStartDate').value) || today(),
-      created_by:userName('房东'),
-      created_at:nowIso()
+      attach_to_checkout: target.type === 'room' && ((qs('recurringAttachToCheckout') && qs('recurringAttachToCheckout').value) !== 'false'),
+      can_defer: (qs('recurringCanDefer') && qs('recurringCanDefer').value) !== 'false',
+      updated_at:nowIso()
     });
+    if(isNew) getNotes().unshift(row);
+    ui.editingRecurringTaskId = '';
     persistAll().then(() => { renderRecurringTaskManagerImpl(); renderAll(); }).catch(e => alert('保存失败：' + e.message));
   }
   function toggleRecurringTaskImpl(id,enabled){
@@ -1998,8 +2393,8 @@
     const editing = ui.editingRoom === room.id;
     const channels = channelRows(room.id);
     const roomHead = editing
-      ? `<div class="room-basics"><div><label>房间名称</label><input id="roomName_${safe(room.id)}" value="${esc(room.name || '')}"></div><div><label>单次保洁费</label><input id="roomFee_${safe(room.id)}" type="number" value="${esc(room.cleaning_fee || 0)}"></div><div class="property-actions"><button class="smallbtn primary" onclick="saveRoomBasics('${esc(room.id)}',this)">保存</button><button class="smallbtn" onclick="cancelRoomBasics()">取消</button></div></div>`
-      : `<div><strong>${esc(room.name || room.id)}</strong><div class="small">清洁费：${money(room.cleaning_fee || 0)} · ${channels.length} 个渠道</div></div><div class="property-actions"><button class="smallbtn" onclick="editRoomBasics('${esc(room.id)}')">修改</button><button class="smallbtn" onclick="deleteRoomUi('${esc(room.id)}',this)">删除</button></div>`;
+      ? `<div class="room-basics"><div><label>房间名称</label><input id="roomName_${safe(room.id)}" value="${esc(room.name || '')}"></div><div><label>单次保洁费</label><input id="roomFee_${safe(room.id)}" type="number" value="${esc(room.cleaning_fee || 0)}"></div><div><label>卫生间</label><select id="roomBathroom_${safe(room.id)}">${roomBathroomOptions(room.bathroom_type || 'private')}</select></div><div class="property-actions"><button class="smallbtn primary" onclick="saveRoomBasics('${esc(room.id)}',this)">保存</button><button class="smallbtn" onclick="cancelRoomBasics()">取消</button></div></div>`
+      : `<div><strong>${esc(room.name || room.id)}</strong><div class="small">清洁费：${money(room.cleaning_fee || 0)} · ${roomBathroomLabel(room)} · ${channels.length} 个渠道</div></div><div class="property-actions"><button class="smallbtn" onclick="editRoomBasics('${esc(room.id)}')">修改</button><button class="smallbtn" onclick="deleteRoomUi('${esc(room.id)}',this)">删除</button></div>`;
     return `<div class="room-setting-card"><div class="room-head">${roomHead}</div><div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">渠道 / iCal</h3><div class="small">同一个真实房间只建一次；多个 Airbnb 账号或平台都作为渠道挂在这里。</div></div><button class="smallbtn primary" onclick="addChannelListing('${esc(room.id)}')">添加渠道</button></div><div class="channel-list">${channels.length ? channels.map(ch => renderChannel(room,ch)).join('') : '<div class="empty-panel">还没有渠道。点击“添加渠道”后粘贴 Airbnb/平台导出的 iCal。</div>'}</div></div></div>`;
   }
   function renderCleanerPanel(prop){
@@ -2008,7 +2403,7 @@
   }
   function renderCommonAreaPanel(prop){
     const areas = propAreas(prop.id);
-    return `<div class="settings-section"><div class="property-detail-head"><div><h3 style="margin:0">公区设置</h3><div class="small">公区默认每天保洁，费用计入保洁统计。</div></div><button class="smallbtn primary" onclick="addCommonArea('${esc(prop.id)}')">添加公区</button></div><div class="channel-list">${areas.length ? areas.map(a => `<div class="channel-card"><div class="channel-grid"><div><label>名称</label><input id="areaName_${safe(a.id)}" value="${esc(a.name || '')}"></div><div><label>每日费用</label><input id="areaFee_${safe(a.id)}" type="number" value="${esc(a.cleaning_fee || 0)}"></div><div><label>是否每日保洁</label><select id="areaDaily_${safe(a.id)}"><option value="true" ${a.daily_default!==false?'selected':''}>每天打扫</option><option value="false" ${a.daily_default===false?'selected':''}>不默认</option></select></div><div></div><div class="property-actions"><button class="smallbtn primary" onclick="saveCommonAreaBasics('${esc(a.id)}',this)">保存</button><button class="smallbtn" onclick="deleteCommonAreaUi('${esc(a.id)}',this)">删除</button></div></div></div>`).join('') : '<div class="empty-panel">还没有公区。</div>'}</div></div>`;
+    return `<div class="settings-section"><div class="property-detail-head"><div><h3 style="margin:0">公区设置</h3><div class="small">公区默认每天保洁；共享厨房、共享卫生间可以填写数量，保洁任务会按这里生成。</div></div><button class="smallbtn primary" onclick="addCommonArea('${esc(prop.id)}')">添加公区</button></div><div class="channel-list">${areas.length ? areas.map(a => `<div class="channel-card"><div class="channel-grid area-grid"><div><label>名称</label><input id="areaName_${safe(a.id)}" value="${esc(a.name || '')}"></div><div><label>公区类型</label><select id="areaType_${safe(a.id)}">${commonAreaOptions(a.area_type || 'general')}</select></div><div><label>数量</label><input id="areaCount_${safe(a.id)}" type="number" min="1" step="1" value="${esc(commonAreaCount(a))}"></div><div><label>每日费用</label><input id="areaFee_${safe(a.id)}" type="number" value="${esc(a.cleaning_fee || 0)}"></div><div><label>是否每日保洁</label><select id="areaDaily_${safe(a.id)}"><option value="true" ${a.daily_default!==false?'selected':''}>每天打扫</option><option value="false" ${a.daily_default===false?'selected':''}>不默认</option></select></div><div class="property-actions"><button class="smallbtn primary" onclick="saveCommonAreaBasics('${esc(a.id)}',this)">保存</button><button class="smallbtn" onclick="deleteCommonAreaUi('${esc(a.id)}',this)">删除</button></div></div><div class="small">${esc(commonAreaReason(a))}</div></div>`).join('') : '<div class="empty-panel">还没有公区。</div>'}</div></div>`;
   }
   function roomSettingsPanelKey(kind,id){
     return id ? `${kind}:${id}` : String(kind || 'summary');
@@ -2382,6 +2777,9 @@
       ensureLogoutButton();
       try{
         await loadStateImpl();
+        if(isOwnerLike() && ensureDefaultRoomCleaningTasks()){
+          await persistAll();
+        }
         ['manualDate','noteDate','noteFilterDate','roomNoteDate','workDate'].forEach(id => { const el = qs(id); if(el && !el.value) el.value = today(); });
         applyRoleModeImpl();
         ui.booted = true;
@@ -2581,6 +2979,8 @@
       if(roomNameExists(propId,name,id)) return alert('同一个房源里不能有相同房间名。请换一个房间名。');
       room.name = name;
       room.cleaning_fee = Number((qs('roomFee_' + safe(id)) && qs('roomFee_' + safe(id)).value) || 0);
+      room.bathroom_type = (qs('roomBathroom_' + safe(id)) && qs('roomBathroom_' + safe(id)).value) || room.bathroom_type || 'private';
+      ensureDefaultRoomCleaningTasksForRoom(room);
     }
     ui.editingRoom = '';
     await persistAll(btn);
@@ -2589,7 +2989,9 @@
   async function addRoomImpl(propId){
     const id = 'room_' + Date.now();
     const propertyId = propId || (selectedProp() && selectedProp().id) || (propList()[0] && propList()[0].id) || 'property_default';
-    getRooms().push({id, property_id: propertyId, name: nextRoomName(propertyId), cleaning_fee: 30, type:'room', created_at:nowIso()});
+    const room = {id, property_id: propertyId, name: nextRoomName(propertyId), cleaning_fee: 30, bathroom_type:'private', type:'room', created_at:nowIso()};
+    getRooms().push(room);
+    ensureDefaultRoomCleaningTasksForRoom(room);
     setOwnerPropertyIds([propertyId]);
     setOwnerRoomIds(validOwnerRoomIds());
     ui.selectedPropertyId = propertyId;
@@ -2607,7 +3009,7 @@
   }
   async function addCommonAreaImpl(propId){
     const id = 'common_' + Date.now();
-    getAreas().push({id, property_id: propId || (selectedProp() && selectedProp().id) || (propList()[0] && propList()[0].id) || 'property_default', name:'新公区', cleaning_fee:20, daily_default:true, type:'common'});
+    getAreas().push({id, property_id: propId || (selectedProp() && selectedProp().id) || (propList()[0] && propList()[0].id) || 'property_default', name:'新公区', area_type:'general', unit_count:1, cleaning_fee:20, daily_default:true, type:'common'});
     await persistAll();
     renderAll();
   }
@@ -2615,6 +3017,8 @@
     const area = getAreas().find(a => String(a.id) === String(id));
     if(area){
       area.name = (qs('areaName_' + safe(id)) && qs('areaName_' + safe(id)).value.trim()) || area.name || id;
+      area.area_type = (qs('areaType_' + safe(id)) && qs('areaType_' + safe(id)).value) || area.area_type || 'general';
+      area.unit_count = Math.max(1, Number((qs('areaCount_' + safe(id)) && qs('areaCount_' + safe(id)).value) || area.unit_count || 1));
       area.cleaning_fee = Number((qs('areaFee_' + safe(id)) && qs('areaFee_' + safe(id)).value) || 0);
       area.daily_default = (qs('areaDaily_' + safe(id)) && qs('areaDaily_' + safe(id)).value) !== 'false';
     }
@@ -2791,6 +3195,54 @@
     renderAll();
   }
 
+  async function markCleaningSubtaskDone(encodedKey,btn){
+    const key = decodeURIComponent(encodedKey || '');
+    const payload = ui.confirmRows[key];
+    if(!payload || !payload.item) return alert('没有找到这条保洁任务，请刷新页面后再试。');
+    const item = payload.item;
+    const rows = getConfirmations();
+    let row = rows.find(x => String(x.task_key || x.taskKey || '') === key);
+    const now = nowIso();
+    if(!row){
+      row = {id:'clean_confirm_' + Date.now() + '_' + safe(key), task_key:key, created_at:now};
+      rows.push(row);
+    }
+    row.status = 'done';
+    row.completed_at = now;
+    row.completed_by = userName('保洁');
+    row.date = item.date || (payload.row && payload.row.date) || today();
+    row.target_id = item.target_id || (payload.row && payload.row.target_id) || '';
+    row.target_type = item.target_type || (payload.row && payload.row.target_type) || 'room';
+    row.title = item.title || '';
+    row.note_id = item.note_id || '';
+    await persistAll(btn);
+    renderAll();
+  }
+
+  async function deferCleaningSubtask(encodedKey,btn){
+    const key = decodeURIComponent(encodedKey || '');
+    const payload = ui.confirmRows[key];
+    if(!payload || !payload.item) return alert('没有找到这条保洁任务，请刷新页面后再试。');
+    const item = payload.item;
+    if(!item.can_defer) return alert('基础退房保洁不能顺延，必须本次完成。');
+    const note = getNotes().find(n => String(n.id || '') === String(item.note_id || ''));
+    if(!note) return alert('没有找到这个周期任务，不能顺延。');
+    const nextDate = nextCheckoutDateForRoom(item.target_id, item.date || today());
+    if(!nextDate) return alert('这个房间未来一年没有下一次退房，暂时不能顺延。');
+    note.deferred_occurrences = Array.isArray(note.deferred_occurrences) ? note.deferred_occurrences : [];
+    const from = String(item.date || '').slice(0,10);
+    const existing = note.deferred_occurrences.find(x => String(x.from_date || '').slice(0,10) === from);
+    const row = existing || {};
+    row.from_date = from;
+    row.to_date = nextDate;
+    row.by = userName('保洁');
+    row.at = nowIso();
+    row.reason = '保洁选择移到下一次退房再做';
+    if(!existing) note.deferred_occurrences.push(row);
+    await persistAll(btn);
+    renderAll();
+  }
+
   Object.assign(window, {
     applyServerState: applyStateFromServerImpl,
     applyStateFromServer: applyStateFromServerImpl,
@@ -2868,6 +3320,10 @@
     refreshNoteTargetOptions: refreshNoteTargetOptionsImpl,
     applyRecurringPreset: applyRecurringPresetImpl,
     addRecurringTask: addRecurringTaskImpl,
+    editRecurringTask: editRecurringTaskImpl,
+    cancelRecurringTaskEdit: cancelRecurringTaskEditImpl,
+    setRecurringPropertyFilter: setRecurringPropertyFilterImpl,
+    setRecurringRoomFilter: setRecurringRoomFilterImpl,
     toggleRecurringTask: toggleRecurringTaskImpl,
     deleteRecurringTask: deleteRecurringTaskImpl,
     addManualChange: addManualChangeImpl,
@@ -2877,6 +3333,8 @@
     syncMailEventsFromGmail,
     checkMailDiagnostics,
     resolveCancellationReview,
+    markCleaningSubtaskDone,
+    deferCleaningSubtask,
     chooseCleaningPhoto,
     uploadCleaningPhoto,
     copyText,
@@ -2940,12 +3398,18 @@
     ['setRoomSettingsPanel', setRoomSettingsPanel],
     ['applyRecurringPreset', applyRecurringPresetImpl],
     ['addRecurringTask', addRecurringTaskImpl],
+    ['editRecurringTask', editRecurringTaskImpl],
+    ['cancelRecurringTaskEdit', cancelRecurringTaskEditImpl],
+    ['setRecurringPropertyFilter', setRecurringPropertyFilterImpl],
+    ['setRecurringRoomFilter', setRecurringRoomFilterImpl],
     ['toggleRecurringTask', toggleRecurringTaskImpl],
     ['deleteRecurringTask', deleteRecurringTaskImpl],
     ['addRoom', addRoomImpl],
     ['addCommonArea', addCommonAreaImpl],
     ['syncIcal', syncPropertyIcalImpl],
     ['checkMailDiagnostics', checkMailDiagnostics],
+    ['markCleaningSubtaskDone', markCleaningSubtaskDone],
+    ['deferCleaningSubtask', deferCleaningSubtask],
     ['realBookings', realBookingsImpl],
     ['lockBookings', lockBookingsImpl],
     ['systemCleaningRows', systemCleaningRowsImpl],

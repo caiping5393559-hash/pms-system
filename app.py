@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_PATCH_VERSION = "2026-07-04-v51-recurring-cleaning-tasks"
+PMS_PATCH_VERSION = "2026-07-04-v53-cleaning-subtasks-common-areas"
 BASE = Path(__file__).resolve().parent
 STATIC = BASE / "static"
 STATE_PATH = BASE / "state.json"
