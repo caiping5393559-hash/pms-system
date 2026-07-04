@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, date, timezone
 from email.utils import formatdate
 from zoneinfo import ZoneInfo
 import base64
+import gzip
 import hashlib
 import hmac
 import json
@@ -18,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_PATCH_VERSION = "2026-07-03-v45-clean-source-v1"
+PMS_PATCH_VERSION = "2026-07-03-v46-gzip-login-fix"
 BASE = Path(__file__).resolve().parent
 STATIC = BASE / "static"
 STATE_PATH = BASE / "state.json"
