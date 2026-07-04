@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-04-v53-cleaning-subtasks-common-areas';
+  const VERSION = '2026-07-04-v54-backend-default-cleaning-tasks';
   window.__PMS_PATCH_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
 

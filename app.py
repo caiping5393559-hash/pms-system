@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_PATCH_VERSION = "2026-07-04-v53-cleaning-subtasks-common-areas"
+PMS_PATCH_VERSION = "2026-07-04-v54-backend-default-cleaning-tasks"
 BASE = Path(__file__).resolve().parent
 STATIC = BASE / "static"
 STATE_PATH = BASE / "state.json"
@@ -4546,6 +4546,104 @@ def serve_cleaning_task_photo(photo_id, actor=None):
     raise RuntimeError("direct storage photo")
 
 
+_PMS_DEFAULT_ROOM_CLEANING_TASKS = [
+    {
+        "id": "checkout_turnover_standard",
+        "title": "每次退房基础保洁",
+        "note": "垃圾清空、床品毛巾更换、厨房台面和餐具检查、卫生间清洁、地面吸尘拖地、高频接触点擦拭、补齐耗材、拍照记录异常。",
+        "interval": 1,
+        "flex": 0,
+        "mode": "regular",
+        "base": True,
+    },
+    {"id": "weekly_kitchen_bath_detail", "title": "厨卫深清和水垢检查", "note": "检查厨房油污、水槽、淋浴玻璃、马桶边角、地漏和水垢。", "interval": 7, "flex": 1, "mode": "regular", "private_bath": True},
+    {"id": "weekly_supply_audit", "title": "耗材库存和布草检查", "note": "检查纸巾、垃圾袋、洗手液、洗衣液、备用毛巾和床品，记录缺货。", "interval": 7, "flex": 1, "mode": "regular"},
+    {"id": "biweekly_window_tracks_screens", "title": "窗户轨道/纱窗/窗台灰尘", "note": "清理窗户轨道、窗台、纱窗表面灰尘；保洁量大时可顺延到下一次退房。", "interval": 14, "flex": 3, "mode": "deep"},
+    {"id": "biweekly_under_furniture_edges", "title": "床底沙发边角和踢脚线", "note": "吸尘床底、沙发边角、踢脚线、门后和柜角。", "interval": 14, "flex": 3, "mode": "deep"},
+    {"id": "monthly_drain_deodorize", "title": "排水口/马桶异味维护", "note": "检查淋浴、洗手池、厨房水槽、马桶和地漏异味，按产品说明维护。", "interval": 30, "flex": 7, "mode": "deep", "private_bath": True},
+    {"id": "monthly_pest_ipm_check", "title": "防虫巡检和必要处理", "note": "检查食物残渣、垃圾、门窗缝、潮湿点和虫迹；优先清洁/封堵，必要时按标签处理。", "interval": 30, "flex": 7, "mode": "deep"},
+    {"id": "monthly_appliance_detail", "title": "家电细节清洁", "note": "微波炉、烤箱、冰箱抽屉、洗衣机胶圈/滤网、咖啡机、遥控器和小家电外观深清。", "interval": 30, "flex": 7, "mode": "deep"},
+    {"id": "monthly_air_filter_vents", "title": "空调滤网/通风口检查", "note": "检查空调滤网、回风口、排风扇和出风口积灰，需更换时记录给房东确认。", "interval": 30, "flex": 7, "mode": "deep"},
+    {"id": "quarterly_mattress_sofa", "title": "床垫/沙发/枕芯保护层检查", "note": "检查床垫保护套、枕芯、沙发垫、床架缝隙和可见污渍，必要时拍照反馈。", "interval": 90, "flex": 14, "mode": "deep"},
+    {"id": "quarterly_curtains_blinds", "title": "窗帘百叶/灯具/高处灰尘", "note": "清理窗帘、百叶、灯具、风扇、高处置物架和装饰物积灰。", "interval": 90, "flex": 14, "mode": "deep"},
+]
+
+
+def _pms_room_bathroom_type(room):
+    text = str((room or {}).get("bathroom_type") or (room or {}).get("bathroomType") or (room or {}).get("bathroom") or "private").strip().lower()
+    if text in {"shared", "common", "public", "共享卫生间"}:
+        return "shared"
+    if text in {"none", "no", "without", "无卫生间"}:
+        return "none"
+    return "private"
+
+
+def _pms_default_room_task_key(room_id, preset_id):
+    return f"room_default|{room_id or ''}|{preset_id or ''}"
+
+
+def _pms_default_room_task(room, preset):
+    room_id = str(room.get("id") or "")
+    is_base = bool(preset.get("base"))
+    bathroom = _pms_room_bathroom_type(room)
+    note = str(preset.get("note") or "")
+    if is_base and bathroom != "private":
+        note = "垃圾清空、床品毛巾更换、厨房台面和餐具检查、地面吸尘拖地、高频接触点擦拭、补齐耗材、拍照记录异常；本房间无独立卫生间，卫生间清洁归入公区共享卫生间任务。"
+    return {
+        "id": "recurring_default_" + re.sub(r"[^a-zA-Z0-9_-]", "_", room_id) + "_" + re.sub(r"[^a-zA-Z0-9_-]", "_", str(preset.get("id") or "")),
+        "recurring_task": True,
+        "enabled": True,
+        "default_room_task": True,
+        "default_task_key": _pms_default_room_task_key(room_id, preset.get("id")),
+        "template_id": preset.get("id"),
+        "attach_to_checkout": True,
+        "can_defer": not is_base,
+        "task_mode": preset.get("mode") or ("regular" if is_base else "deep"),
+        "target_id": room_id,
+        "target_type": "room",
+        "title": preset.get("title") or "",
+        "note": note,
+        "priority": "普通",
+        "schedule_type": "daily" if is_base else "interval",
+        "weekday": 1,
+        "interval_days": 1 if is_base else int(preset.get("interval") or 30),
+        "flex_days": 0 if is_base else int(preset.get("flex") or 0),
+        "workload_sensitive": not is_base,
+        "amount": 0,
+        "start_date": datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat(),
+        "created_by": "系统默认",
+        "created_at": now_utc_iso(),
+    }
+
+
+def _pms_ensure_default_room_cleaning_tasks(state):
+    notes = [item for item in state.get("cleaningNotes", []) if isinstance(item, dict)]
+    existing = {
+        str(item.get("default_task_key") or _pms_default_room_task_key(item.get("target_id"), item.get("template_id")) if item.get("default_room_task") else item.get("default_task_key") or "")
+        for item in notes
+        if item.get("recurring_task")
+    }
+    for area in state.get("commonAreas", []):
+        if isinstance(area, dict):
+            area.setdefault("area_type", "general")
+            area.setdefault("unit_count", 1)
+    for room in state.get("rooms", []):
+        if not isinstance(room, dict) or not room.get("id"):
+            continue
+        room.setdefault("bathroom_type", "private")
+        bathroom = _pms_room_bathroom_type(room)
+        for preset in _PMS_DEFAULT_ROOM_CLEANING_TASKS:
+            if preset.get("private_bath") and bathroom != "private":
+                continue
+            key = _pms_default_room_task_key(room.get("id"), preset.get("id"))
+            if key in existing:
+                continue
+            notes.append(_pms_default_room_task(room, preset))
+            existing.add(key)
+    state["cleaningNotes"] = notes[-3000:]
+    return state
+
+
 _pms_ical_event_archive_v1 = True
 
 if "icalEventArchive" not in STATE_KEYS:
@@ -4679,7 +4777,7 @@ def _pms_ical_archive_normalize_state(raw):
         key=lambda item: item.get("last_seen") or item.get("first_seen") or item.get("disappeared_at") or "",
         reverse=True,
     )
-    return state
+    return _pms_ensure_default_room_cleaning_tasks(state)
 
 
 def _pms_ical_archive_record_from_event(state, listing, event, synced_at, sync_status, error="", warning=""):
