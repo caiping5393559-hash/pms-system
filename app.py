@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_PATCH_VERSION = "2026-07-03-v46-gzip-login-fix"
+PMS_PATCH_VERSION = "2026-07-03-v47-property-timezone-v1"
 BASE = Path(__file__).resolve().parent
 STATIC = BASE / "static"
 STATE_PATH = BASE / "state.json"
@@ -985,11 +985,22 @@ def pms_public_profile(user):
     public = {}
     if not isinstance(user, dict):
         return public
-    for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids", "default_room_ids", "defaultRoomIds"):
+    for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids", "default_room_ids", "defaultRoomIds", "timezone", "time_zone", "timeZone"):
         value = user.get(key)
         if value not in (None, ""):
             public[key] = value
     return public
+
+
+def pms_valid_timezone(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        ZoneInfo(text)
+        return text
+    except Exception:
+        return ""
 
 
 def update_current_user_profile(payload, actor=None):
@@ -998,10 +1009,9 @@ def update_current_user_profile(payload, actor=None):
     if not actor:
         raise RuntimeError("login required")
     display_name = str(payload.get("name") or payload.get("display_name") or payload.get("displayName") or "").strip()
-    if not display_name:
-        raise RuntimeError("display name is required")
     if len(display_name) > 80:
         raise RuntimeError("display name is too long")
+    timezone_value = pms_valid_timezone(payload.get("timezone") or payload.get("time_zone") or payload.get("timeZone"))
 
     state = normalize_state(load_main_state())
     users = state.setdefault("users", [])
@@ -1020,7 +1030,15 @@ def update_current_user_profile(payload, actor=None):
     if target is None:
         raise RuntimeError("user not found")
 
-    target["name"] = display_name
+    if not display_name:
+        display_name = str(target.get("name") or target.get("username") or actor.get("name") or actor.get("username") or "").strip()
+    if not display_name and not timezone_value and not ("default_room_ids" in payload or "defaultRoomIds" in payload):
+        raise RuntimeError("display name is required")
+    if display_name:
+        target["name"] = display_name
+    if timezone_value:
+        target["timezone"] = timezone_value
+        target["time_zone"] = timezone_value
     if "default_room_ids" in payload or "defaultRoomIds" in payload:
         raw_defaults = payload.get("default_room_ids", payload.get("defaultRoomIds"))
         if raw_defaults is None:
@@ -2094,6 +2112,59 @@ def _pms_channel_field_details(event_lines):
     return rows
 
 
+def _pms_channel_field_detail(event_lines, target):
+    target = str(target or "").upper()
+    for row in _pms_channel_field_details(event_lines):
+        if row.get("name") == target:
+            return row
+    return {}
+
+
+def _pms_channel_ical_datetime_utc(event_lines, target, property_timezone="America/Los_Angeles"):
+    row = _pms_channel_field_detail(event_lines, target)
+    value = _pms_channel_text(row.get("value"))
+    if not value:
+        return ""
+    params = _pms_channel_text(row.get("params"))
+    tz_name = property_timezone or "America/Los_Angeles"
+    tz_match = re.search(r"(?:^|;)TZID=([^;:]+)", params, re.I)
+    if tz_match:
+        tz_name = tz_match.group(1).strip()
+    try:
+        local_tz = ZoneInfo(tz_name)
+    except Exception:
+        local_tz = ZoneInfo("America/Los_Angeles")
+    try:
+        if re.match(r"^\d{8}$", value):
+            local_dt = datetime.strptime(value, "%Y%m%d").replace(tzinfo=local_tz)
+            return local_dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        cleaned = value.rstrip("Z")
+        if re.match(r"^\d{8}T\d{6}$", cleaned):
+            parsed = datetime.strptime(cleaned, "%Y%m%dT%H%M%S")
+        elif re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$", cleaned):
+            parsed = datetime.strptime(cleaned, "%Y-%m-%dT%H:%M:%S")
+        else:
+            return ""
+        if value.endswith("Z"):
+            aware = parsed.replace(tzinfo=timezone.utc)
+        else:
+            aware = parsed.replace(tzinfo=local_tz)
+        return aware.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    except Exception:
+        return ""
+
+
+def _pms_channel_ical_local_date(event_lines, target, property_timezone="America/Los_Angeles"):
+    utc_text = _pms_channel_ical_datetime_utc(event_lines, target, property_timezone)
+    if utc_text:
+        try:
+            utc_dt = datetime.fromisoformat(utc_text.replace("Z", "+00:00"))
+            return utc_dt.astimezone(ZoneInfo(property_timezone or "America/Los_Angeles")).date().isoformat()
+        except Exception:
+            pass
+    return parse_date_value(_pms_channel_field(event_lines, target))
+
+
 def _pms_channel_event_excerpt(event_lines, limit=3000):
     text = "\n".join(str(line or "") for line in event_lines)
     return text[:limit]
@@ -2120,11 +2191,14 @@ def _pms_channel_parse_ics(text, listing):
     listing_id = listing.get("id")
     room_id = listing.get("room_id")
     platform = listing.get("platform") or "iCal"
+    property_timezone = _pms_channel_text(listing.get("_property_timezone") or listing.get("property_timezone") or listing.get("timezone") or "America/Los_Angeles")
     for event in events:
-        checkin = parse_date_value(_pms_channel_field(event, "DTSTART"))
-        checkout = parse_date_value(_pms_channel_field(event, "DTEND"))
+        checkin = _pms_channel_ical_local_date(event, "DTSTART", property_timezone)
+        checkout = _pms_channel_ical_local_date(event, "DTEND", property_timezone)
         if not checkin or not checkout or checkout <= checkin:
             continue
+        checkin_utc = _pms_channel_ical_datetime_utc(event, "DTSTART", property_timezone)
+        checkout_utc = _pms_channel_ical_datetime_utc(event, "DTEND", property_timezone)
         summary = ical_clean_text(_pms_channel_field(event, "SUMMARY"))
         description = ical_clean_text(_pms_channel_field(event, "DESCRIPTION"))
         status = ical_clean_text(_pms_channel_field(event, "STATUS"))
@@ -2149,6 +2223,11 @@ def _pms_channel_parse_ics(text, listing):
             "guest": "",
             "checkin": checkin,
             "checkout": checkout,
+            "checkin_utc": checkin_utc,
+            "checkout_utc": checkout_utc,
+            "dtstart_utc": checkin_utc,
+            "dtend_utc": checkout_utc,
+            "property_timezone": property_timezone,
             "status": "不开放锁定" if lock_reason else (summary or "iCal导入"),
             "source": "ical",
             "booking_type": "lock" if lock_reason else "booking",
@@ -2171,6 +2250,7 @@ def _pms_channel_raw_event_snapshots(text, listing):
     listing_id = listing.get("id")
     room_id = listing.get("room_id")
     platform = listing.get("platform") or "iCal"
+    property_timezone = _pms_channel_text(listing.get("_property_timezone") or listing.get("property_timezone") or listing.get("timezone") or "America/Los_Angeles")
     current = []
     inside = False
     for line in _pms_channel_unfold_ics(text):
@@ -2182,8 +2262,10 @@ def _pms_channel_raw_event_snapshots(text, listing):
         if token == "END:VEVENT" and inside:
             fields = _pms_channel_field_map(current)
             raw_excerpt = _pms_channel_event_excerpt(current)
-            checkin = parse_date_value(_pms_channel_field(current, "DTSTART"))
-            checkout = parse_date_value(_pms_channel_field(current, "DTEND"))
+            checkin = _pms_channel_ical_local_date(current, "DTSTART", property_timezone)
+            checkout = _pms_channel_ical_local_date(current, "DTEND", property_timezone)
+            checkin_utc = _pms_channel_ical_datetime_utc(current, "DTSTART", property_timezone)
+            checkout_utc = _pms_channel_ical_datetime_utc(current, "DTEND", property_timezone)
             summary = ical_clean_text(_pms_channel_field(current, "SUMMARY"))
             description = ical_clean_text(_pms_channel_field(current, "DESCRIPTION"))
             status = ical_clean_text(_pms_channel_field(current, "STATUS"))
@@ -2198,6 +2280,11 @@ def _pms_channel_raw_event_snapshots(text, listing):
                     "platform": platform,
                     "checkin": checkin,
                     "checkout": checkout,
+                    "checkin_utc": checkin_utc,
+                    "checkout_utc": checkout_utc,
+                    "dtstart_utc": checkin_utc,
+                    "dtend_utc": checkout_utc,
+                    "property_timezone": property_timezone,
                     "kind": "lock" if lock_reason else "booking",
                     "is_locked": bool(lock_reason),
                     "lock_reason": lock_reason or "",
@@ -2224,6 +2311,9 @@ def _pms_channel_event_history_snapshot(item):
         "uid_hash": hashlib.sha1(_pms_channel_text(item.get("external_event_uid") or item.get("uid")).encode("utf-8")).hexdigest()[:16] if _pms_channel_text(item.get("external_event_uid") or item.get("uid")) else "",
         "checkin": _pms_channel_text(item.get("checkin")),
         "checkout": _pms_channel_text(item.get("checkout")),
+        "checkin_utc": _pms_channel_text(item.get("checkin_utc") or item.get("dtstart_utc")),
+        "checkout_utc": _pms_channel_text(item.get("checkout_utc") or item.get("dtend_utc")),
+        "property_timezone": _pms_channel_text(item.get("property_timezone")),
         "kind": "lock" if item.get("is_locked") or item.get("booking_type") == "lock" else "booking",
         "is_locked": bool(item.get("is_locked") or item.get("booking_type") == "lock"),
         "lock_reason": _pms_channel_text(item.get("lock_reason")),
@@ -2278,12 +2368,28 @@ def _pms_channel_property_timezone(state, property_id):
     return _pms_channel_text(prop.get("timezone") or prop.get("time_zone") or os.environ.get("PMS_DEFAULT_TIMEZONE") or "America/Los_Angeles")
 
 
+def _pms_channel_property_id_for_room_id(state, room_id, fallback="property_default"):
+    room_id = _pms_channel_text(room_id)
+    for room in state.get("rooms", []):
+        if isinstance(room, dict) and _pms_channel_text(room.get("id")) == room_id:
+            return room.get("property_id") or fallback
+    return fallback
+
+
 def _pms_channel_local_now(state, property_id):
     tz_name = _pms_channel_property_timezone(state, property_id)
     try:
         return datetime.now(ZoneInfo(tz_name))
     except Exception:
         return datetime.utcnow()
+
+
+def _pms_channel_local_date(state, property_id):
+    now = _pms_channel_local_now(state, property_id)
+    try:
+        return now.date().isoformat()
+    except Exception:
+        return datetime.utcnow().date().isoformat()
 
 
 def _pms_channel_cancel_cutoff(state, property_id, checkin):
@@ -2376,7 +2482,11 @@ def inspect_ical_diagnostics(payload, actor=None):
     }
     room_id = _pms_channel_text(payload.get("room_id") or payload.get("roomId"))
     channel_id = _pms_channel_text(payload.get("channel_listing_id") or payload.get("channelListingId") or payload.get("channel_id") or payload.get("channelId"))
-    date_text = _pms_channel_text(payload.get("date")) or datetime.utcnow().date().isoformat()
+    date_property_id = _pms_channel_property_id_for_room_id(state, room_id)
+    if not room_id and channel_id:
+        channel_room_id = next((item.get("room_id") for item in state.get("channelListings", []) if isinstance(item, dict) and item.get("id") == channel_id), "")
+        date_property_id = _pms_channel_property_id_for_room_id(state, channel_room_id)
+    date_text = _pms_channel_text(payload.get("date")) or _pms_channel_local_date(state, date_property_id)
     listings = [
         item for item in normalize_state(state).get("channelListings", [])
         if isinstance(item, dict)
@@ -2782,7 +2892,15 @@ def sync_icals(actor=None, property_id=None, incoming_channels=None):
             previous_counts[listing_id] = previous_counts.get(listing_id, 0) + 1
             previous_bookings_by_listing.setdefault(listing_id, []).append(booking)
     now = datetime.utcnow().isoformat(timespec="seconds")
-    today = datetime.utcnow().date().isoformat()
+    sync_property_id = next(
+        (
+            room.get("property_id")
+            for room in state.get("rooms", [])
+            if isinstance(room, dict) and room.get("id") in allowed_room_ids and room.get("property_id")
+        ),
+        property_id or "property_default",
+    )
+    today = _pms_channel_local_date(state, sync_property_id)
     sync_errors = [
         err for err in state.get("sync_errors", [])
         if not (isinstance(err, dict) and err.get("room_id") in allowed_room_ids)
@@ -2831,6 +2949,11 @@ def sync_icals(actor=None, property_id=None, incoming_channels=None):
         listing["sync_warning"] = ""
         listing["availability_status"] = ""
         previous_count = max(previous_counts.get(listing.get("id"), 0), int(listing.get("synced_booking_count") or 0))
+        listing_property_id = _pms_channel_property_id_for_room_id(state, listing.get("room_id"), sync_property_id)
+        listing_timezone = _pms_channel_property_timezone(state, listing_property_id)
+        parse_listing = dict(listing)
+        parse_listing["_property_timezone"] = listing_timezone
+        listing_today = _pms_channel_local_date(state, listing_property_id)
         listing["synced_booking_count"] = 0
         url = _pms_channel_text(listing.get("ical_url"))
         if not url:
@@ -2840,13 +2963,13 @@ def sync_icals(actor=None, property_id=None, incoming_channels=None):
             continue
         try:
             raw_ical_text = fetch_text(url)
-            raw_events = _pms_channel_raw_event_snapshots(raw_ical_text, listing)
-            imported = _pms_channel_parse_ics(raw_ical_text, listing)
+            raw_events = _pms_channel_raw_event_snapshots(raw_ical_text, parse_listing)
+            imported = _pms_channel_parse_ics(raw_ical_text, parse_listing)
             listing["synced_booking_count"] = len(imported)
             imported_keys = {_pms_missing_event_key(item) for item in imported}
             previous_future = [
                 item for item in previous_bookings_by_listing.get(listing.get("id"), [])
-                if str(item.get("checkout") or item.get("checkin") or "") >= today
+                if str(item.get("checkout") or item.get("checkin") or "") >= listing_today
             ]
             imported_ranges = {(str(item.get("checkin") or ""), str(item.get("checkout") or "")) for item in imported}
             disappeared = [
@@ -2893,7 +3016,8 @@ def sync_icals(actor=None, property_id=None, incoming_channels=None):
             ):
                 return False
             booking_date = str(item.get("checkout") or item.get("checkin") or "")
-            return booking_date >= today or item.get("id") in new_booking_ids
+            booking_today = _pms_channel_local_date(state, _pms_channel_property_id_for_room_id(state, item.get("room_id"), sync_property_id))
+            return booking_date >= booking_today or item.get("id") in new_booking_ids
 
         state["bookings"] = [
             b for b in state.get("bookings", [])
@@ -4490,6 +4614,9 @@ def _pms_ical_archive_snapshot(event, synced_at):
         "uid": _pms_ical_archive_text(event.get("uid") or event.get("external_event_uid"), 300),
         "checkin": _pms_ical_archive_text(event.get("checkin"), 40),
         "checkout": _pms_ical_archive_text(event.get("checkout"), 40),
+        "checkin_utc": _pms_ical_archive_text(event.get("checkin_utc") or event.get("dtstart_utc"), 80),
+        "checkout_utc": _pms_ical_archive_text(event.get("checkout_utc") or event.get("dtend_utc"), 80),
+        "property_timezone": _pms_ical_archive_text(event.get("property_timezone"), 120),
         "kind": _pms_ical_archive_kind(event),
         "summary": _pms_ical_archive_text(event.get("summary"), 500),
         "status": _pms_ical_archive_text(event.get("status"), 300),
@@ -4513,6 +4640,9 @@ def _pms_ical_archive_clean(item):
         "raw_hash": _pms_ical_archive_text(raw.get("raw_hash") or raw.get("rawHash"), 80),
         "checkin": _pms_ical_archive_text(raw.get("checkin"), 40),
         "checkout": _pms_ical_archive_text(raw.get("checkout"), 40),
+        "checkin_utc": _pms_ical_archive_text(raw.get("checkin_utc") or raw.get("checkinUtc") or raw.get("dtstart_utc") or raw.get("dtstartUtc"), 80),
+        "checkout_utc": _pms_ical_archive_text(raw.get("checkout_utc") or raw.get("checkoutUtc") or raw.get("dtend_utc") or raw.get("dtendUtc"), 80),
+        "property_timezone": _pms_ical_archive_text(raw.get("property_timezone") or raw.get("propertyTimezone"), 120),
         "kind": "lock" if raw.get("kind") == "lock" or _pms_ical_archive_bool(raw.get("is_locked") or raw.get("isLocked")) else "booking",
         "is_locked": _pms_ical_archive_bool(raw.get("is_locked") or raw.get("isLocked")),
         "lock_reason": _pms_ical_archive_text(raw.get("lock_reason") or raw.get("lockReason"), 800),
@@ -4580,6 +4710,9 @@ def _pms_ical_archive_record_from_event(state, listing, event, synced_at, sync_s
         "raw_hash": raw_hash,
         "checkin": _pms_ical_archive_text(event.get("checkin"), 40),
         "checkout": _pms_ical_archive_text(event.get("checkout"), 40),
+        "checkin_utc": _pms_ical_archive_text(event.get("checkin_utc") or event.get("dtstart_utc"), 80),
+        "checkout_utc": _pms_ical_archive_text(event.get("checkout_utc") or event.get("dtend_utc"), 80),
+        "property_timezone": _pms_ical_archive_text(event.get("property_timezone"), 120),
         "kind": kind,
         "is_locked": kind == "lock",
         "lock_reason": _pms_ical_archive_text(event.get("lock_reason"), 800),

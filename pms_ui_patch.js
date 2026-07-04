@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-03-v46-gzip-login-fix';
+  const VERSION = '2026-07-03-v47-property-timezone-v1';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -79,9 +79,67 @@
   function getLastSync(){try{return lastSync || '';}catch(e){return window.lastSync || '';}}
   function setLastSync(value){try{lastSync = value || '';}catch(e){} window.lastSync = value || '';}
 
-  function today(){
-    try{return TODAY || new Date().toISOString().slice(0,10);}catch(e){return new Date().toISOString().slice(0,10);}
+  const DEFAULT_TIME_ZONE = 'America/Los_Angeles';
+  const DEFAULT_PROPERTY_CITY = 'Los Angeles';
+  const DEFAULT_PROPERTY_ADDRESS = 'Los Angeles, CA';
+  const COMMON_TIME_ZONES = [
+    ['America/Los_Angeles','洛杉矶 / Pacific'],
+    ['America/New_York','纽约 / Eastern'],
+    ['America/Chicago','芝加哥 / Central'],
+    ['America/Denver','丹佛 / Mountain'],
+    ['America/Phoenix','凤凰城'],
+    ['Pacific/Honolulu','檀香山'],
+    ['Asia/Shanghai','中国'],
+    ['UTC','UTC']
+  ];
+  function validTimeZone(value){
+    try{ new Intl.DateTimeFormat('en-US', {timeZone: value}).format(new Date()); return true; }
+    catch(e){ return false; }
   }
+  function browserTimeZone(){
+    try{return Intl.DateTimeFormat().resolvedOptions().timeZone || '';}catch(e){return '';}
+  }
+  function normalizeTimeZone(value){
+    const text = String(value || '').trim();
+    return validTimeZone(text) ? text : DEFAULT_TIME_ZONE;
+  }
+  function userTimeZone(){
+    const u = getCurrentUser() || {};
+    const saved = u.timezone || u.time_zone || u.timeZone || (() => {try{return localStorage.getItem('pms_timezone') || '';}catch(e){return '';}})() || browserTimeZone();
+    return normalizeTimeZone(saved);
+  }
+  function propertyTimeZone(propOrId){
+    const prop = typeof propOrId === 'object' && propOrId ? propOrId : getProperties().find(p => String(p.id) === String(propOrId));
+    return normalizeTimeZone(prop && (prop.timezone || prop.time_zone || prop.timeZone || prop.iana_timezone));
+  }
+  function activeTimeZone(){
+    try{
+      if(ui.selectedPropertyId) return propertyTimeZone(ui.selectedPropertyId);
+      if(typeof ownerPropIds === 'function'){
+        const ids = ownerPropIds();
+        if(ids.length === 1) return propertyTimeZone(ids[0]);
+      }
+      if(typeof cleanerBoundProperties === 'function'){
+        const props = cleanerBoundProperties();
+        if(props.length === 1) return propertyTimeZone(props[0]);
+      }
+    }catch(e){}
+    return userTimeZone();
+  }
+  function localDateString(dateValue, timeZone){
+    const date = dateValue instanceof Date ? dateValue : new Date(dateValue || Date.now());
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: normalizeTimeZone(timeZone),
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(date).reduce((out, part) => {out[part.type] = part.value; return out;}, {});
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  }
+  function today(timeZone){
+    return localDateString(new Date(), timeZone || activeTimeZone());
+  }
+  try{Object.defineProperty(window, 'TODAY', {configurable:true, get:function(){return today();}});}catch(e){window.TODAY = today();}
   function parseDate(value){
     const parts = String(value || '').slice(0,10).split('-').map(Number);
     return new Date(parts[0] || 1970, (parts[1] || 1) - 1, parts[2] || 1);
@@ -135,7 +193,7 @@
     const props = getProperties();
     if(props.length || (!getRooms().length && !getAreas().length)) return;
     const id = 'property_default';
-    props.push({id, group_id: groupId(), name: '默认房源', created_at: nowIso()});
+    props.push({id, group_id: groupId(), name: '默认房源', city: DEFAULT_PROPERTY_CITY, address: DEFAULT_PROPERTY_ADDRESS, timezone: DEFAULT_TIME_ZONE, time_zone: DEFAULT_TIME_ZONE, created_at: nowIso()});
     getRooms().forEach(r => { if(!r.property_id) r.property_id = id; });
     getAreas().forEach(a => { if(!a.property_id) a.property_id = id; });
     setProperties(props);
@@ -147,6 +205,23 @@
   function propName(id){
     const p = propList().find(x => String(x.id) === String(id));
     return (p && (p.name || p.id)) || id || '未分配房源';
+  }
+  function timeZoneOptions(selected){
+    const current = normalizeTimeZone(selected || userTimeZone());
+    const rows = COMMON_TIME_ZONES.slice();
+    if(!rows.some(row => row[0] === current)) rows.unshift([current, current]);
+    return rows.map(row => `<option value="${esc(row[0])}" ${row[0] === current ? 'selected' : ''}>${esc(row[1])} · ${esc(row[0])}</option>`).join('');
+  }
+  function propertyCity(prop){
+    return String((prop && (prop.city || prop.location_city || prop.locality)) || DEFAULT_PROPERTY_CITY).trim();
+  }
+  function propertyAddress(prop){
+    return String((prop && (prop.address || prop.location || prop.full_address)) || DEFAULT_PROPERTY_ADDRESS).trim();
+  }
+  function propertyLocationText(prop){
+    const city = propertyCity(prop);
+    const address = propertyAddress(prop);
+    return address && address !== city ? `${city} · ${address}` : city;
   }
   function roomPropId(roomId){
     const fallback = (propList()[0] && propList()[0].id) || 'property_default';
@@ -474,8 +549,48 @@
     fetch('/api/logout', {method: 'POST', keepalive: true}).catch(() => {});
     location.replace('/logout?ts=' + Date.now());
   }
+  function ensureTimezoneSelector(){
+    const nav = document.querySelector('.nav') || document.querySelector('header') || document.body;
+    if(!nav) return null;
+    let wrap = qs('pmsTimezoneWrap');
+    if(!wrap){
+      wrap = document.createElement('label');
+      wrap.id = 'pmsTimezoneWrap';
+      wrap.className = 'small';
+      wrap.style.display = 'inline-flex';
+      wrap.style.alignItems = 'center';
+      wrap.style.gap = '6px';
+      wrap.style.marginLeft = '8px';
+      wrap.innerHTML = '<span>时区</span><select id="pmsTimezoneSelect" class="smallbtn timezone-picker"></select>';
+      const logout = qs('logoutBtn');
+      if(logout && logout.parentNode === nav) nav.insertBefore(wrap, logout);
+      else nav.appendChild(wrap);
+    }
+    const select = qs('pmsTimezoneSelect');
+    if(select){
+      const current = userTimeZone();
+      select.innerHTML = timeZoneOptions(current);
+      select.value = current;
+      select.onchange = async function(){
+        const tz = normalizeTimeZone(select.value);
+        try{localStorage.setItem('pms_timezone', tz);}catch(e){}
+        const user = {...(getCurrentUser() || {}), timezone: tz, time_zone: tz};
+        setCurrentUser(user);
+        try{
+          await fetch(apiUrl('/api/profile'), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: user.name || user.username || '用户', timezone: tz, time_zone: tz})
+          });
+        }catch(e){console.warn('save timezone failed', e);}
+        renderAll();
+      };
+    }
+    return wrap;
+  }
   function ensureLogoutButton(){
     const nav = document.querySelector('.nav') || document.querySelector('header') || document.body;
+    ensureTimezoneSelector();
     let btn = qs('logoutBtn');
     if(!btn){
       btn = document.createElement('button');
@@ -721,6 +836,10 @@
       .feed-line,.readonly-line{word-break:break-all;border:1px solid #d8e1ef;background:#f8fafc;border-radius:8px;padding:8px 10px;font-size:12px;color:#475569}
       .sync-status{display:inline-flex;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:900;border:1px solid #d8e1ef;background:#f8fafc;color:#475569}
       .sync-status.ok{border-color:#86efac;background:#f0fdf4;color:#166534}.sync-status.error{border-color:#fb7185;background:#fff1f2;color:#be123c}.sync-status.warn{border-color:#fbbf24;background:#fffbeb;color:#92400e}
+      .property-location{margin-top:6px;color:#475569;font-size:13px;line-height:1.45}
+      .property-edit-grid{display:grid;grid-template-columns:minmax(160px,1.1fr) minmax(140px,.8fr) minmax(180px,1fr) minmax(190px,1fr) auto auto;gap:8px;align-items:end}
+      .property-edit-grid label{display:grid;gap:5px;font-size:12px;font-weight:900;color:#475569}
+      .timezone-picker{max-width:260px}
       #calendarGrid.vacancy-only .cell:not(.head):not(.room){background:#fff!important;border-color:#d8e1ef!important;color:#0f172a!important;outline:none!important;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:900}
       #calendarGrid.vacancy-only .cell:not(.head):not(.room):before,#calendarGrid.vacancy-only .cell:not(.head):not(.room):after{display:none!important}
       #calendarGrid.vacancy-only .cell.empty-night{color:#0f766e!important}
@@ -750,7 +869,7 @@
       .profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
       .profile-field{display:grid;gap:6px}
       .profile-field label{font-weight:900;color:#0f172a}
-      .profile-field input{width:100%;min-width:0}
+      .profile-field input,.profile-field select{width:100%;min-width:0}
       .profile-field input[readonly]{background:#f8fafc;color:#475569}
       .profile-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
       .profile-status{font-size:13px;font-weight:900;color:#0f766e}
@@ -763,7 +882,7 @@
       .photo-status{font-size:12px;color:#64748b;font-weight:800;min-height:16px}
       .photo-status.ok{color:#047857}
       .photo-status.error{color:#b91c1c}
-      @media(max-width:900px){.room-basics,.channel-grid{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}}
+      @media(max-width:900px){.room-basics,.channel-grid,.property-edit-grid{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}}
     `;
     document.head.appendChild(style);
   }
@@ -1119,10 +1238,11 @@
     const cleaners = propCleaners(prop.id);
     const editing = ui.editingProperty === prop.id;
     const checked = ownerPropIds().includes(prop.id);
+    const tz = propertyTimeZone(prop);
     const nameBlock = editing
-      ? `<div class="channel-row"><input id="propertyName_${safe(prop.id)}" value="${esc(prop.name || '')}"><button class="smallbtn primary" onclick="savePropertyName('${esc(prop.id)}',this)">保存名字</button><button class="smallbtn" onclick="cancelPropertyNameEdit()">取消</button></div>`
-      : `<div class="property-title">房源:${esc(prop.name || prop.id)}</div>`;
-    return `<div class="property-card ${checked?'active':''}"><div><div class="property-card-top"><div>${nameBlock}<div class="property-meta"><span class="badge blue">${rooms.length} 个房间</span><span class="badge orange">${areas.length} 个公区</span><span class="badge green">${cleaners.length} 个保洁绑定</span></div></div><label class="property-select" title="纳入下面所有统计和列表"><input type="checkbox" ${checked?'checked':''} onchange="setOwnerPropertyFilter('${esc(prop.id)}',this.checked)">选择</label></div></div><div class="property-actions">${editing?'':`<button class="smallbtn" onclick="editPropertyName('${esc(prop.id)}')">修改名字</button>`}<button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">进入房间管理</button><button class="smallbtn" onclick="setOnlyOwnerProperty('${esc(prop.id)}')">只看这个房源</button><button class="smallbtn" onclick="deletePropertyUi('${esc(prop.id)}',this)">删除房源</button>${propertyMailDigest(prop.id)}</div></div>`;
+      ? `<div class="property-edit-grid"><label>房源名称<input id="propertyName_${safe(prop.id)}" value="${esc(prop.name || '')}" placeholder="例如 901老"></label><label>城市<input id="propertyCity_${safe(prop.id)}" value="${esc(propertyCity(prop))}" placeholder="Los Angeles"></label><label>地址<input id="propertyAddress_${safe(prop.id)}" value="${esc(propertyAddress(prop))}" placeholder="Los Angeles, CA"></label><label>房源时区<select id="propertyTimezone_${safe(prop.id)}">${timeZoneOptions(tz)}</select></label><button class="smallbtn primary" onclick="savePropertyName('${esc(prop.id)}',this)">保存房源资料</button><button class="smallbtn" onclick="cancelPropertyNameEdit()">取消</button></div>`
+      : `<div class="property-title">房源:${esc(prop.name || prop.id)}</div><div class="property-location">${esc(propertyLocationText(prop))} · ${esc(tz)}</div>`;
+    return `<div class="property-card ${checked?'active':''}"><div><div class="property-card-top"><div>${nameBlock}<div class="property-meta"><span class="badge blue">${rooms.length} 个房间</span><span class="badge orange">${areas.length} 个公区</span><span class="badge green">${cleaners.length} 个保洁绑定</span></div></div><label class="property-select" title="纳入下面所有统计和列表"><input type="checkbox" ${checked?'checked':''} onchange="setOwnerPropertyFilter('${esc(prop.id)}',this.checked)">选择</label></div></div><div class="property-actions">${editing?'':`<button class="smallbtn" onclick="editPropertyName('${esc(prop.id)}')">修改房源资料</button>`}<button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">进入房间管理</button><button class="smallbtn" onclick="setOnlyOwnerProperty('${esc(prop.id)}')">只看这个房源</button><button class="smallbtn" onclick="deletePropertyUi('${esc(prop.id)}',this)">删除房源</button>${propertyMailDigest(prop.id)}</div></div>`;
   }
   function ensureOwnerPropertyModuleVisible(){
     if(visibleAsCleaner()) return;
@@ -1733,7 +1853,7 @@
     const rooms = propRooms(prop.id);
     const sync = ui.syncResults[prop.id];
     activeRoomSettingsPanel(rooms);
-    root.innerHTML = `<div class="property-detail-head"><div><h2 style="margin:0">${esc(prop.name || prop.id)} 房间管理</h2><div class="small">${rooms.length} 个房间 · ${propAreas(prop.id).length} 个公区 · ${propCleaners(prop.id).length} 个保洁绑定</div></div><div class="property-actions"><button class="smallbtn" onclick="backToPropertyList()">返回房源列表</button><button class="smallbtn" onclick="setRoomSettingsPanel('summary')">房源索引</button><button class="smallbtn primary" onclick="syncPropertyIcal('${esc(prop.id)}',this)">同步当前房源 iCal</button>${sync?`<span class="sync-status ${sync.kind || ''}">${esc(sync.text || '')}</span>`:''}</div></div>${renderPropertyRoomIndex(prop, rooms)}<div id="roomSettingsDetail" class="room-settings-detail">${renderRoomSettingsDetail(prop, rooms)}</div>`;
+    root.innerHTML = `<div class="property-detail-head"><div><h2 style="margin:0">${esc(prop.name || prop.id)} 房间管理</h2><div class="small">${rooms.length} 个房间 · ${propAreas(prop.id).length} 个公区 · ${propCleaners(prop.id).length} 个保洁绑定</div><div class="property-location">${esc(propertyLocationText(prop))} · ${esc(propertyTimeZone(prop))}</div></div><div class="property-actions"><button class="smallbtn" onclick="backToPropertyList()">返回房源列表</button><button class="smallbtn" onclick="setRoomSettingsPanel('summary')">房源索引</button><button class="smallbtn primary" onclick="syncPropertyIcal('${esc(prop.id)}',this)">同步当前房源 iCal</button>${sync?`<span class="sync-status ${sync.kind || ''}">${esc(sync.text || '')}</span>`:''}</div></div>${renderPropertyRoomIndex(prop, rooms)}<div id="roomSettingsDetail" class="room-settings-detail">${renderRoomSettingsDetail(prop, rooms)}</div>`;
   }
 
   function renderOwnerImpl(){
@@ -1828,7 +1948,7 @@
     const wechat = profileWechat(u);
     const cleanerCode = u.cleaner_code || u.cleanerCode || '';
     const cleanerCodeField = isCleanerProfile(u) ? `<div class="profile-field"><label>保洁编号</label><input readonly value="${esc(cleanerCode || '未生成')}"></div>` : '';
-    root.innerHTML = `<div class="card user-profile-card"><div class="property-detail-head"><div><h2>用户设置</h2><div class="small">查看当前登录账号资料；这里只能修改对外显示名。</div></div><span class="badge green">${esc(roleLabel(u.role))}</span></div><div class="profile-grid"><div class="profile-field"><label>对外显示名</label><input id="${rootId}_displayName" value="${esc(u.name || '')}" placeholder="例如 zhoulimei"></div><div class="profile-field"><label>用户名</label><input readonly value="${esc(u.username || '未填写')}"></div><div class="profile-field"><label>邮箱</label><input readonly value="${esc(email || '未填写')}"></div><div class="profile-field"><label>手机号</label><input readonly value="${esc(phone || '未填写')}"></div><div class="profile-field"><label>微信号</label><input readonly value="${esc(wechat || '未填写')}"></div>${cleanerCodeField}<div class="profile-field"><label>账号类型</label><input readonly value="${esc(roleLabel(u.role))}"></div></div><div class="profile-actions"><button class="smallbtn primary" onclick="saveUserProfile('${rootId}',this)">保存显示名</button><span id="${rootId}_profileStatus" class="profile-status"></span></div></div>`;
+    root.innerHTML = `<div class="card user-profile-card"><div class="property-detail-head"><div><h2>用户设置</h2><div class="small">查看当前登录账号资料；可修改对外显示名和个人默认时区。</div></div><span class="badge green">${esc(roleLabel(u.role))}</span></div><div class="profile-grid"><div class="profile-field"><label>对外显示名</label><input id="${rootId}_displayName" value="${esc(u.name || '')}" placeholder="例如 zhoulimei"></div><div class="profile-field"><label>个人默认时区</label><select id="${rootId}_timezone">${timeZoneOptions(userTimeZone())}</select></div><div class="profile-field"><label>用户名</label><input readonly value="${esc(u.username || '未填写')}"></div><div class="profile-field"><label>邮箱</label><input readonly value="${esc(email || '未填写')}"></div><div class="profile-field"><label>手机号</label><input readonly value="${esc(phone || '未填写')}"></div><div class="profile-field"><label>微信号</label><input readonly value="${esc(wechat || '未填写')}"></div>${cleanerCodeField}<div class="profile-field"><label>账号类型</label><input readonly value="${esc(roleLabel(u.role))}"></div></div><div class="profile-actions"><button class="smallbtn primary" onclick="saveUserProfile('${rootId}',this)">保存用户设置</button><span id="${rootId}_profileStatus" class="profile-status"></span></div></div>`;
   }
   function renderUserProfileImpl(){
     renderUserProfilePanel('ownerProfile');
@@ -1842,16 +1962,19 @@
     const input = qs(rootId + '_displayName');
     const name = String((input && input.value) || '').trim();
     if(!name) return alert('对外显示名不能为空。');
+    const timezoneInput = qs(rootId + '_timezone');
+    const tz = normalizeTimeZone(timezoneInput && timezoneInput.value);
     const old = btn && btn.textContent;
     if(btn){btn.disabled = true; btn.textContent = '保存中...';}
     try{
       const res = await fetch(apiUrl('/api/profile'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name})
+        body: JSON.stringify({name, timezone: tz, time_zone: tz})
       });
       const data = await res.json().catch(() => ({}));
       if(!res.ok || data.ok === false) throw new Error(data.error || ('保存失败 HTTP ' + res.status));
+      try{localStorage.setItem('pms_timezone', tz);}catch(e){}
       if(data.user) setCurrentUser({...getCurrentUser(), ...data.user});
       if(data.state) applyStateFromServerImpl(data.state);
       renderUserProfileImpl();
@@ -1861,7 +1984,7 @@
     }catch(e){
       alert('保存用户设置失败：' + (e && e.message ? e.message : e));
     }finally{
-      if(btn){btn.disabled = false; btn.textContent = old || '保存显示名';}
+      if(btn){btn.disabled = false; btn.textContent = old || '保存用户设置';}
     }
   }
   function renderCleanerNotesToday(){
@@ -2158,16 +2281,29 @@
   async function savePropertyName(id,btn){
     const prop = propList().find(p => String(p.id) === String(id));
     const input = qs('propertyName_' + safe(id));
-    if(prop && input) prop.name = input.value.trim() || prop.name || prop.id;
+    if(prop){
+      const cityInput = qs('propertyCity_' + safe(id));
+      const addressInput = qs('propertyAddress_' + safe(id));
+      const timezoneInput = qs('propertyTimezone_' + safe(id));
+      if(input) prop.name = input.value.trim() || prop.name || prop.id;
+      prop.city = (cityInput && cityInput.value.trim()) || propertyCity(prop);
+      prop.address = (addressInput && addressInput.value.trim()) || propertyAddress(prop);
+      prop.timezone = normalizeTimeZone(timezoneInput && timezoneInput.value);
+      prop.time_zone = prop.timezone;
+    }
     ui.editingProperty = '';
     await persistAll(btn);
     renderAll();
   }
   async function addProperty(){
     const id = 'property_' + Date.now();
-    propList().push({id, group_id: groupId(), name: '新房源', created_at: nowIso()});
+    const existingNames = new Set(propList().map(p => String(p.name || '').trim()).filter(Boolean));
+    let name = '新房源';
+    for(let i=2; existingNames.has(name); i++) name = '新房源' + i;
+    propList().push({id, group_id: groupId(), name, city: DEFAULT_PROPERTY_CITY, address: DEFAULT_PROPERTY_ADDRESS, timezone: DEFAULT_TIME_ZONE, time_zone: DEFAULT_TIME_ZONE, created_at: nowIso()});
     setOwnerPropertyIds(validPropIds().concat([id]));
     ui.selectedPropertyId = id;
+    ui.editingProperty = id;
     await persistAll().catch(e => alert('保存失败：' + e.message));
     renderAll();
   }
