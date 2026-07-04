@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-04-v50-backend-entrypoint-consolidation';
+  const VERSION = '2026-07-04-v51-recurring-cleaning-tasks';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -169,6 +169,28 @@
     return out;
   }
   function monthKey(value){return String(value || '').slice(0,7);}
+
+  const CLEANING_TASK_PRESETS = [
+    {id:'weekly_trash_bins', title:'每周垃圾桶推出/收回', category:'外部/垃圾', target:'common', schedule:'weekly', weekday:4, interval:7, flex:0, amount:0, note:'按当地垃圾日，把垃圾桶推出到指定位置；垃圾车收走后再收回。'},
+    {id:'weekly_kitchen_bath_detail', title:'厨卫深清和水垢检查', category:'厨卫', target:'room', schedule:'weekly', weekday:2, interval:7, flex:1, amount:0, note:'检查厨房油污、水槽、淋浴玻璃、马桶边角、地漏和水垢；在当天保洁量少时补做。'},
+    {id:'weekly_supply_audit', title:'耗材库存和布草检查', category:'补给/布草', target:'room', schedule:'weekly', weekday:3, interval:7, flex:1, amount:0, note:'检查厕纸、纸巾、垃圾袋、洗手液、洗衣液、备用毛巾和床品，记录缺货。'},
+    {id:'biweekly_window_tracks_screens', title:'窗户轨道/纱窗/窗台灰尘', category:'窗户/灰尘', target:'room', schedule:'interval', weekday:1, interval:14, flex:3, amount:0, note:'清理窗户轨道、窗台、纱窗表面灰尘；如当天退房多，可自动提前或延后到轻松日期。'},
+    {id:'biweekly_under_furniture_edges', title:'床底沙发边角和踢脚线', category:'地面/边角', target:'room', schedule:'interval', weekday:1, interval:14, flex:3, amount:0, note:'吸尘床底、沙发边角、踢脚线、门后和柜角，避免长期积灰。'},
+    {id:'monthly_drain_deodorize', title:'排水口/马桶异味维护', category:'排水/卫浴', target:'room', schedule:'interval', weekday:1, interval:30, flex:7, amount:0, note:'检查浴缸、洗手池、厨房水槽、马桶和地漏异味；只使用适合管道的产品，并按产品说明操作。'},
+    {id:'monthly_pest_ipm_check', title:'防虫巡检和必要处理', category:'防虫', target:'room', schedule:'interval', weekday:1, interval:30, flex:7, amount:0, note:'检查食物残渣、垃圾、门窗缝、潮湿点和虫迹；优先清洁/封堵，确需用药时按标签说明处理。'},
+    {id:'monthly_appliance_detail', title:'家电细节清洁', category:'家电', target:'room', schedule:'interval', weekday:1, interval:30, flex:7, amount:0, note:'微波炉、烤箱、冰箱抽屉、洗衣机胶圈/滤网、咖啡机、遥控器和小家电外观深清。'},
+    {id:'monthly_air_filter_vents', title:'空调滤网/通风口检查', category:'通风', target:'room', schedule:'interval', weekday:1, interval:30, flex:7, amount:0, note:'检查空调滤网、回风口、排风扇和出风口积灰；需要更换时记录给房东确认。'},
+    {id:'quarterly_mattress_sofa', title:'床垫/沙发/枕芯保护层检查', category:'布草/家具', target:'room', schedule:'interval', weekday:1, interval:90, flex:14, amount:0, note:'检查床垫保护套、枕芯、沙发垫、床架缝隙和可见污渍，必要时拍照反馈。'},
+    {id:'quarterly_curtains_blinds', title:'窗帘百叶/灯具/高处灰尘', category:'高处/软装', target:'room', schedule:'interval', weekday:1, interval:90, flex:14, amount:0, note:'清理窗帘、百叶、灯具、风扇、高处置物架和装饰物积灰。'}
+  ];
+
+  const CLEANING_GUIDANCE_GROUPS = [
+    ['每次退房/当天基础', ['垃圾清空', '床品毛巾更换', '厨房台面和餐具检查', '卫浴清洁', '地面吸尘拖地', '高频触摸点擦拭', '补齐耗材', '拍照记录异常']],
+    ['每周/轻度深清', ['厨卫水垢和油污', '垃圾桶推出/收回', '冰箱过期物检查', '布草耗材盘点', '门口/阳台/走廊检查', '遥控器和小家电擦拭']],
+    ['约每 14 天', ['窗户轨道和纱窗灰尘', '床底/沙发边角', '踢脚线和门后', '排水口异味检查', '柜内抽屉快速检查']],
+    ['约每 30 天', ['排水口/马桶维护', '防虫巡检和必要处理', '家电内部细节', '空调滤网/通风口', '床垫保护套和沙发垫检查']],
+    ['约每 60-90 天', ['窗帘百叶', '灯具和高处灰尘', '床垫/枕芯/沙发深度检查', '储物柜整理', '墙角霉点和潮湿点排查']]
+  ];
 
   function role(){
     const u = getCurrentUser() || {};
@@ -888,6 +910,11 @@
       .photo-status{font-size:12px;color:#64748b;font-weight:800;min-height:16px}
       .photo-status.ok{color:#047857}
       .photo-status.error{color:#b91c1c}
+      .task-guidance-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:8px 0 14px}
+      .task-guidance-grid .note-card{margin:0;background:#f8fafc}
+      .task-guidance-grid ul{margin:8px 0 0;padding-left:18px;color:#475569;font-size:13px;line-height:1.55}
+      #recurringTaskManager table{font-size:13px}
+      #recurringTaskManager td{vertical-align:top}
       @media(max-width:900px){.room-basics,.channel-grid,.property-edit-grid{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}}
     `;
     document.head.appendChild(style);
@@ -1006,10 +1033,101 @@
     });
     return rows;
   }
+  function getRecurringTaskNotes(includeInactive=false){
+    return getNotes().filter(n => n && n.recurring_task && !n.deleted && (includeInactive || (!n.inactive && n.enabled !== false)));
+  }
+  function weekdayName(value){
+    return ['周日','周一','周二','周三','周四','周五','周六'][Number(value || 0)] || '周一';
+  }
+  function recurringScheduleText(note){
+    const type = note.schedule_type || 'interval';
+    if(type === 'daily') return '每天';
+    if(type === 'weekly') return '每周 ' + weekdayName(note.weekday || 1);
+    return '约每 ' + Math.max(1, Number(note.interval_days || 30)) + ' 天';
+  }
+  function baseCleaningLoad(date, applyOwnerScope){
+    return systemCleaningRowsImpl().concat(commonAreaRowsImpl(date,date)).filter(r => {
+      if(r.date !== date) return false;
+      return !applyOwnerScope || targetMatches(r.target_id, r.target_type || 'room');
+    }).length;
+  }
+  function chooseRecurringTaskDate(note, dueDate, start, end, applyOwnerScope){
+    const flex = note.workload_sensitive === false ? 0 : Math.max(0, Math.min(21, Number(note.flex_days || 0)));
+    const candidates = [];
+    for(let offset = -flex; offset <= flex; offset++){
+      const d = addDay(dueDate, offset);
+      if((start && d < start) || (end && d > end)) continue;
+      if(note.start_date && d < note.start_date) continue;
+      candidates.push({date:d, offset:Math.abs(offset), load:baseCleaningLoad(d, applyOwnerScope)});
+    }
+    candidates.sort((a,b) => a.load - b.load || a.offset - b.offset || String(a.date).localeCompare(String(b.date)));
+    return candidates[0] ? candidates[0].date : '';
+  }
+  function recurringDatesForNote(note,start,end,applyOwnerScope=true){
+    if(!note || !note.target_id) return [];
+    const type = note.schedule_type || 'interval';
+    const first = normalizeDateInputValue(note.start_date) || normalizeDateInputValue(note.date) || String(note.created_at || '').slice(0,10) || today();
+    const out = [];
+    const seen = new Set();
+    if(type === 'daily'){
+      dateRange(start,end).forEach(d => {
+        if(d >= first && !seen.has(d)){seen.add(d); out.push(d);}
+      });
+      return out;
+    }
+    if(type === 'weekly'){
+      const weekday = Number(note.weekday || 1);
+      dateRange(start,end).forEach(d => {
+        if(d >= first && parseDate(d).getDay() === weekday && !seen.has(d)){seen.add(d); out.push(d);}
+      });
+      return out;
+    }
+    const interval = Math.max(1, Number(note.interval_days || 30));
+    const flex = note.workload_sensitive === false ? 0 : Math.max(0, Math.min(21, Number(note.flex_days || 0)));
+    let due = first;
+    const scanStart = addDay(start, -flex);
+    const scanEnd = addDay(end, flex);
+    while(due < scanStart) due = addDay(due, interval);
+    while(due <= scanEnd){
+      const selected = chooseRecurringTaskDate(note, due, start, end, applyOwnerScope);
+      if(selected && !seen.has(selected)){
+        seen.add(selected);
+        out.push(selected);
+      }
+      due = addDay(due, interval);
+    }
+    return out.sort();
+  }
+  function recurringTaskRows(start,end,applyOwnerScope=true){
+    const rows = [];
+    getRecurringTaskNotes().forEach(note => {
+      const type = note.target_type || 'room';
+      if(applyOwnerScope && !targetMatches(note.target_id,type)) return;
+      recurringDatesForNote(note,start,end,applyOwnerScope).forEach(date => {
+        rows.push({
+          id: 'recurring_task_' + safe(note.id || '') + '_' + safe(date),
+          date,
+          target_id: note.target_id,
+          target_type: type,
+          source: note.task_mode === 'deep' ? '深度保洁' : '周期任务',
+          type: 'recurring_task',
+          actual: true,
+          reason: [note.title || '周期保洁任务', note.note || ''].filter(Boolean).join('：'),
+          amount: Number(note.amount || 0),
+          note_task: true,
+          recurring_task: true,
+          note_id: note.id || '',
+          priority: note.priority || '普通',
+          schedule_text: recurringScheduleText(note)
+        });
+      });
+    });
+    return rows;
+  }
   function noteTaskRows(start,end,applyOwnerScope=true){
     return getNotes().filter(n => {
       const type = n.target_type || 'room';
-      return n.date && !n.cancellation_review && (!start || n.date >= start) && (!end || n.date <= end) && (!applyOwnerScope || targetMatches(n.target_id,type)) && n.amount_present;
+      return n.date && !n.recurring_task && !n.cancellation_review && (!start || n.date >= start) && (!end || n.date <= end) && (!applyOwnerScope || targetMatches(n.target_id,type)) && n.amount_present;
     }).map(n => ({date:n.date,target_id:n.target_id,target_type:n.target_type || 'room',source:'备注',type:'note_task',actual:true,reason:n.note || '',amount:Number(n.amount || 0),note_task:true,note_id:n.id || ''}));
   }
   function cancelReviewDates(note){
@@ -1054,7 +1172,9 @@
     return out;
   }
   function actualCleaningRowsImpl(start,end,applyOwnerScope=true){
-    const rows = systemCleaningRowsImpl().concat(commonAreaRowsImpl(start,end));
+    const s = start || addDay(today(), -90);
+    const e = end || addDay(today(), 180);
+    const rows = systemCleaningRowsImpl().concat(commonAreaRowsImpl(s,e));
     getManual().forEach(m => {
       const type = m.target_type || 'room';
       if(m.type === 'add'){
@@ -1068,13 +1188,14 @@
         });
       }
     });
-    return dedupeCleaningRowsImpl(rows.filter(r => r.actual).concat(noteTaskRows(start,end,applyOwnerScope), cancelReviewTaskRows(start,end,false,applyOwnerScope)));
+    return dedupeCleaningRowsImpl(rows.filter(r => r.actual).concat(noteTaskRows(s,e,applyOwnerScope), recurringTaskRows(s,e,applyOwnerScope), cancelReviewTaskRows(s,e,false,applyOwnerScope)));
   }
   function scopedCleaningRows(start,end){
     return actualCleaningRowsImpl(start,end).filter(r => targetMatches(r.target_id, r.target_type));
   }
   function rowAmount(row){
     if(row.cancel_review_task && String(row.review_status || 'pending') !== 'clean_needed') return 0;
+    if(row.recurring_task) return Number(row.amount || 0);
     if(row.type === 'manual_add' || row.note_task) return Number(row.amount || targetFee(row.target_id,row.target_type));
     return targetFee(row.target_id,row.target_type);
   }
@@ -1083,7 +1204,7 @@
     return money(rowAmount(row));
   }
   function roomDateNoteFor(date, roomId){return getRoomNotes().filter(n => n.date === date && String(n.room_id) === String(roomId));}
-  function noteFor(date,targetId,targetType){return getNotes().filter(n => n.date === date && String(n.target_id) === String(targetId) && (n.target_type || 'room') === (targetType || 'room'));}
+  function noteFor(date,targetId,targetType){return getNotes().filter(n => !n.recurring_task && n.date === date && String(n.target_id) === String(targetId) && (n.target_type || 'room') === (targetType || 'room'));}
   function inlineNotes(date,targetId,targetType){
     const all = noteFor(date,targetId,targetType).filter(n => !n.cancellation_review).concat((targetType === 'room' ? roomDateNoteFor(date,targetId).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})) : []));
     if(!all.length) return '';
@@ -1321,7 +1442,7 @@
     const future = ownerRealBookings().filter(b => b.checkin < endExclusive && b.checkout > start);
     const nights = future.reduce((sum,b) => sum + Math.max(0, Math.min(daysBetweenSafe(start,b.checkout), daysBetweenSafe(start,endExclusive)) - Math.max(0, daysBetweenSafe(start,b.checkin))), 0);
     const cleanToday = scopedCleaningRows(today(),today()).filter(r => r.date === today()).length;
-    const notesToday = getNotes().filter(n => n.date === today() && targetMatches(n.target_id,n.target_type || 'room')).length + getRoomNotes().filter(n => n.date === today() && roomMatches(n.room_id)).length;
+    const notesToday = getNotes().filter(n => !n.recurring_task && n.date === today() && targetMatches(n.target_id,n.target_type || 'room')).length + getRoomNotes().filter(n => n.date === today() && roomMatches(n.room_id)).length;
     const el = qs('ownerMetrics');
     if(el) el.innerHTML = `<div class="metric"><div class="small">未来订单</div><div class="num">${future.length}</div></div><div class="metric"><div class="small">未来占用晚数</div><div class="num">${nights}</div></div><div class="metric"><div class="small">今日实际保洁</div><div class="num">${cleanToday}</div></div><div class="metric"><div class="small">今日备注</div><div class="num">${notesToday}</div></div>`;
   }
@@ -1547,7 +1668,7 @@
     const empty = dailyEmptyRooms(d, real, locks);
     const pendingReviewRows = cancelReviewTaskRows(d,d,true).filter(r => r.date === d && String(r.review_status || 'pending') !== 'clean_needed');
     const cleanRows = scopedCleaningRows(d,d).filter(r => r.date === d).concat(pendingReviewRows);
-    const notes = getNotes().filter(n => !n.cancellation_review && n.date === d && targetMatches(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === d && roomMatches(n.room_id)).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
+    const notes = getNotes().filter(n => !n.recurring_task && !n.cancellation_review && n.date === d && targetMatches(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === d && roomMatches(n.room_id)).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
     const metrics = qs('dailyWorkMetrics');
     if(metrics) metrics.innerHTML = `<div class="metric"><div class="small">退房</div><div class="num">${checkouts.length}</div></div><div class="metric"><div class="small">入住</div><div class="num">${checkins.length}</div></div><div class="metric"><div class="small">剩余在住</div><div class="num">${stays.length}</div></div><div class="metric"><div class="small">空房</div><div class="num">${empty.length}</div></div><div class="metric"><div class="small">不开放锁定</div><div class="num">${locks.length}</div></div><div class="metric"><div class="small">保洁任务</div><div class="num">${cleanRows.length}</div></div>`;
     function bookingCards(title, rows, cls){
@@ -1589,7 +1710,7 @@
     const d = ui.cleaningWorkDate || today();
     const pendingReviewRows = cancelReviewTaskRows(d,d,true).filter(r => r.date === d && String(r.review_status || 'pending') !== 'clean_needed');
     const rows = scopedCleaningRows(d,d).filter(r => r.date === d).concat(pendingReviewRows);
-    const notes = getNotes().filter(n => !n.cancellation_review && n.date === d && targetMatches(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === d && roomMatches(n.room_id)).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
+    const notes = getNotes().filter(n => !n.recurring_task && !n.cancellation_review && n.date === d && targetMatches(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === d && roomMatches(n.room_id)).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
     root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2 style="margin:0">保洁工作</h2><div class="small">按日期查看当天保洁任务、房东确认提示和当天备注。</div></div><div class="property-actions"><input id="ownerCleaningWorkDate" type="date" value="${esc(d)}" onchange="setCleaningWorkDate(this.value)"><button class="smallbtn" onclick="setCleaningWorkDate('')">今天</button></div></div></div>${cleaningTableScoped(rows)}<div class="card"><h2>当天备注</h2>${notes.length ? notes.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('') : '<p class="small">暂无备注</p>'}</div>`;
   }
   function renderManualChangeSubTabImpl(){
@@ -1672,12 +1793,108 @@
     el.innerHTML = `<div class="grid"><div class="metric"><div class="small">保洁次数</div><div class="num">${rows.length}</div></div><div class="metric"><div class="small">房间费用</div><div class="num">${money(roomTotal)}</div></div><div class="metric"><div class="small">公区费用</div><div class="num">${money(commonTotal)}</div></div><div class="metric"><div class="small">合计费用</div><div class="num">${money(total)}</div></div></div>${section('历史保洁',history)}${section('将来保洁',future)}`;
   }
 
+  function recurringPresetById(id){
+    return CLEANING_TASK_PRESETS.find(x => x.id === id) || CLEANING_TASK_PRESETS[0];
+  }
+  function targetValueForPreset(preset){
+    const wantCommon = preset && preset.target === 'common';
+    const area = ownerAreas()[0];
+    const room = ownerRooms()[0];
+    if(wantCommon && area) return 'common:' + area.id;
+    if(room) return 'room:' + room.id;
+    if(area) return 'common:' + area.id;
+    return '';
+  }
+  function renderCleaningGuidance(){
+    return `<div class="task-guidance-grid">${CLEANING_GUIDANCE_GROUPS.map(group => `<div class="note-card"><div class="note-title">${esc(group[0])}</div><ul>${group[1].map(item => `<li>${esc(item)}</li>`).join('')}</ul></div>`).join('')}</div>`;
+  }
+  function renderRecurringTaskList(){
+    const rows = getRecurringTaskNotes(true).filter(n => targetMatches(n.target_id,n.target_type || 'room')).sort((a,b) => targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN') || recurringScheduleText(a).localeCompare(recurringScheduleText(b),'zh-Hans-CN'));
+    if(!rows.length) return '<p class="small">暂无周期任务。可以先选一个模板，再选择房间或公区保存。</p>';
+    return `<table><tr><th>启用</th><th>对象</th><th>任务</th><th>周期</th><th>弹性</th><th>费用</th><th>操作</th></tr>${rows.map(n => {
+      const flex = n.schedule_type === 'weekly' || n.schedule_type === 'daily' ? '固定' : `前后 ${Number(n.flex_days || 0)} 天`;
+      return `<tr><td><input type="checkbox" ${(n.enabled === false || n.inactive) ? '' : 'checked'} onchange="toggleRecurringTask('${esc(n.id)}',this.checked)"></td><td>${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))}</td><td><b>${esc(n.title || '周期任务')}</b><div class="small">${esc(n.note || '')}</div></td><td>${esc(recurringScheduleText(n))}</td><td>${esc(flex)}</td><td>${money(n.amount || 0)}</td><td><button class="smallbtn danger" onclick="deleteRecurringTask('${esc(n.id)}')">删除</button></td></tr>`;
+    }).join('')}</table>`;
+  }
+  function renderRecurringTaskManagerImpl(){
+    const el = qs('recurringTaskManager');
+    if(!el) return;
+    const presetOptions = CLEANING_TASK_PRESETS.map(p => `<option value="${esc(p.id)}">${esc(p.category)} · ${esc(p.title)}</option>`).join('');
+    el.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2 style="margin:0">周期/深度保洁任务</h2><div class="small">房东可以把每周、每 14 天、每 30 天左右的项目放进任务库；间隔型任务会优先安排到前后几天里保洁量较少的一天。</div></div></div><div class="formgrid"><div><label>任务模板</label><select id="recurringPreset" onchange="applyRecurringPreset()">${presetOptions}</select></div><div><label>对象</label><select id="recurringTarget">${cleanTargetOptions()}</select></div><div><label>任务名称</label><input id="recurringTitle"></div><div><label>周期类型</label><select id="recurringScheduleType"><option value="weekly">每周固定</option><option value="interval">按间隔弹性安排</option><option value="daily">每天</option></select></div><div><label>每周几</label><select id="recurringWeekday">${[0,1,2,3,4,5,6].map(i => `<option value="${i}">${weekdayName(i)}</option>`).join('')}</select></div><div><label>间隔天数</label><input id="recurringIntervalDays" type="number" min="1" max="365"></div><div><label>弹性天数</label><input id="recurringFlexDays" type="number" min="0" max="21"></div><div><label>额外费用</label><input id="recurringAmount" type="number" step="0.01" placeholder="不额外收费填 0"></div><div><label>开始日期</label><input id="recurringStartDate" type="date"></div><div><label>类型</label><select id="recurringTaskMode"><option value="regular">周期任务</option><option value="deep">深度保洁</option></select></div></div><label style="margin-top:12px">任务说明</label><textarea id="recurringNote" placeholder="写给保洁看的具体操作。"></textarea><div class="toolbar"><button class="smallbtn primary" onclick="addRecurringTask()">添加周期任务</button><span class="small">杀虫类任务默认做成“巡检/必要时按标签处理”，不要固定要求乱喷药。</span></div><h3>默认项目库</h3>${renderCleaningGuidance()}<h3>已启用/已保存任务</h3><div id="recurringTaskList">${renderRecurringTaskList()}</div></div>`;
+    applyRecurringPresetImpl();
+  }
+  function applyRecurringPresetImpl(){
+    const preset = recurringPresetById(qs('recurringPreset') && qs('recurringPreset').value);
+    if(!preset) return;
+    const target = qs('recurringTarget');
+    if(target && (!target.value || preset.target === 'common')) {
+      const value = targetValueForPreset(preset);
+      if(value) target.value = value;
+    }
+    const title = qs('recurringTitle'); if(title) title.value = preset.title || '';
+    const schedule = qs('recurringScheduleType'); if(schedule) schedule.value = preset.schedule || 'interval';
+    const weekday = qs('recurringWeekday'); if(weekday) weekday.value = String(preset.weekday == null ? 1 : preset.weekday);
+    const interval = qs('recurringIntervalDays'); if(interval) interval.value = String(preset.interval || 30);
+    const flex = qs('recurringFlexDays'); if(flex) flex.value = String(preset.flex || 0);
+    const amount = qs('recurringAmount'); if(amount) amount.value = String(preset.amount || 0);
+    const mode = qs('recurringTaskMode'); if(mode) mode.value = (preset.schedule === 'interval' && Number(preset.interval || 0) >= 14) ? 'deep' : 'regular';
+    const start = qs('recurringStartDate'); if(start && !start.value) start.value = today();
+    const note = qs('recurringNote'); if(note) note.value = preset.note || '';
+  }
+  function addRecurringTaskImpl(){
+    const target = parseTarget(qs('recurringTarget') && qs('recurringTarget').value);
+    const title = String(qs('recurringTitle') && qs('recurringTitle').value || '').trim();
+    const note = String(qs('recurringNote') && qs('recurringNote').value || '').trim();
+    if(!target.id) return alert('请先选择房间或公区。');
+    if(!title) return alert('请填写任务名称。');
+    const schedule = (qs('recurringScheduleType') && qs('recurringScheduleType').value) || 'interval';
+    const interval = Math.max(1, Number((qs('recurringIntervalDays') && qs('recurringIntervalDays').value) || 30));
+    const flex = schedule === 'interval' ? Math.max(0, Math.min(21, Number((qs('recurringFlexDays') && qs('recurringFlexDays').value) || 0))) : 0;
+    getNotes().unshift({
+      id:'recurring_'+Date.now(),
+      recurring_task:true,
+      enabled:true,
+      task_mode:(qs('recurringTaskMode') && qs('recurringTaskMode').value) || 'regular',
+      target_id:target.id,
+      target_type:target.type,
+      title,
+      note,
+      priority:'普通',
+      schedule_type:schedule,
+      weekday:Number((qs('recurringWeekday') && qs('recurringWeekday').value) || 1),
+      interval_days:interval,
+      flex_days:flex,
+      workload_sensitive:schedule === 'interval',
+      amount:Number((qs('recurringAmount') && qs('recurringAmount').value) || 0),
+      start_date:(qs('recurringStartDate') && qs('recurringStartDate').value) || today(),
+      created_by:userName('房东'),
+      created_at:nowIso()
+    });
+    persistAll().then(() => { renderRecurringTaskManagerImpl(); renderAll(); }).catch(e => alert('保存失败：' + e.message));
+  }
+  function toggleRecurringTaskImpl(id,enabled){
+    const row = getRecurringTaskNotes(true).find(n => String(n.id) === String(id));
+    if(!row) return;
+    row.enabled = !!enabled;
+    row.inactive = !enabled;
+    persistAll().then(renderAll).catch(e => alert('保存失败：' + e.message));
+  }
+  function deleteRecurringTaskImpl(id){
+    const row = getRecurringTaskNotes(true).find(n => String(n.id) === String(id));
+    if(!row) return;
+    if(!confirm('删除这个周期任务？')) return;
+    row.deleted = true;
+    persistAll().then(renderAll).catch(e => alert('删除失败：' + e.message));
+  }
+
   function renderOwnerNotesShell(){
     const root = qs('ownerNotesShell');
     if(!root) return;
     root.innerHTML = `<div class="card"><h2>保洁备注</h2><div class="formgrid"><div><label>日期</label><input id="noteDate" type="date"></div><div><label>对象</label><select id="noteTarget"></select></div><div><label>优先级</label><select id="notePriority"><option>普通</option><option>重要</option></select></div><div><label>调整金额</label><input id="noteAmount" type="number" step="0.01" placeholder="可不填"></div></div><label style="margin-top:12px">备注内容</label><textarea id="noteText" placeholder="写给保洁看的事项"></textarea><br><br><button class="smallbtn primary" onclick="addCleaningNote()">保存保洁备注</button></div><div class="card"><h2>指定房间日期备注</h2><div class="formgrid"><div><label>日期</label><input id="roomNoteDate" type="date"></div><div><label>房间</label><select id="roomNoteRoom"></select></div><div><label>优先级</label><select id="roomNotePriority"><option>普通</option><option>重要</option></select></div></div><label style="margin-top:12px">备注内容</label><textarea id="roomNoteText" placeholder="例如：纪念日布置、婴儿床、提前放红酒"></textarea><br><br><button class="smallbtn primary" onclick="addRoomDateNote()">添加房间日期备注</button></div><div class="card"><div class="toolbar"><h2 style="margin:0">备注记录</h2><input id="noteFilterDate" type="date" onchange="renderOwnerNotes()"><select id="noteFilterTargetType" onchange="renderOwnerNotes()"><option value="">全部</option><option value="room">房间</option><option value="common">公区</option><option value="roomDate">房间日期备注</option></select></div><div id="ownerNotesList"></div></div>`;
+    root.insertAdjacentHTML('afterbegin', '<div id="recurringTaskManager"></div>');
     ['noteDate','roomNoteDate'].forEach(id => { const el = qs(id); if(el && !el.value) el.value = today(); });
     initSelectsImpl();
+    renderRecurringTaskManagerImpl();
   }
   function addCleaningNoteImpl(){
     const target = parseTarget(qs('noteTarget') && qs('noteTarget').value);
@@ -1703,7 +1920,7 @@
     const fd = qs('noteFilterDate') && qs('noteFilterDate').value;
     const ft = qs('noteFilterTargetType') && qs('noteFilterTargetType').value;
     let rows = [];
-    if(!ft || ft === 'room' || ft === 'common') rows = rows.concat(getNotes().map(n => ({...n,kind:'cleaning'})));
+    if(!ft || ft === 'room' || ft === 'common') rows = rows.concat(getNotes().filter(n => !n.recurring_task).map(n => ({...n,kind:'cleaning'})));
     if(!ft || ft === 'roomDate') rows = rows.concat(getRoomNotes().map(n => ({...n,date:n.date,target_id:n.room_id,target_type:'room',kind:'roomDate'})));
     rows = rows.filter(n => n.kind === 'roomDate' ? roomMatches(n.target_id) : targetMatches(n.target_id,n.target_type || 'room'));
     if(fd) rows = rows.filter(n => n.date === fd);
@@ -2014,7 +2231,7 @@
     }
   }
   function renderCleanerNotesToday(){
-    const rows = getNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.room_id,'room')).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
+    const rows = getNotes().filter(n => !n.recurring_task && n.date === today() && cleanerCanSeeTarget(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.room_id,'room')).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
     if(!rows.length) return '';
     return `<div class="card"><h2>今日特别备注</h2>${rows.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('')}</div>`;
   }
@@ -2026,7 +2243,7 @@
     const futureRows = rows.filter(r => r.date > today()).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN')).slice(0,120);
     const historyRows = rows.filter(r => r.date < today()).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
     const summary = qs('cleanerSummary'); if(summary) summary.innerHTML = cleanerSummaryHtml();
-    const metrics = qs('cleanerMetrics'); if(metrics) metrics.innerHTML = `<div class="metric"><div class="small">${isActualCleaner()?'已绑定房源':'可查看房源'}</div><div class="num">${cleanerBoundProperties().length}</div></div><div class="metric"><div class="small">可查看房间</div><div class="num">${getRooms().filter(r => cleanerCanSeeTarget(r.id,'room')).length}</div></div><div class="metric"><div class="small">今日保洁</div><div class="num">${todayRows.length}</div></div><div class="metric"><div class="small">今日备注</div><div class="num">${getNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.target_id,n.target_type || 'room')).length + getRoomNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.room_id,'room')).length}</div></div><div class="metric"><div class="small">未来保洁</div><div class="num">${futureRows.length}</div></div>`;
+    const metrics = qs('cleanerMetrics'); if(metrics) metrics.innerHTML = `<div class="metric"><div class="small">${isActualCleaner()?'已绑定房源':'可查看房源'}</div><div class="num">${cleanerBoundProperties().length}</div></div><div class="metric"><div class="small">可查看房间</div><div class="num">${getRooms().filter(r => cleanerCanSeeTarget(r.id,'room')).length}</div></div><div class="metric"><div class="small">今日保洁</div><div class="num">${todayRows.length}</div></div><div class="metric"><div class="small">今日备注</div><div class="num">${getNotes().filter(n => !n.recurring_task && n.date === today() && cleanerCanSeeTarget(n.target_id,n.target_type || 'room')).length + getRoomNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.room_id,'room')).length}</div></div><div class="metric"><div class="small">未来保洁</div><div class="num">${futureRows.length}</div></div>`;
     const notes = qs('cleanerTodayNotes'); if(notes) notes.innerHTML = renderCleanerNotesToday();
     const todayBox = qs('cleanerToday'); if(todayBox) todayBox.innerHTML = cleaningTableScoped(todayRows);
     const futureBox = qs('cleanerFuture'); if(futureBox) futureBox.innerHTML = cleaningTableScoped(futureRows);
@@ -2649,6 +2866,10 @@
     unbindPropertyCleanerUi,
     refreshManualTargetOptions: refreshManualTargetOptionsImpl,
     refreshNoteTargetOptions: refreshNoteTargetOptionsImpl,
+    applyRecurringPreset: applyRecurringPresetImpl,
+    addRecurringTask: addRecurringTaskImpl,
+    toggleRecurringTask: toggleRecurringTaskImpl,
+    deleteRecurringTask: deleteRecurringTaskImpl,
     addManualChange: addManualChangeImpl,
     addCleaningNote: addCleaningNoteImpl,
     addRoomDateNote: addRoomDateNoteImpl,
@@ -2717,6 +2938,10 @@
     ['setOnlyOwnerRoom', setOnlyOwnerRoomImpl],
     ['saveOwnerRoomDefault', saveOwnerRoomDefault],
     ['setRoomSettingsPanel', setRoomSettingsPanel],
+    ['applyRecurringPreset', applyRecurringPresetImpl],
+    ['addRecurringTask', addRecurringTaskImpl],
+    ['toggleRecurringTask', toggleRecurringTaskImpl],
+    ['deleteRecurringTask', deleteRecurringTaskImpl],
     ['addRoom', addRoomImpl],
     ['addCommonArea', addCommonAreaImpl],
     ['syncIcal', syncPropertyIcalImpl],
