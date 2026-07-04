@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_PATCH_VERSION = "2026-07-03-v48-work-date-today-fix"
+PMS_PATCH_VERSION = "2026-07-04-v49-multi-cleaning-photo-upload"
 BASE = Path(__file__).resolve().parent
 STATIC = BASE / "static"
 STATE_PATH = BASE / "state.json"

@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-03-v48-work-date-today-fix';
+  const VERSION = '2026-07-04-v49-multi-cleaning-photo-upload';
   window.__PMS_PATCH_VERSION = VERSION;
 
   const ui = window.__pmsUnifiedUi || (window.__pmsUnifiedUi = {
@@ -1129,7 +1129,7 @@
     const statusId = 'cleanPhotoStatus_' + safe(key);
     const photos = cleaningPhotosForRow(row);
     const canUpload = row.date <= today();
-    const upload = canUpload ? `<div class="mail-actions"><label class="smallbtn" for="${cameraId}">拍照</label><label class="smallbtn" for="${fileId}">上传照片</label></div><input id="${cameraId}" data-upload-source="camera" type="file" accept="image/*" capture="environment" onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><input id="${fileId}" data-upload-source="file" type="file" accept="image/*" onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><div id="${statusId}" class="photo-status"></div>` : '';
+    const upload = canUpload ? `<div class="mail-actions"><label class="smallbtn" for="${cameraId}">拍照</label><label class="smallbtn" for="${fileId}">上传多张</label></div><input id="${cameraId}" data-upload-source="camera" type="file" accept="image/*" capture="environment" multiple onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><input id="${fileId}" data-upload-source="file" type="file" accept="image/*" multiple onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><div id="${statusId}" class="photo-status"></div>` : '';
     const list = photos.length ? `<div class="photo-list">${photos.map((p,i) => {
       const href = String(p.url || '').startsWith('/') ? apiUrl(p.url) : String(p.url || '');
       return `<a href="${esc(href)}" target="_blank" rel="noopener">照片${i+1}</a>`;
@@ -1180,7 +1180,7 @@
   async function uploadCleaningPhoto(encodedKey,input){
     const key = decodeURIComponent(encodedKey || '');
     const row = ui.photoRows[key];
-    const file = input && input.files && input.files[0];
+    const files = Array.from((input && input.files) || []);
     const status = qs('cleanPhotoStatus_' + safe(key));
     const setStatus = (text, kind='') => {
       if(status){
@@ -1188,26 +1188,30 @@
         status.className = 'photo-status' + (kind ? ' ' + kind : '');
       }
     };
-    if(!row || !file) return;
+    if(!row || !files.length) return;
     const oldTitle = document.title;
+    let uploaded = 0;
     try{
-      setStatus('上传中...');
-      const dataUrl = await prepareCleaningPhoto(file);
-      const res = await fetch(apiUrl('/api/cleaning-photo'), {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({...row, file_name: file.name || 'cleaning-photo.jpg', content_type: file.type || 'image/jpeg', upload_source: (input && input.dataset && input.dataset.uploadSource) || '', photo_data: dataUrl})
-      });
-      const raw = await res.text();
-      let data = {};
-      try{data = raw ? JSON.parse(raw) : {};}catch(e){}
-      if(!res.ok || data.ok === false) throw new Error(data.error || raw.slice(0, 200) || ('上传失败 HTTP ' + res.status));
-      setStatus('上传成功', 'ok');
-      applyStateFromServerImpl(data.state || data);
+      for(const file of files){
+        setStatus(`上传中 ${uploaded + 1}/${files.length}...`);
+        const dataUrl = await prepareCleaningPhoto(file);
+        const res = await fetch(apiUrl('/api/cleaning-photo'), {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({...row, file_name: file.name || `cleaning-photo-${uploaded + 1}.jpg`, content_type: file.type || 'image/jpeg', upload_source: (input && input.dataset && input.dataset.uploadSource) || '', photo_data: dataUrl})
+        });
+        const raw = await res.text();
+        let data = {};
+        try{data = raw ? JSON.parse(raw) : {};}catch(e){}
+        if(!res.ok || data.ok === false) throw new Error(data.error || raw.slice(0, 200) || ('上传失败 HTTP ' + res.status));
+        applyStateFromServerImpl(data.state || data);
+        uploaded += 1;
+      }
+      setStatus(`已上传 ${uploaded} 张`, 'ok');
       renderAll();
     }catch(e){
       const message = e && e.message ? e.message : String(e || '未知错误');
-      setStatus('上传失败：' + message, 'error');
+      setStatus(`已上传 ${uploaded}/${files.length} 张，失败：` + message, 'error');
       alert('上传照片失败：' + message);
     }finally{
       if(input) input.value = '';
