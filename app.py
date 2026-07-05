@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_PATCH_VERSION = "2026-07-04-v63-cleaning-parity-area-layout"
+PMS_PATCH_VERSION = "2026-07-05-v64-ops-center-single-shell"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -40,7 +40,23 @@ CONFIG_PATH = BASE / "config.json"
 FIRESTORE_SCOPE = "https://www.googleapis.com/auth/datastore"
 DEFAULT_GROUP_ID = "group_default"
 DEFAULT_PROPERTY_ID = "property_default"
-STATE_KEYS = ["groups", "users", "properties", "propertyCleaners", "rooms", "commonAreas", "bookings", "manualChanges", "cleaningNotes", "roomDateNotes"]
+STATE_KEYS = [
+    "groups",
+    "users",
+    "properties",
+    "propertyCleaners",
+    "rooms",
+    "commonAreas",
+    "bookings",
+    "manualChanges",
+    "cleaningNotes",
+    "roomDateNotes",
+    "maintenanceTickets",
+    "inventoryItems",
+    "expenseRecords",
+    "guestProfiles",
+    "auditLog",
+]
 TOKEN_CACHE = {"token": "", "expiry": 0}
 SERVICE_ACCOUNT_CACHE = None
 
@@ -102,6 +118,11 @@ def _pms_core_default_state():
         "manualChanges": [],
         "cleaningNotes": [],
         "roomDateNotes": [],
+        "maintenanceTickets": [],
+        "inventoryItems": [],
+        "expenseRecords": [],
+        "guestProfiles": [],
+        "auditLog": [],
         "current_group_id": DEFAULT_GROUP_ID,
         "last_sync": "",
         "sync_errors": [],
@@ -222,6 +243,30 @@ def user_group_ids(user):
     return {str(item) for item in (user or {}).get("group_ids", []) if item}
 
 
+def pms_item_property_id(item, state):
+    if not isinstance(item, dict):
+        return ""
+    prop_id = str(item.get("property_id") or "").strip()
+    if prop_id:
+        return prop_id
+    room_id = str(item.get("room_id") or "").strip()
+    if not room_id and item.get("target_type") != "common":
+        room_id = str(item.get("target_id") or "").strip()
+    if room_id:
+        for room in state.get("rooms", []):
+            if isinstance(room, dict) and str(room.get("id") or "") == room_id:
+                return str(room.get("property_id") or "").strip()
+    area_id = ""
+    if item.get("target_type") == "common":
+        area_id = str(item.get("target_id") or "").strip()
+    area_id = area_id or str(item.get("common_area_id") or item.get("area_id") or "").strip()
+    if area_id:
+        for area in state.get("commonAreas", []):
+            if isinstance(area, dict) and str(area.get("id") or "") == area_id:
+                return str(area.get("property_id") or "").strip()
+    return ""
+
+
 def _pms_core_filter_state_for_user(state, user):
     state = plain(normalize_state(state))
     role = (user or {}).get("role")
@@ -291,6 +336,37 @@ def _pms_core_filter_state_for_user(state, user):
         )
     ]
     visible["roomDateNotes"] = [item for item in state.get("roomDateNotes", []) if isinstance(item, dict) and item.get("room_id") in room_ids]
+    visible["maintenanceTickets"] = [
+        item
+        for item in state.get("maintenanceTickets", [])
+        if isinstance(item, dict) and pms_item_property_id(item, state) in property_ids
+    ]
+    visible["inventoryItems"] = [
+        item
+        for item in state.get("inventoryItems", [])
+        if isinstance(item, dict) and pms_item_property_id(item, state) in property_ids
+    ]
+    visible["expenseRecords"] = [
+        item
+        for item in state.get("expenseRecords", [])
+        if isinstance(item, dict) and role != "cleaner" and pms_item_property_id(item, state) in property_ids
+    ]
+    visible["guestProfiles"] = [
+        item
+        for item in state.get("guestProfiles", [])
+        if isinstance(item, dict)
+        and role != "cleaner"
+        and ((item.get("group_id") in group_ids) or pms_item_property_id(item, state) in property_ids)
+    ]
+    visible["auditLog"] = [
+        item
+        for item in state.get("auditLog", [])
+        if isinstance(item, dict)
+        and (
+            (role != "cleaner" and pms_item_property_id(item, state) in property_ids)
+            or item.get("actor_id") == (user or {}).get("id")
+        )
+    ][-300:]
     visible["users"] = [
         public_user(item)
         for item in state.get("users", [])
@@ -439,6 +515,55 @@ def _pms_core_normalize_state(raw):
         area.setdefault("cleaning_fee", 0)
         for key, value in normalize_common_area_components(area).items():
             area[key] = value
+    for idx, item in enumerate(state["maintenanceTickets"]):
+        if not isinstance(item, dict):
+            item = {}
+            state["maintenanceTickets"][idx] = item
+        item.setdefault("id", f"maint{idx + 1}")
+        item.setdefault("property_id", pms_item_property_id(item, state) or default_property)
+        item.setdefault("room_id", "")
+        item.setdefault("title", "Maintenance task")
+        item.setdefault("status", "open")
+        item.setdefault("priority", "normal")
+        item.setdefault("category", "repair")
+        item.setdefault("created_at", "")
+    for idx, item in enumerate(state["inventoryItems"]):
+        if not isinstance(item, dict):
+            item = {}
+            state["inventoryItems"][idx] = item
+        item.setdefault("id", f"inv{idx + 1}")
+        item.setdefault("property_id", pms_item_property_id(item, state) or default_property)
+        item.setdefault("name", "Supply item")
+        item.setdefault("category", "cleaning")
+        item.setdefault("unit", "pcs")
+        item.setdefault("current_qty", 0)
+        item.setdefault("min_qty", 0)
+    for idx, item in enumerate(state["expenseRecords"]):
+        if not isinstance(item, dict):
+            item = {}
+            state["expenseRecords"][idx] = item
+        item.setdefault("id", f"expense{idx + 1}")
+        item.setdefault("property_id", pms_item_property_id(item, state) or default_property)
+        item.setdefault("date", now_utc_iso()[:10])
+        item.setdefault("category", "other")
+        item.setdefault("amount", 0)
+    for idx, item in enumerate(state["guestProfiles"]):
+        if not isinstance(item, dict):
+            item = {}
+            state["guestProfiles"][idx] = item
+        item.setdefault("id", f"guest{idx + 1}")
+        item.setdefault("group_id", state["current_group_id"])
+        item.setdefault("property_id", pms_item_property_id(item, state) or default_property)
+        item.setdefault("name", "Guest")
+        item.setdefault("created_at", "")
+    for idx, item in enumerate(state["auditLog"]):
+        if not isinstance(item, dict):
+            item = {}
+            state["auditLog"][idx] = item
+        item.setdefault("id", f"audit{idx + 1}")
+        item.setdefault("property_id", pms_item_property_id(item, state) or default_property)
+        item.setdefault("action", "")
+        item.setdefault("created_at", "")
     for booking in state["bookings"]:
         if isinstance(booking, dict):
             booking.setdefault("source", booking.get("source") or "manual")
@@ -678,13 +803,32 @@ def _pms_core_save_state_from_payload(payload, actor=None):
                 incoming_common_areas,
                 lambda item: (item.get("property_id") or first_actor_property_id(actor, current)) not in property_ids,
             )
+        def scoped_property_rows(key):
+            rows = []
+            for item in payload.get(key, []):
+                if not isinstance(item, dict):
+                    continue
+                fixed = dict(item)
+                property_id = str(fixed.get("property_id") or pms_item_property_id(fixed, current) or first_actor_property_id(actor, current))
+                if property_id not in property_ids:
+                    continue
+                fixed["property_id"] = property_id
+                rows.append(fixed)
+            merged[key] = merge_scoped_list(
+                current.get(key, []),
+                rows,
+                lambda item: pms_item_property_id(item, current) not in property_ids,
+            )
+        for key in ["maintenanceTickets", "inventoryItems", "expenseRecords", "guestProfiles", "auditLog"]:
+            if key in payload:
+                scoped_property_rows(key)
         for key in ["last_sync", "sync_errors"]:
             if key in payload:
                 merged[key] = payload.get(key)
         validate_property_names_unique(merged)
         return save_state(merged)
     merged = dict(payload)
-    for key in ["groups", "users", "properties", "propertyCleaners"]:
+    for key in STATE_KEYS:
         if key not in merged:
             merged[key] = current.get(key, [])
     if "users" in merged:

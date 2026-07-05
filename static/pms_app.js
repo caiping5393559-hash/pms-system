@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-04-v63-cleaning-parity-area-layout';
+  const VERSION = '2026-07-05-v64-ops-center-single-shell';
   window.__PMS_PATCH_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -22,6 +22,7 @@
     editingRecurringTaskId: '',
     recurringPropertyFilter: '',
     recurringRoomFilter: '',
+    opsTab: 'dashboard',
     mail: {mailForwardingConfig: [], propertyMailForwarding: [], mailEvents: []},
     photoRows: {},
     confirmRows: {},
@@ -39,6 +40,7 @@
   ui.editingRecurringTaskId = ui.editingRecurringTaskId || '';
   ui.cleaningSubTab = ['today','finance','manual','notes'].includes(ui.cleaningSubTab) ? ui.cleaningSubTab : 'today';
   ui.cleaningWorkDate = ui.cleaningWorkDate || '';
+  ui.opsTab = ['dashboard','maintenance','inventory','expenses','guests','channels','audit'].includes(ui.opsTab) ? ui.opsTab : 'dashboard';
 
   function esc(value){
     return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
@@ -82,6 +84,16 @@
   function setConfirmations(value){try{cleaningTaskConfirmations = value;}catch(e){} window.cleaningTaskConfirmations = value;}
   function getPhotos(){try{return Array.isArray(cleaningTaskPhotos) ? cleaningTaskPhotos : [];}catch(e){return window.cleaningTaskPhotos || [];}}
   function setPhotos(value){try{cleaningTaskPhotos = value;}catch(e){} window.cleaningTaskPhotos = value;}
+  function getMaintenanceTickets(){try{return Array.isArray(maintenanceTickets) ? maintenanceTickets : [];}catch(e){return window.maintenanceTickets || [];}}
+  function setMaintenanceTickets(value){try{maintenanceTickets = value;}catch(e){} window.maintenanceTickets = value;}
+  function getInventoryItems(){try{return Array.isArray(inventoryItems) ? inventoryItems : [];}catch(e){return window.inventoryItems || [];}}
+  function setInventoryItems(value){try{inventoryItems = value;}catch(e){} window.inventoryItems = value;}
+  function getExpenseRecords(){try{return Array.isArray(expenseRecords) ? expenseRecords : [];}catch(e){return window.expenseRecords || [];}}
+  function setExpenseRecords(value){try{expenseRecords = value;}catch(e){} window.expenseRecords = value;}
+  function getGuestProfiles(){try{return Array.isArray(guestProfiles) ? guestProfiles : [];}catch(e){return window.guestProfiles || [];}}
+  function setGuestProfiles(value){try{guestProfiles = value;}catch(e){} window.guestProfiles = value;}
+  function getAuditLog(){try{return Array.isArray(auditLog) ? auditLog : [];}catch(e){return window.auditLog || [];}}
+  function setAuditLog(value){try{auditLog = value;}catch(e){} window.auditLog = value;}
   function getCurrentUser(){try{return currentUser || null;}catch(e){return window.currentUser || null;}}
   function setCurrentUser(value){try{currentUser = value;}catch(e){} window.currentUser = value;}
   function getLastSync(){try{return lastSync || '';}catch(e){return window.lastSync || '';}}
@@ -687,10 +699,10 @@
 
   function dataCount(state){
     const s = (state && state.state) || state || {};
-    return ['users','properties','propertyCleaners','rooms','commonAreas','bookings','channelListings'].reduce((n,k) => n + (Array.isArray(s[k]) ? s[k].length : 0), 0);
+    return ['users','properties','propertyCleaners','rooms','commonAreas','bookings','channelListings','maintenanceTickets','inventoryItems','expenseRecords','guestProfiles'].reduce((n,k) => n + (Array.isArray(s[k]) ? s[k].length : 0), 0);
   }
   function currentDataCount(){
-    return getUsers().length + getProperties().length + getPropertyCleaners().length + getRooms().length + getAreas().length + getBookings().length + getChannels().length;
+    return getUsers().length + getProperties().length + getPropertyCleaners().length + getRooms().length + getAreas().length + getBookings().length + getChannels().length + getMaintenanceTickets().length + getInventoryItems().length + getExpenseRecords().length + getGuestProfiles().length;
   }
   function cacheKey(state){
     const u = (state && (state.current_user || state.currentUser)) || getCurrentUser() || {};
@@ -705,7 +717,10 @@
       manualChanges: getManual(), cleaningNotes: getNotes(), roomDateNotes: getRoomNotes(),
       cleaningTaskConfirmations: getConfirmations(), cleaningTaskPhotos: getPhotos(), sync_errors: getSyncErrors(), last_sync: getLastSync(),
       mailForwardingConfig: ui.mail.mailForwardingConfig, propertyMailForwarding: ui.mail.propertyMailForwarding,
-      mailEvents: ui.mail.mailEvents, current_user: u, currentUser: u
+      mailEvents: ui.mail.mailEvents,
+      maintenanceTickets: getMaintenanceTickets(), inventoryItems: getInventoryItems(), expenseRecords: getExpenseRecords(),
+      guestProfiles: getGuestProfiles(), auditLog: getAuditLog(),
+      current_user: u, currentUser: u
     };
   }
   function rememberGoodState(){
@@ -773,6 +788,11 @@
     if(Array.isArray(state.roomDateNotes)) setRoomNotes(state.roomDateNotes);
     if(Array.isArray(state.cleaningTaskConfirmations)) setConfirmations(state.cleaningTaskConfirmations);
     if(Array.isArray(state.cleaningTaskPhotos)) setPhotos(state.cleaningTaskPhotos);
+    if(Array.isArray(state.maintenanceTickets)) setMaintenanceTickets(state.maintenanceTickets);
+    if(Array.isArray(state.inventoryItems)) setInventoryItems(state.inventoryItems);
+    if(Array.isArray(state.expenseRecords)) setExpenseRecords(state.expenseRecords);
+    if(Array.isArray(state.guestProfiles)) setGuestProfiles(state.guestProfiles);
+    if(Array.isArray(state.auditLog)) setAuditLog(state.auditLog);
     if(Array.isArray(state.sync_errors)) setSyncErrors(state.sync_errors);
     if(state.last_sync) setLastSync(state.last_sync);
     if(Array.isArray(state.mailForwardingConfig)) ui.mail.mailForwardingConfig = state.mailForwardingConfig;
@@ -834,6 +854,11 @@
         cleaningNotes: getNotes(),
         roomDateNotes: getRoomNotes(),
         cleaningTaskConfirmations: getConfirmations(),
+        maintenanceTickets: getMaintenanceTickets(),
+        inventoryItems: getInventoryItems(),
+        expenseRecords: getExpenseRecords(),
+        guestProfiles: getGuestProfiles(),
+        auditLog: getAuditLog(),
         sync_errors: getSyncErrors(),
         last_sync: getLastSync(),
         propertyMailForwarding: ui.mail.propertyMailForwarding
@@ -988,12 +1013,6 @@
     syncNavForRole();
   }
 
-  function removeLegacyIntroCards(){
-    document.querySelectorAll('#owner > .card,#cleaner > .card').forEach(card => {
-      const text = card.textContent || '';
-      if(text.includes('房东可查看指定日期工作表') || text.includes('保洁只能查看绑定房源') || text.includes('保洁退房页面')) card.remove();
-    });
-  }
   function ensureBaseShell(){
     let main = document.querySelector('main');
     if(!main){
@@ -1031,6 +1050,7 @@
       </div>`;
       qs('ownerMetrics').insertAdjacentElement('afterend', card);
     }
+    ensureOwnerOpsTab();
     const pane = (id, html) => {
       if(qs(id)) return;
       const div = document.createElement('div');
@@ -1043,8 +1063,29 @@
     pane('ownerCalendar', `<div class="card"><h2>未来房态总览</h2><div class="toolbar"><span class="small">默认未来 14 天，可切换 28 天，也可指定日期范围：</span><button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">未来14天</button><button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">未来28天</button><input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()"><input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()"><span id="ownerRoomFilterSummary" class="badge blue"></span><button id="calendarVacancyOnlyBtn" class="smallbtn" onclick="toggleCalendarVacancyOnly()">只看空房</button><span id="calendarVacancySummary" class="badge green"></span></div><div class="scroll"><div id="calendarGrid" class="timeline"></div></div></div><div class="card"><h2 id="futureStatsTitle">当前区间每个房间预订统计</h2><div id="sixMonthStats"></div></div><div class="card"><div class="toolbar"><strong id="futureBookingsTitle">当前区间预订列表</strong><select id="platformFilter" onchange="renderOwnerBookings()"><option value="">全部平台</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>Other</option><option>微信直订</option></select><span id="bookingRoomFilterSummary" class="badge blue"></span></div><div id="ownerBookings"></div></div>`);
     pane('ownerCleaning', `<div id="ownerCleaningShell"></div>`);
     pane('ownerRooms', `<div id="roomSettingsUnifiedShell" class="room-settings-shell"><div id="roomSettings"></div></div>`);
+    pane('ownerOps', `<div id="ownerOpsShell"></div>`);
     ensureOwnerProfileTab();
     ensureRoomSettingsShell();
+  }
+  function ensureOwnerOpsTab(){
+    const owner = qs('owner');
+    if(!owner) return;
+    const tabbar = owner.querySelector('#ownerTabsCard .tabbar') || owner.querySelector('.tabbar');
+    if(tabbar && !tabbar.querySelector('[data-pms-ops-tab]')){
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.pmsOpsTab = '1';
+      btn.textContent = '运营中心';
+      btn.onclick = function(){showOwnerTabImpl('ownerOps', this);};
+      tabbar.appendChild(btn);
+    }
+    if(!qs('ownerOps')){
+      const div = document.createElement('div');
+      div.id = 'ownerOps';
+      div.className = 'tab-content';
+      div.innerHTML = '<div id="ownerOpsShell"></div>';
+      owner.appendChild(div);
+    }
   }
   function ensureOwnerProfileTab(){
     const owner = qs('owner');
@@ -1217,6 +1258,23 @@
       .work-card h3{white-space:normal!important}
       .finance-section{margin-top:12px}.finance-section h3{margin:0;padding:10px 12px;background:#f8fafc;border:1px solid var(--line);border-radius:8px 8px 0 0}
       .mail-panel{border:1px solid #bae6fd;background:#f8fcff;border-radius:8px;padding:12px;display:grid;gap:10px}
+      .ops-shell{display:grid;gap:14px}
+      .ops-tabs{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+      .ops-tabs button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:9px 12px;font-weight:900;cursor:pointer}
+      .ops-tabs button.active{background:#0f766e;border-color:#0f766e;color:#fff}
+      .ops-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+      .ops-panel{border:1px solid var(--line);background:#fff;border-radius:8px;padding:14px;display:grid;gap:12px}
+      .ops-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;align-items:end}
+      .ops-form label{display:grid;gap:5px;font-size:12px;font-weight:900;color:#475569}
+      .ops-form input,.ops-form select,.ops-form textarea{width:100%;min-width:0}
+      .ops-list{display:grid;gap:8px}
+      .ops-row{border:1px solid #d8e1ef;background:#f8fafc;border-radius:8px;padding:10px;display:grid;gap:8px}
+      .ops-row-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap}
+      .ops-title{font-weight:900;color:#0f172a}
+      .ops-meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+      .ops-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+      .ops-health{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px}
+      .ops-empty{border:1px dashed #cbd5e1;background:#f8fafc;border-radius:8px;padding:14px;color:#64748b}
       .user-profile-card{display:grid;gap:14px}
       .profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
       .profile-field{display:grid;gap:6px}
@@ -2826,7 +2884,6 @@
   function renderOwnerImpl(){
     ensureBaseShell();
     ensureStyles();
-    removeLegacyIntroCards();
     if(!currentDataCount() && ui.loading){ensureDataGate('正在加载房源数据...'); return;}
     ensureOwnerPropertyModuleVisible();
     initSelectsImpl();
@@ -2843,6 +2900,7 @@
     if(tab === 'ownerCalendar'){renderOwnerCalendarImpl(); renderSixMonthStatsImpl(); renderOwnerBookingsImpl();}
     else if(tab === 'ownerCleaning'){renderCleaningManagerShell();}
     else if(tab === 'ownerRooms'){renderRoomSettingsImpl();}
+    else if(tab === 'ownerOps'){renderOpsCenterImpl();}
     else if(tab === 'ownerProfile'){renderUserProfileImpl();}
     else renderDailyWorkImpl();
   }
@@ -3083,7 +3141,6 @@
   function renderAll(){
     ensureBaseShell();
     ensureStyles();
-    removeLegacyIntroCards();
     if(isActualCleaner() || (cleanerPath() && !isOwnerLike())) renderCleanerImpl();
     else {
       renderCleanerImpl();
@@ -3582,6 +3639,188 @@
     renderAll();
   }
 
+  function scopedProperties(){
+    const ids = new Set(ownerPropIds());
+    return propList().filter(p => ids.has(p.id));
+  }
+  function opsPropertyOptions(selected){
+    return scopedProperties().map(p => `<option value="${esc(p.id)}" ${String(p.id) === String(selected || '') ? 'selected' : ''}>${esc(p.name || p.id)}</option>`).join('');
+  }
+  function opsRoomOptions(propertyId, selected, includeAll){
+    const rooms = getRooms().filter(r => !propertyId || String(roomPropId(r.id)) === String(propertyId));
+    const rows = includeAll ? ['<option value="">不指定房间</option>'] : [];
+    return rows.concat(rooms.map(r => `<option value="${esc(r.id)}" ${String(r.id) === String(selected || '') ? 'selected' : ''}>${esc(propName(roomPropId(r.id)))} / ${esc(r.name || r.id)}</option>`)).join('');
+  }
+  function selectedOpsPropertyId(){
+    const props = scopedProperties();
+    return (props[0] && props[0].id) || '';
+  }
+  function appendAudit(action, detail, propertyId){
+    const u = getCurrentUser() || {};
+    const rows = getAuditLog();
+    rows.push({id:'audit_' + Date.now() + '_' + Math.random().toString(16).slice(2,7),property_id:propertyId || selectedOpsPropertyId(),action,detail:detail || '',actor_id:u.id || '',actor_name:userName('用户'),created_at:nowIso()});
+    setAuditLog(rows.slice(-500));
+  }
+  function showOpsTab(tab, btn){
+    ui.opsTab = tab || 'dashboard';
+    if(btn && btn.parentElement) btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    if(btn) btn.classList.add('active');
+    renderOpsCenterImpl();
+  }
+  function opsTabButton(id,label){
+    return `<button class="${ui.opsTab === id ? 'active' : ''}" onclick="showOpsTab('${id}',this)">${label}</button>`;
+  }
+  function opsRowsByProperty(rows){
+    const ids = new Set(ownerPropIds());
+    return (rows || []).filter(row => row && ids.has(row.property_id || targetPropId(row.room_id || row.target_id, row.target_type)));
+  }
+  function renderOpsCenterImpl(){
+    const root = qs('ownerOpsShell');
+    if(!root) return;
+    const props = scopedProperties();
+    const tickets = opsRowsByProperty(getMaintenanceTickets());
+    const inventory = opsRowsByProperty(getInventoryItems());
+    const expenses = opsRowsByProperty(getExpenseRecords());
+    const guests = opsRowsByProperty(getGuestProfiles());
+    const openTickets = tickets.filter(x => String(x.status || 'open') !== 'done');
+    const lowStock = inventory.filter(x => Number(x.current_qty || 0) <= Number(x.min_qty || 0));
+    const month = today().slice(0,7);
+    const monthExpenses = expenses.filter(x => String(x.date || '').slice(0,7) === month).reduce((sum,x) => sum + Number(x.amount || 0), 0);
+    const channels = getChannels().filter(ch => ownerRoomEntityIds().has(roomEntityId(ch.room_id)));
+    root.innerHTML = `<div class="ops-shell"><div class="card"><div class="property-detail-head"><div><h2>运营中心</h2><div class="small">集中查看维护、耗材、费用、客人档案、渠道健康和操作记录。当前跟随上方房源/房间范围。</div></div><div class="ops-tabs">${opsTabButton('dashboard','总览')}${opsTabButton('maintenance','维护')}${opsTabButton('inventory','耗材')}${opsTabButton('expenses','费用')}${opsTabButton('guests','客人')}${opsTabButton('channels','渠道健康')}${opsTabButton('audit','日志')}</div></div></div><div class="ops-grid"><div class="metric"><div class="small">房源</div><div class="num">${props.length}</div></div><div class="metric"><div class="small">待处理维护</div><div class="num">${openTickets.length}</div></div><div class="metric"><div class="small">低库存耗材</div><div class="num">${lowStock.length}</div></div><div class="metric"><div class="small">本月费用</div><div class="num">${money(monthExpenses)}</div></div><div class="metric"><div class="small">客人档案</div><div class="num">${guests.length}</div></div><div class="metric"><div class="small">渠道数</div><div class="num">${channels.length}</div></div></div>${renderOpsTabContent()}</div>`;
+  }
+  function renderOpsTabContent(){
+    if(ui.opsTab === 'maintenance') return renderMaintenanceOps();
+    if(ui.opsTab === 'inventory') return renderInventoryOps();
+    if(ui.opsTab === 'expenses') return renderExpenseOps();
+    if(ui.opsTab === 'guests') return renderGuestOps();
+    if(ui.opsTab === 'channels') return renderChannelHealthOps();
+    if(ui.opsTab === 'audit') return renderAuditOps();
+    return renderOpsDashboard();
+  }
+  function renderOpsDashboard(){
+    const tickets = opsRowsByProperty(getMaintenanceTickets()).filter(x => String(x.status || 'open') !== 'done').slice(0,6);
+    const low = opsRowsByProperty(getInventoryItems()).filter(x => Number(x.current_qty || 0) <= Number(x.min_qty || 0)).slice(0,6);
+    const errors = getChannels().filter(ch => ownerRoomEntityIds().has(roomEntityId(ch.room_id)) && ch.sync_error).slice(0,6);
+    return `<div class="ops-grid"><div class="ops-panel"><h3>待处理维护</h3>${tickets.length ? `<div class="ops-list">${tickets.map(maintenanceRowHtml).join('')}</div>` : '<div class="ops-empty">暂无待处理维护。</div>'}</div><div class="ops-panel"><h3>低库存耗材</h3>${low.length ? `<div class="ops-list">${low.map(inventoryRowHtml).join('')}</div>` : '<div class="ops-empty">暂无低库存提醒。</div>'}</div><div class="ops-panel"><h3>渠道异常</h3>${errors.length ? `<div class="ops-list">${errors.map(channelHealthRowHtml).join('')}</div>` : '<div class="ops-empty">暂无渠道异常。</div>'}</div></div>`;
+  }
+  function maintenanceRowHtml(row){
+    const status = String(row.status || 'open');
+    const cls = status === 'done' ? 'ok' : status === 'in_progress' ? 'warn' : 'error';
+    return `<div class="ops-row"><div class="ops-row-head"><div><div class="ops-title">${esc(row.title || '维护事项')}</div><div class="small">${esc(propName(row.property_id))}${row.room_id ? ' / ' + esc(roomName(row.room_id)) : ''}</div></div><span class="sync-status ${cls}">${esc(status === 'done' ? '已完成' : status === 'in_progress' ? '处理中' : '待处理')}</span></div><div class="small">${esc(row.note || '')}</div><div class="ops-actions"><button class="smallbtn" onclick="setMaintenanceStatus('${esc(row.id)}','in_progress',this)">处理中</button><button class="smallbtn primary" onclick="setMaintenanceStatus('${esc(row.id)}','done',this)">完成</button><button class="smallbtn" onclick="deleteMaintenanceTicket('${esc(row.id)}',this)">删除</button></div></div>`;
+  }
+  function renderMaintenanceOps(){
+    const propId = selectedOpsPropertyId();
+    const rows = opsRowsByProperty(getMaintenanceTickets()).sort((a,b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    return `<div class="ops-panel"><h3>维护工单</h3><div class="ops-form"><label>房源<select id="maintProp">${opsPropertyOptions(propId)}</select></label><label>房间<select id="maintRoom">${opsRoomOptions(propId,'',true)}</select></label><label>分类<select id="maintCategory"><option value="repair">维修</option><option value="cleaning">保洁问题</option><option value="supply">耗材</option><option value="safety">安全</option></select></label><label>优先级<select id="maintPriority"><option value="normal">普通</option><option value="urgent">紧急</option><option value="low">低</option></select></label><label>到期日<input id="maintDue" type="date"></label><label>标题<input id="maintTitle" placeholder="例如：门锁电池低电量"></label><label style="grid-column:1/-1">备注<textarea id="maintNote" placeholder="记录位置、现象、处理要求"></textarea></label><button class="smallbtn primary" onclick="addMaintenanceTicket(this)">新增维护</button></div></div><div class="ops-panel"><h3>维护列表</h3>${rows.length ? `<div class="ops-list">${rows.map(maintenanceRowHtml).join('')}</div>` : '<div class="ops-empty">暂无维护工单。</div>'}</div>`;
+  }
+  function inventoryRowHtml(row){
+    const low = Number(row.current_qty || 0) <= Number(row.min_qty || 0);
+    return `<div class="ops-row"><div class="ops-row-head"><div><div class="ops-title">${esc(row.name || '耗材')}</div><div class="small">${esc(propName(row.property_id))} / ${esc(row.category || '耗材')}</div></div><span class="sync-status ${low ? 'warn' : 'ok'}">${low ? '低库存' : '正常'}</span></div><div class="ops-meta"><span class="badge blue">库存 ${esc(row.current_qty || 0)} ${esc(row.unit || '')}</span><span class="badge">最低 ${esc(row.min_qty || 0)}</span></div><div class="small">${esc(row.note || '')}</div><div class="ops-actions"><button class="smallbtn" onclick="deleteInventoryItem('${esc(row.id)}',this)">删除</button></div></div>`;
+  }
+  function renderInventoryOps(){
+    const propId = selectedOpsPropertyId();
+    const rows = opsRowsByProperty(getInventoryItems()).sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')));
+    return `<div class="ops-panel"><h3>耗材库存</h3><div class="ops-form"><label>房源<select id="invProp">${opsPropertyOptions(propId)}</select></label><label>名称<input id="invName" placeholder="纸巾、垃圾袋、洗衣液"></label><label>分类<select id="invCategory"><option value="cleaning">清洁</option><option value="linen">床品</option><option value="guest_supply">客用品</option><option value="repair">维修</option></select></label><label>当前数量<input id="invQty" type="number" step="1" value="0"></label><label>最低数量<input id="invMin" type="number" step="1" value="0"></label><label>单位<input id="invUnit" value="pcs"></label><label style="grid-column:1/-1">备注<input id="invNote" placeholder="购买链接、规格或摆放位置"></label><button class="smallbtn primary" onclick="addInventoryItem(this)">新增耗材</button></div></div><div class="ops-panel"><h3>耗材列表</h3>${rows.length ? `<div class="ops-list">${rows.map(inventoryRowHtml).join('')}</div>` : '<div class="ops-empty">暂无耗材。</div>'}</div>`;
+  }
+  function renderExpenseOps(){
+    const propId = selectedOpsPropertyId();
+    const rows = opsRowsByProperty(getExpenseRecords()).sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')));
+    const total = rows.reduce((sum,x) => sum + Number(x.amount || 0), 0);
+    return `<div class="ops-panel"><h3>费用账本</h3><div class="ops-form"><label>日期<input id="expenseDate" type="date" value="${today()}"></label><label>房源<select id="expenseProp">${opsPropertyOptions(propId)}</select></label><label>分类<select id="expenseCategory"><option value="repair">维修</option><option value="supply">耗材</option><option value="cleaning">保洁</option><option value="utility">水电网</option><option value="other">其他</option></select></label><label>金额<input id="expenseAmount" type="number" step="0.01" value="0"></label><label>商家<input id="expenseVendor" placeholder="Costco / Home Depot"></label><label style="grid-column:1/-1">备注<input id="expenseNote" placeholder="发票、用途、关联房间"></label><button class="smallbtn primary" onclick="addExpenseRecord(this)">新增费用</button></div></div><div class="ops-panel"><div class="property-detail-head"><h3>费用记录</h3><span class="badge yellow">合计 ${money(total)}</span></div>${rows.length ? `<table><tr><th>日期</th><th>房源</th><th>分类</th><th>金额</th><th>备注</th><th></th></tr>${rows.map(r => `<tr><td>${esc(r.date || '')}</td><td>${esc(propName(r.property_id))}</td><td>${esc(r.category || '')}</td><td>${money(r.amount)}</td><td>${esc([r.vendor,r.note].filter(Boolean).join(' / '))}</td><td><button class="smallbtn" onclick="deleteExpenseRecord('${esc(r.id)}',this)">删除</button></td></tr>`).join('')}</table>` : '<div class="ops-empty">暂无费用。</div>'}</div>`;
+  }
+  function renderGuestOps(){
+    const propId = selectedOpsPropertyId();
+    const rows = opsRowsByProperty(getGuestProfiles()).sort((a,b) => String(b.updated_at || b.created_at || '').localeCompare(String(a.updated_at || a.created_at || '')));
+    return `<div class="ops-panel"><h3>客人档案</h3><div class="ops-form"><label>房源<select id="guestProp">${opsPropertyOptions(propId)}</select></label><label>姓名<input id="guestName" placeholder="客人姓名"></label><label>电话<input id="guestPhone" placeholder="可选"></label><label>邮箱<input id="guestEmail" placeholder="可选"></label><label>来源<select id="guestSource"><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>微信直订</option><option>Other</option></select></label><label>标签<input id="guestTags" placeholder="回头客、投诉、黑名单等"></label><label style="grid-column:1/-1">备注<textarea id="guestNote" placeholder="偏好、沟通记录、风险提示"></textarea></label><button class="smallbtn primary" onclick="addGuestProfile(this)">新增客人</button></div></div><div class="ops-panel"><h3>客人列表</h3>${rows.length ? `<div class="ops-list">${rows.map(r => `<div class="ops-row"><div class="ops-row-head"><div><div class="ops-title">${esc(r.name || '客人')}</div><div class="small">${esc(propName(r.property_id))} / ${esc(r.source || '')}</div></div><button class="smallbtn" onclick="deleteGuestProfile('${esc(r.id)}',this)">删除</button></div><div class="ops-meta">${r.phone ? `<span class="badge blue">${esc(r.phone)}</span>` : ''}${r.email ? `<span class="badge green">${esc(r.email)}</span>` : ''}${r.tags ? `<span class="badge yellow">${esc(r.tags)}</span>` : ''}</div><div class="small">${esc(r.note || '')}</div></div>`).join('')}</div>` : '<div class="ops-empty">暂无客人档案。</div>'}</div>`;
+  }
+  function channelHealthRowHtml(ch){
+    const issue = ch.sync_error;
+    const cls = issue ? 'error' : ch.last_sync ? 'ok' : 'warn';
+    const text = issue ? '同步失败' : ch.last_sync ? '已同步' : '未同步';
+    return `<div class="ops-row"><div class="ops-row-head"><div><div class="ops-title">${esc(roomName(ch.room_id))} / ${esc(ch.platform || 'Airbnb')}</div><div class="small">${esc(propName(roomPropId(ch.room_id)))}</div></div><span class="sync-status ${cls}">${text}</span></div><div class="small">${issue ? esc(issue) : `上次同步：${esc(ch.last_sync || '无')} / ${Number(ch.synced_booking_count || 0)} 条`}</div></div>`;
+  }
+  function renderChannelHealthOps(){
+    const rows = getChannels().filter(ch => ownerRoomEntityIds().has(roomEntityId(ch.room_id)));
+    const errors = getSyncErrors().filter(x => !x.property_id || ownerPropIds().includes(x.property_id));
+    return `<div class="ops-panel"><h3>渠道 / iCal 健康</h3>${rows.length ? `<div class="ops-health">${rows.map(channelHealthRowHtml).join('')}</div>` : '<div class="ops-empty">当前房间还没有渠道 iCal。</div>'}${errors.length ? `<div class="note-card important"><strong>最近同步错误</strong><div class="small">${errors.slice(-8).map(e => esc(e.message || e.error || JSON.stringify(e))).join('<br>')}</div></div>` : ''}</div>`;
+  }
+  function renderAuditOps(){
+    const ids = ownerPropIds();
+    const rows = getAuditLog().filter(x => !x.property_id || ids.includes(x.property_id)).slice(-120).reverse();
+    return `<div class="ops-panel"><h3>操作日志</h3>${rows.length ? `<table><tr><th>时间</th><th>人员</th><th>房源</th><th>动作</th><th>内容</th></tr>${rows.map(r => `<tr><td>${esc((r.created_at || '').slice(0,19))}</td><td>${esc(r.actor_name || '')}</td><td>${esc(propName(r.property_id))}</td><td>${esc(r.action || '')}</td><td>${esc(r.detail || '')}</td></tr>`).join('')}</table>` : '<div class="ops-empty">暂无日志。</div>'}</div>`;
+  }
+  async function addMaintenanceTicket(btn){
+    const propId = (qs('maintProp') && qs('maintProp').value) || selectedOpsPropertyId();
+    const title = String(qs('maintTitle') && qs('maintTitle').value || '').trim();
+    if(!propId) return alert('请先选择房源。');
+    if(!title) return alert('请填写维护标题。');
+    getMaintenanceTickets().unshift({id:'maint_'+Date.now(),property_id:propId,room_id:(qs('maintRoom')&&qs('maintRoom').value)||'',category:(qs('maintCategory')&&qs('maintCategory').value)||'repair',priority:(qs('maintPriority')&&qs('maintPriority').value)||'normal',due_date:(qs('maintDue')&&qs('maintDue').value)||'',title,note:(qs('maintNote')&&qs('maintNote').value)||'',status:'open',created_by:userName('房东'),created_at:nowIso()});
+    appendAudit('新增维护', title, propId);
+    await persistAll(btn); renderOpsCenterImpl();
+  }
+  async function setMaintenanceStatus(id,status,btn){
+    const row = getMaintenanceTickets().find(x => String(x.id) === String(id));
+    if(!row) return;
+    row.status = status; row.updated_at = nowIso(); if(status === 'done') row.completed_at = nowIso();
+    appendAudit('维护状态', `${row.title || id} -> ${status}`, row.property_id);
+    await persistAll(btn); renderOpsCenterImpl();
+  }
+  async function deleteMaintenanceTicket(id,btn){
+    if(!confirm('删除这条维护工单？')) return;
+    const row = getMaintenanceTickets().find(x => String(x.id) === String(id));
+    setMaintenanceTickets(getMaintenanceTickets().filter(x => String(x.id) !== String(id)));
+    appendAudit('删除维护', row ? row.title : id, row && row.property_id);
+    await persistAll(btn); renderOpsCenterImpl();
+  }
+  async function addInventoryItem(btn){
+    const propId = (qs('invProp') && qs('invProp').value) || selectedOpsPropertyId();
+    const name = String(qs('invName') && qs('invName').value || '').trim();
+    if(!propId) return alert('请先选择房源。');
+    if(!name) return alert('请填写耗材名称。');
+    getInventoryItems().push({id:'inv_'+Date.now(),property_id:propId,name,category:(qs('invCategory')&&qs('invCategory').value)||'cleaning',current_qty:Number((qs('invQty')&&qs('invQty').value)||0),min_qty:Number((qs('invMin')&&qs('invMin').value)||0),unit:(qs('invUnit')&&qs('invUnit').value)||'pcs',note:(qs('invNote')&&qs('invNote').value)||'',updated_at:nowIso(),created_at:nowIso()});
+    appendAudit('新增耗材', name, propId);
+    await persistAll(btn); renderOpsCenterImpl();
+  }
+  async function deleteInventoryItem(id,btn){
+    if(!confirm('删除这个耗材？')) return;
+    const row = getInventoryItems().find(x => String(x.id) === String(id));
+    setInventoryItems(getInventoryItems().filter(x => String(x.id) !== String(id)));
+    appendAudit('删除耗材', row ? row.name : id, row && row.property_id);
+    await persistAll(btn); renderOpsCenterImpl();
+  }
+  async function addExpenseRecord(btn){
+    const propId = (qs('expenseProp') && qs('expenseProp').value) || selectedOpsPropertyId();
+    const amount = Number((qs('expenseAmount') && qs('expenseAmount').value) || 0);
+    if(!propId) return alert('请先选择房源。');
+    getExpenseRecords().unshift({id:'expense_'+Date.now(),property_id:propId,date:(qs('expenseDate')&&qs('expenseDate').value)||today(),category:(qs('expenseCategory')&&qs('expenseCategory').value)||'other',amount,vendor:(qs('expenseVendor')&&qs('expenseVendor').value)||'',note:(qs('expenseNote')&&qs('expenseNote').value)||'',created_by:userName('房东'),created_at:nowIso()});
+    appendAudit('新增费用', money(amount), propId);
+    await persistAll(btn); renderOpsCenterImpl();
+  }
+  async function deleteExpenseRecord(id,btn){
+    if(!confirm('删除这条费用？')) return;
+    const row = getExpenseRecords().find(x => String(x.id) === String(id));
+    setExpenseRecords(getExpenseRecords().filter(x => String(x.id) !== String(id)));
+    appendAudit('删除费用', row ? money(row.amount) : id, row && row.property_id);
+    await persistAll(btn); renderOpsCenterImpl();
+  }
+  async function addGuestProfile(btn){
+    const propId = (qs('guestProp') && qs('guestProp').value) || selectedOpsPropertyId();
+    const name = String(qs('guestName') && qs('guestName').value || '').trim();
+    if(!propId) return alert('请先选择房源。');
+    if(!name) return alert('请填写客人姓名。');
+    getGuestProfiles().unshift({id:'guest_'+Date.now(),group_id:groupId(),property_id:propId,name,phone:(qs('guestPhone')&&qs('guestPhone').value)||'',email:(qs('guestEmail')&&qs('guestEmail').value)||'',source:(qs('guestSource')&&qs('guestSource').value)||'',tags:(qs('guestTags')&&qs('guestTags').value)||'',note:(qs('guestNote')&&qs('guestNote').value)||'',created_by:userName('房东'),created_at:nowIso(),updated_at:nowIso()});
+    appendAudit('新增客人', name, propId);
+    await persistAll(btn); renderOpsCenterImpl();
+  }
+  async function deleteGuestProfile(id,btn){
+    if(!confirm('删除这个客人档案？')) return;
+    const row = getGuestProfiles().find(x => String(x.id) === String(id));
+    setGuestProfiles(getGuestProfiles().filter(x => String(x.id) !== String(id)));
+    appendAudit('删除客人', row ? row.name : id, row && row.property_id);
+    await persistAll(btn); renderOpsCenterImpl();
+  }
+
   Object.assign(window, {
     applyServerState: applyStateFromServerImpl,
     applyStateFromServer: applyStateFromServerImpl,
@@ -3618,6 +3857,17 @@
     openPropertyMailTab,
     renderUserProfile: renderUserProfileImpl,
     saveUserProfile,
+    renderOpsCenter: renderOpsCenterImpl,
+    showOpsTab,
+    addMaintenanceTicket,
+    setMaintenanceStatus,
+    deleteMaintenanceTicket,
+    addInventoryItem,
+    deleteInventoryItem,
+    addExpenseRecord,
+    deleteExpenseRecord,
+    addGuestProfile,
+    deleteGuestProfile,
     ensureOwnerPropertyModuleVisible,
     refreshCalendarRangeViews: refreshCalendarRangeViewsImpl,
     setRangePreset: setRangePresetImpl,
@@ -3724,6 +3974,17 @@
     ['renderSixMonthStats', renderSixMonthStatsImpl],
     ['renderOwnerBookings', renderOwnerBookingsImpl],
     ['renderRoomSettings', renderRoomSettingsImpl],
+    ['renderOpsCenter', renderOpsCenterImpl],
+    ['showOpsTab', showOpsTab],
+    ['addMaintenanceTicket', addMaintenanceTicket],
+    ['setMaintenanceStatus', setMaintenanceStatus],
+    ['deleteMaintenanceTicket', deleteMaintenanceTicket],
+    ['addInventoryItem', addInventoryItem],
+    ['deleteInventoryItem', deleteInventoryItem],
+    ['addExpenseRecord', addExpenseRecord],
+    ['deleteExpenseRecord', deleteExpenseRecord],
+    ['addGuestProfile', addGuestProfile],
+    ['deleteGuestProfile', deleteGuestProfile],
     ['openPropertyMailInRooms', openPropertyMailInRooms],
     ['openPropertyMailTab', openPropertyMailTab],
     ['toggleCalendarVacancyOnly', toggleCalendarVacancyOnly],
