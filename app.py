@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_APP_VERSION = "2026-07-05-v66-language-sync"
+PMS_APP_VERSION = "2026-07-05-v67-finance-subaccounts"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -243,6 +243,40 @@ def user_group_ids(user):
     return {str(item) for item in (user or {}).get("group_ids", []) if item}
 
 
+PMS_PERMISSION_KEYS = {
+    "calendar_view",
+    "cleaning_manage",
+    "settings_manage",
+    "finance_view",
+    "finance_edit",
+    "ops_manage",
+    "users_manage",
+}
+
+
+def user_permission_map(user):
+    raw = (user or {}).get("permissions")
+    return raw if isinstance(raw, dict) else {}
+
+
+def actor_has_permission(actor, key):
+    role = (actor or {}).get("role")
+    if role == "admin":
+        return True
+    if role != "owner":
+        return False
+    permissions = user_permission_map(actor)
+    if not permissions:
+        return True
+    return bool(permissions.get(key))
+
+
+def sanitize_permissions(value):
+    if not isinstance(value, dict):
+        return {}
+    return {key: bool(value.get(key)) for key in sorted(PMS_PERMISSION_KEYS)}
+
+
 def pms_item_property_id(item, state):
     if not isinstance(item, dict):
         return ""
@@ -289,11 +323,7 @@ def _pms_core_filter_state_for_user(state, user):
             if isinstance(prop, dict) and prop.get("id") in property_ids
         }
     else:
-        property_ids = {
-            prop.get("id")
-            for prop in state.get("properties", [])
-            if isinstance(prop, dict) and prop.get("group_id") in group_ids
-        }
+        property_ids = actor_property_ids(user, state)
 
     properties = [prop for prop in state.get("properties", []) if isinstance(prop, dict) and prop.get("id") in property_ids]
     property_ids = {prop.get("id") for prop in properties}
@@ -346,10 +376,12 @@ def _pms_core_filter_state_for_user(state, user):
         for item in state.get("inventoryItems", [])
         if isinstance(item, dict) and pms_item_property_id(item, state) in property_ids
     ]
+    can_view_finance = actor_has_permission(user, "finance_view")
+    can_manage_users = actor_has_permission(user, "users_manage")
     visible["expenseRecords"] = [
         item
         for item in state.get("expenseRecords", [])
-        if isinstance(item, dict) and role != "cleaner" and pms_item_property_id(item, state) in property_ids
+        if isinstance(item, dict) and role != "cleaner" and can_view_finance and pms_item_property_id(item, state) in property_ids
     ]
     visible["guestProfiles"] = [
         item
@@ -373,7 +405,7 @@ def _pms_core_filter_state_for_user(state, user):
         if isinstance(item, dict)
         and (
             item.get("id") == (user or {}).get("id")
-            or (item.get("role") == "owner" and user_group_ids(item) & group_ids)
+            or (can_manage_users and item.get("role") == "owner" and user_group_ids(item) & group_ids)
             or (item.get("role") == "cleaner" and normalize_cleaner_code(item.get("cleaner_code")) in cleaner_codes)
         )
     ]
@@ -803,6 +835,72 @@ def _pms_core_save_state_from_payload(payload, actor=None):
                 incoming_common_areas,
                 lambda item: (item.get("property_id") or first_actor_property_id(actor, current)) not in property_ids,
             )
+        if "users" in payload:
+            if not actor_has_permission(actor, "users_manage"):
+                raise RuntimeError("user permission required")
+            cleaner_codes = {
+                normalize_cleaner_code(item.get("cleaner_code"))
+                for item in current.get("propertyCleaners", [])
+                if isinstance(item, dict) and item.get("property_id") in property_ids
+            }
+            incoming_by_id = {
+                str(item.get("id")): item
+                for item in payload.get("users", [])
+                if isinstance(item, dict) and item.get("id")
+            }
+
+            def can_update_user(row):
+                if not isinstance(row, dict):
+                    return False
+                if row.get("id") == actor.get("id"):
+                    return True
+                if row.get("role") == "owner" and user_group_ids(row) & user_group_ids(actor):
+                    return True
+                if row.get("role") == "cleaner" and normalize_cleaner_code(row.get("cleaner_code")) in cleaner_codes:
+                    return True
+                return False
+
+            editable_fields = {
+                "name",
+                "email",
+                "phone",
+                "mobile",
+                "tel",
+                "phone_number",
+                "wechat",
+                "weixin",
+                "wx",
+                "wechat_id",
+                "timezone",
+                "time_zone",
+                "timeZone",
+                "language",
+                "locale",
+                "lang",
+                "default_room_ids",
+                "defaultRoomIds",
+            }
+            fixed_users = []
+            for existing in current.get("users", []):
+                if not isinstance(existing, dict):
+                    continue
+                incoming = incoming_by_id.get(str(existing.get("id")))
+                if incoming and can_update_user(existing):
+                    fixed = dict(existing)
+                    for field in editable_fields:
+                        if field in incoming:
+                            fixed[field] = plain(incoming.get(field))
+                    if "permissions" in incoming:
+                        fixed["permissions"] = sanitize_permissions(incoming.get("permissions"))
+                    raw_props = incoming.get("allowed_property_ids", incoming.get("property_ids", incoming.get("propertyIds")))
+                    if isinstance(raw_props, list):
+                        allowed = [str(item) for item in raw_props if str(item or "").strip() in {str(pid) for pid in property_ids}]
+                        fixed["allowed_property_ids"] = allowed
+                    fixed_users.append(fixed)
+                else:
+                    fixed_users.append(existing)
+            merged["users"] = fixed_users
+
         def scoped_property_rows(key):
             rows = []
             for item in payload.get(key, []):
@@ -821,6 +919,8 @@ def _pms_core_save_state_from_payload(payload, actor=None):
             )
         for key in ["maintenanceTickets", "inventoryItems", "expenseRecords", "guestProfiles", "auditLog"]:
             if key in payload:
+                if key == "expenseRecords" and not actor_has_permission(actor, "finance_edit"):
+                    raise RuntimeError("finance permission required")
                 scoped_property_rows(key)
         for key in ["last_sync", "sync_errors"]:
             if key in payload:
@@ -969,7 +1069,16 @@ def actor_property_ids(actor, state):
         return {prop.get("id") for prop in state.get("properties", []) if isinstance(prop, dict)}
     if actor.get("role") == "owner":
         groups = user_group_ids(actor)
-        return {prop.get("id") for prop in state.get("properties", []) if isinstance(prop, dict) and prop.get("group_id") in groups}
+        property_ids = {prop.get("id") for prop in state.get("properties", []) if isinstance(prop, dict) and prop.get("group_id") in groups}
+        raw_allowed = actor.get("allowed_property_ids")
+        if raw_allowed is None:
+            raw_allowed = actor.get("property_ids")
+        if raw_allowed is None:
+            raw_allowed = actor.get("propertyIds")
+        if isinstance(raw_allowed, list):
+            allowed = {str(item) for item in raw_allowed if str(item or "").strip()}
+            property_ids = {item for item in property_ids if str(item) in allowed}
+        return property_ids
     cleaner_code = normalize_cleaner_code(actor.get("cleaner_code"))
     return {
         item.get("property_id")
@@ -1208,7 +1317,7 @@ def pms_public_profile(user):
     public = {}
     if not isinstance(user, dict):
         return public
-    for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids", "default_room_ids", "defaultRoomIds", "timezone", "time_zone", "timeZone", "language", "locale", "lang"):
+    for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids", "default_room_ids", "defaultRoomIds", "timezone", "time_zone", "timeZone", "language", "locale", "lang", "permissions", "allowed_property_ids", "property_ids", "propertyIds"):
         value = user.get(key)
         if value not in (None, ""):
             public[key] = value
@@ -5544,7 +5653,7 @@ def pms_state_response_for_user(state, actor):
     if actor:
         public_actor = {
             key: actor.get(key, "")
-            for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids", "default_room_ids", "defaultRoomIds")
+            for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids", "default_room_ids", "defaultRoomIds", "timezone", "time_zone", "timeZone", "language", "locale", "lang", "permissions", "allowed_property_ids", "property_ids", "propertyIds")
             if actor.get(key) not in (None, "")
         }
         filtered["current_user"] = public_actor

@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-05-v66-language-sync';
+  const VERSION = '2026-07-05-v67-finance-subaccounts';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -49,7 +49,7 @@
   ];
   const I18N = {
     'zh-CN': {
-      'nav.cleaner':'保洁页面','nav.owner':'房东管理','nav.ops':'运营中心','nav.profile':'用户设置','nav.logout':'退出登录',
+      'nav.cleaner':'保洁页面','nav.owner':'房东管理','nav.finance':'财务管理','nav.access':'权限管理','nav.ops':'运营中心','nav.profile':'用户设置','nav.logout':'退出登录',
       'pref.timezone':'时区','pref.language':'语言',
       'role.admin':'管理员','role.owner':'房东','role.cleaner':'保洁','role.unknown':'未识别',
       'header.owner.title':'{name} · 房东管理后台','header.owner.sub':'管理房源、房间、公区、iCal 同步和保洁绑定。',
@@ -64,7 +64,7 @@
       'common.property':'房源','common.room':'房间','common.category':'分类','common.priority':'优先级','common.dueDate':'到期日','common.title':'标题','common.note':'备注','common.add':'新增','common.delete':'删除','common.done':'完成','common.inProgress':'处理中','common.pending':'待处理','common.normal':'普通','common.urgent':'紧急','common.low':'低','common.date':'日期','common.amount':'金额','common.vendor':'商家','common.name':'姓名','common.phone':'电话','common.source':'来源','common.tags':'标签','common.time':'时间','common.actor':'人员','common.action':'动作','common.content':'内容','common.noRoom':'不指定房间','common.statusDone':'已完成','common.statusNormal':'正常','common.statusLowStock':'低库存','common.synced':'已同步','common.syncFailed':'同步失败','common.notSynced':'未同步'
     },
     'en-US': {
-      'nav.cleaner':'Cleaner','nav.owner':'Owner','nav.ops':'Operations','nav.profile':'User settings','nav.logout':'Log out',
+      'nav.cleaner':'Cleaner','nav.owner':'Owner','nav.finance':'Finance','nav.access':'Access','nav.ops':'Operations','nav.profile':'User settings','nav.logout':'Log out',
       'pref.timezone':'Time zone','pref.language':'Language',
       'role.admin':'Admin','role.owner':'Owner','role.cleaner':'Cleaner','role.unknown':'Unknown',
       'header.owner.title':'{name} · Owner dashboard','header.owner.sub':'Manage properties, rooms, common areas, iCal sync, and cleaner bindings.',
@@ -79,7 +79,7 @@
       'common.property':'Property','common.room':'Room','common.category':'Category','common.priority':'Priority','common.dueDate':'Due date','common.title':'Title','common.note':'Note','common.add':'Add','common.delete':'Delete','common.done':'Done','common.inProgress':'In progress','common.pending':'Pending','common.normal':'Normal','common.urgent':'Urgent','common.low':'Low','common.date':'Date','common.amount':'Amount','common.vendor':'Vendor','common.name':'Name','common.phone':'Phone','common.source':'Source','common.tags':'Tags','common.time':'Time','common.actor':'User','common.action':'Action','common.content':'Content','common.noRoom':'No room','common.statusDone':'Done','common.statusNormal':'Normal','common.statusLowStock':'Low stock','common.synced':'Synced','common.syncFailed':'Sync failed','common.notSynced':'Not synced'
     },
     'es-ES': {
-      'nav.cleaner':'Limpieza','nav.owner':'Propietario','nav.ops':'Operaciones','nav.profile':'Usuario','nav.logout':'Salir',
+      'nav.cleaner':'Limpieza','nav.owner':'Propietario','nav.finance':'Finanzas','nav.access':'Permisos','nav.ops':'Operaciones','nav.profile':'Usuario','nav.logout':'Salir',
       'pref.timezone':'Zona horaria','pref.language':'Idioma',
       'role.admin':'Administrador','role.owner':'Propietario','role.cleaner':'Limpieza','role.unknown':'Desconocido',
       'header.owner.title':'{name} · Panel del propietario','header.owner.sub':'Gestiona propiedades, habitaciones, áreas comunes, iCal y limpieza.',
@@ -311,6 +311,16 @@
     ['ac', '空调']
   ];
 
+  const OWNER_PERMISSION_DEFS = [
+    ['calendar_view', '房态/订单查看'],
+    ['cleaning_manage', '保洁/备注/调整'],
+    ['settings_manage', '房间/iCal/房源设置'],
+    ['finance_view', '查看财务'],
+    ['finance_edit', '编辑财务'],
+    ['ops_manage', '运营中心'],
+    ['users_manage', '子账号权限']
+  ];
+
   const CLEANING_GUIDANCE_GROUPS = [
     ['每次退房/当天基础', ['垃圾清空', '床品毛巾更换', '厨房台面和餐具检查', '卫浴清洁', '地面吸尘拖地', '高频触摸点擦拭', '补齐耗材', '拍照记录异常']],
     ['每周/轻度深清', ['厨卫水垢和油污', '垃圾桶推出/收回', '冰箱过期物检查', '布草耗材盘点', '门口/阳台/走廊检查', '遥控器和小家电擦拭']],
@@ -331,6 +341,17 @@
   }
   function isActualCleaner(){return role() === 'cleaner';}
   function isOwnerLike(){return role() === 'owner' || role() === 'admin';}
+  function currentPermissions(){
+    const u = getCurrentUser() || {};
+    return (u.permissions && typeof u.permissions === 'object') ? u.permissions : null;
+  }
+  function canPermission(key){
+    if(role() === 'admin') return true;
+    if(role() !== 'owner') return false;
+    const permissions = currentPermissions();
+    if(!permissions || !Object.keys(permissions).length) return true;
+    return !!permissions[key];
+  }
   function cleanerPath(){return location.pathname.includes('/cleaner');}
   function visibleAsCleaner(){return isActualCleaner() || (cleanerPath() && !isOwnerLike());}
   function userName(fallback){
@@ -937,13 +958,13 @@
         cleaningTaskConfirmations: getConfirmations(),
         maintenanceTickets: getMaintenanceTickets(),
         inventoryItems: getInventoryItems(),
-        expenseRecords: getExpenseRecords(),
         guestProfiles: getGuestProfiles(),
         auditLog: getAuditLog(),
         sync_errors: getSyncErrors(),
         last_sync: getLastSync(),
         propertyMailForwarding: ui.mail.propertyMailForwarding
       };
+      if(canPermission('finance_edit')) payload.expenseRecords = getExpenseRecords();
       const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
       const timeoutId = controller ? setTimeout(() => controller.abort(), 25000) : null;
       let res;
@@ -1190,6 +1211,9 @@
       </div>`;
       qs('ownerMetrics').insertAdjacentElement('afterend', card);
     }
+    syncOwnerBaseTabs();
+    ensureOwnerFinanceTab();
+    ensureOwnerAccessTab();
     ensureOwnerOpsTab();
     const pane = (id, html) => {
       if(qs(id)) return;
@@ -1203,31 +1227,84 @@
     pane('ownerCalendar', `<div class="card"><h2>未来房态总览</h2><div class="toolbar"><span class="small">默认未来 14 天，可切换 28 天，也可指定日期范围：</span><button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">未来14天</button><button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">未来28天</button><input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()"><input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()"><span id="ownerRoomFilterSummary" class="badge blue"></span><button id="calendarVacancyOnlyBtn" class="smallbtn" onclick="toggleCalendarVacancyOnly()">只看空房</button><span id="calendarVacancySummary" class="badge green"></span></div><div class="scroll"><div id="calendarGrid" class="timeline"></div></div></div><div class="card"><h2 id="futureStatsTitle">当前区间每个房间预订统计</h2><div id="sixMonthStats"></div></div><div class="card"><div class="toolbar"><strong id="futureBookingsTitle">当前区间预订列表</strong><select id="platformFilter" onchange="renderOwnerBookings()"><option value="">全部平台</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>Other</option><option>微信直订</option></select><span id="bookingRoomFilterSummary" class="badge blue"></span></div><div id="ownerBookings"></div></div>`);
     pane('ownerCleaning', `<div id="ownerCleaningShell"></div>`);
     pane('ownerRooms', `<div id="roomSettingsUnifiedShell" class="room-settings-shell"><div id="roomSettings"></div></div>`);
-    pane('ownerOps', `<div id="ownerOpsShell"></div>`);
     ensureOwnerProfileTab();
     ensureRoomSettingsShell();
   }
-  function ensureOwnerOpsTab(){
+  function ownerTabAllowed(id){
+    if(id === 'ownerDailyWork' || id === 'ownerCalendar') return canPermission('calendar_view');
+    if(id === 'ownerCleaning') return canPermission('cleaning_manage');
+    if(id === 'ownerRooms') return canPermission('settings_manage');
+    if(id === 'ownerFinance') return canPermission('finance_view');
+    if(id === 'ownerAccess') return canPermission('users_manage');
+    if(id === 'ownerOps') return canPermission('ops_manage');
+    return true;
+  }
+  function firstAllowedOwnerTab(){
+    return ['ownerDailyWork','ownerCalendar','ownerCleaning','ownerRooms','ownerFinance','ownerOps','ownerAccess','ownerProfile'].find(ownerTabAllowed) || 'ownerProfile';
+  }
+  function ownerTabButton(id){
+    const tabbar = qs('ownerTabsCard') && qs('ownerTabsCard').querySelector('.tabbar');
+    if(!tabbar) return null;
+    if(id === 'ownerFinance') return tabbar.querySelector('[data-pms-finance-tab]');
+    if(id === 'ownerAccess') return tabbar.querySelector('[data-pms-access-tab]');
+    if(id === 'ownerOps') return tabbar.querySelector('[data-pms-ops-tab]');
+    if(id === 'ownerProfile') return tabbar.querySelector('[data-pms-profile-tab]');
+    return tabbar.querySelector(`button[onclick*="${id}"]`);
+  }
+  function syncOwnerBaseTabs(){
+    const tabbar = qs('ownerTabsCard') && qs('ownerTabsCard').querySelector('.tabbar');
+    if(!tabbar) return;
+    [['ownerDailyWork','指定日期工作表'],['ownerCalendar','未来预订'],['ownerCleaning','保洁/备注/调整'],['ownerRooms','房间/公区设置']].forEach(([id,label]) => {
+      const btn = tabbar.querySelector(`button[onclick*="${id}"]`);
+      if(btn){
+        btn.textContent = label;
+        btn.style.display = ownerTabAllowed(id) ? '' : 'none';
+      }
+    });
+  }
+  function ensureOwnerFeatureTab(id, dataAttr, label, allowed){
     const owner = qs('owner');
     if(!owner) return;
     const tabbar = owner.querySelector('#ownerTabsCard .tabbar') || owner.querySelector('.tabbar');
-    const existing = tabbar && tabbar.querySelector('[data-pms-ops-tab]');
-    if(existing) existing.textContent = t('nav.ops');
-    if(tabbar && !tabbar.querySelector('[data-pms-ops-tab]')){
+    const selector = `[${dataAttr}]`;
+    const existing = tabbar && tabbar.querySelector(selector);
+    const pane = qs(id);
+    if(!allowed){
+      if(existing) existing.remove();
+      if(pane){
+        if(pane.classList.contains('active')){
+          const dailyBtn = tabbar && tabbar.querySelector('button[onclick*="ownerDailyWork"]');
+          showOwnerTabImpl('ownerDailyWork', dailyBtn || null);
+        }
+        pane.remove();
+      }
+      return;
+    }
+    if(existing) existing.textContent = label;
+    if(tabbar && !existing){
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.dataset.pmsOpsTab = '1';
-      btn.textContent = t('nav.ops');
-      btn.onclick = function(){showOwnerTabImpl('ownerOps', this);};
+      btn.setAttribute(dataAttr, '1');
+      btn.textContent = label;
+      btn.onclick = function(){showOwnerTabImpl(id, this);};
       tabbar.appendChild(btn);
     }
-    if(!qs('ownerOps')){
+    if(!qs(id)){
       const div = document.createElement('div');
-      div.id = 'ownerOps';
+      div.id = id;
       div.className = 'tab-content';
-      div.innerHTML = '<div id="ownerOpsShell"></div>';
+      div.innerHTML = id === 'ownerFinance' ? '<div id="ownerFinanceShell"></div>' : id === 'ownerAccess' ? '<div id="ownerAccessShell"></div>' : '<div id="ownerOpsShell"></div>';
       owner.appendChild(div);
     }
+  }
+  function ensureOwnerFinanceTab(){
+    ensureOwnerFeatureTab('ownerFinance', 'data-pms-finance-tab', t('nav.finance'), canPermission('finance_view'));
+  }
+  function ensureOwnerAccessTab(){
+    ensureOwnerFeatureTab('ownerAccess', 'data-pms-access-tab', t('nav.access'), canPermission('users_manage'));
+  }
+  function ensureOwnerOpsTab(){
+    ensureOwnerFeatureTab('ownerOps', 'data-pms-ops-tab', t('nav.ops'), canPermission('ops_manage'));
   }
   function ensureOwnerProfileTab(){
     const owner = qs('owner');
@@ -1419,6 +1496,12 @@
       .ops-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
       .ops-health{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px}
       .ops-empty{border:1px dashed #cbd5e1;background:#f8fafc;border-radius:8px;padding:14px;color:#64748b}
+      .access-user-card{background:#fff!important}
+      .access-section{display:grid;gap:8px}
+      .access-section h4{margin:0;color:#0f172a}
+      .access-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px}
+      .access-check{display:flex;align-items:center;gap:7px;border:1px solid #d8e1ef;border-radius:8px;padding:8px 10px;background:#f8fafc;font-weight:900}
+      .access-check input{width:18px;height:18px}
       .user-profile-card{display:grid;gap:14px}
       .profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
       .profile-field{display:grid;gap:6px}
@@ -3032,6 +3115,9 @@
     ensureOwnerPropertyModuleVisible();
     initSelectsImpl();
     renderOwnerMetricsImpl();
+    ensureOwnerFinanceTab();
+    ensureOwnerAccessTab();
+    ensureOwnerOpsTab();
     ensureOwnerProfileTab();
     renderOwnerTabImpl(activeOwnerTabId());
     setHeader('owner');
@@ -3040,15 +3126,27 @@
   }
   function activeOwnerTabId(){const active = document.querySelector('#owner > .tab-content.active'); return active && active.id ? active.id : 'ownerDailyWork';}
   function renderOwnerTabImpl(id){
-    const tab = id || activeOwnerTabId();
+    const requested = id || activeOwnerTabId();
+    const tab = ownerTabAllowed(requested) ? requested : firstAllowedOwnerTab();
+    if(tab !== requested){
+      showOwnerTabImpl(tab, ownerTabButton(tab));
+      return;
+    }
     if(tab === 'ownerCalendar'){renderOwnerCalendarImpl(); renderSixMonthStatsImpl(); renderOwnerBookingsImpl();}
     else if(tab === 'ownerCleaning'){renderCleaningManagerShell();}
     else if(tab === 'ownerRooms'){renderRoomSettingsImpl();}
+    else if(tab === 'ownerFinance'){renderFinanceManagerImpl();}
+    else if(tab === 'ownerAccess'){renderAccessManagerImpl();}
     else if(tab === 'ownerOps'){renderOpsCenterImpl();}
     else if(tab === 'ownerProfile'){renderUserProfileImpl();}
     else renderDailyWorkImpl();
   }
   function showOwnerTabImpl(id,btn){
+    if(!ownerTabAllowed(id)){
+      const fallback = firstAllowedOwnerTab();
+      if(fallback && fallback !== id) return showOwnerTabImpl(fallback, ownerTabButton(fallback));
+      return;
+    }
     document.querySelectorAll('#owner > .tab-content').forEach(tab => tab.classList.remove('active'));
     const pane = qs(id);
     if(pane) pane.classList.add('active');
@@ -3811,6 +3909,174 @@
     rows.push({id:'audit_' + Date.now() + '_' + Math.random().toString(16).slice(2,7),property_id:propertyId || selectedOpsPropertyId(),action,detail:detail || '',actor_id:u.id || '',actor_name:userName('用户'),created_at:nowIso()});
     setAuditLog(rows.slice(-500));
   }
+  function monthStart(value){
+    const text = String(value || today().slice(0,7)).slice(0,7);
+    return /^\d{4}-\d{2}$/.test(text) ? text + '-01' : today().slice(0,7) + '-01';
+  }
+  function monthEnd(value){
+    const start = monthStart(value);
+    const y = Number(start.slice(0,4));
+    const m = Number(start.slice(5,7));
+    return new Date(Date.UTC(y, m, 0)).toISOString().slice(0,10);
+  }
+  function financeDirection(row){
+    const dir = String((row && (row.direction || row.type)) || '').toLowerCase();
+    return dir === 'income' || dir === 'revenue' ? 'income' : 'expense';
+  }
+  function financeSignedAmount(row){
+    const amount = Math.abs(Number((row && row.amount) || 0));
+    return financeDirection(row) === 'income' ? amount : -amount;
+  }
+  function financeScopePropertyIds(){
+    return new Set(ownerPropIds().map(String));
+  }
+  function financePropertyOptions(selected, includeAll){
+    const scoped = financeScopePropertyIds();
+    const rows = propList().filter(p => scoped.has(String(p.id)));
+    return `${includeAll ? `<option value="">全部房源</option>` : ''}${rows.map(p => `<option value="${esc(p.id)}" ${String(selected || '') === String(p.id) ? 'selected' : ''}>${esc(p.name || p.id)}</option>`).join('')}`;
+  }
+  function selectedFinancePropertyId(){
+    const el = qs('financePropFilter');
+    return el ? el.value : '';
+  }
+  function financeRecordsForMonth(month, propId){
+    const start = monthStart(month);
+    const end = monthEnd(month);
+    const scoped = financeScopePropertyIds();
+    return getExpenseRecords().filter(row => {
+      if(!row || !scoped.has(String(row.property_id || ''))) return false;
+      if(propId && String(row.property_id || '') !== String(propId)) return false;
+      const d = String(row.date || '').slice(0,10);
+      return d >= start && d <= end;
+    }).sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  }
+  function financeCleaningRowsForMonth(month, propId){
+    const start = monthStart(month);
+    const end = monthEnd(month);
+    return scopedCleaningRows(start,end).filter(row => {
+      const pid = targetPropId(row.target_id,row.target_type);
+      return (!propId || String(pid) === String(propId));
+    });
+  }
+  function renderFinanceManagerImpl(){
+    const root = qs('ownerFinanceShell');
+    if(!root) return;
+    if(!canPermission('finance_view')){
+      root.innerHTML = '<div class="card"><h2>财务管理</h2><p class="small">当前账号没有财务查看权限。</p></div>';
+      return;
+    }
+    const currentMonth = (qs('financeMonth') && qs('financeMonth').value) || today().slice(0,7);
+    const propId = selectedFinancePropertyId();
+    const records = financeRecordsForMonth(currentMonth, propId);
+    const cleaningRows = financeCleaningRowsForMonth(currentMonth, propId);
+    const income = records.filter(r => financeDirection(r) === 'income').reduce((sum,r) => sum + Math.abs(Number(r.amount || 0)), 0);
+    const expenses = records.filter(r => financeDirection(r) !== 'income').reduce((sum,r) => sum + Math.abs(Number(r.amount || 0)), 0);
+    const cleaningCost = cleaningRows.reduce((sum,r) => sum + rowAmount(r), 0);
+    const net = income - expenses - cleaningCost;
+    const canEdit = canPermission('finance_edit');
+    const rowsHtml = records.length ? records.map(row => {
+      const dir = financeDirection(row);
+      const cls = dir === 'income' ? 'green' : 'yellow';
+      return `<tr><td>${esc(row.date || '')}</td><td>${esc(propName(row.property_id))}</td><td><span class="badge ${cls}">${dir === 'income' ? '收入' : '支出'}</span></td><td>${esc(row.category || '')}</td><td>${money(financeSignedAmount(row))}</td><td>${esc([row.vendor,row.note].filter(Boolean).join(' / '))}</td><td>${canEdit ? `<button class="smallbtn" onclick="deleteFinanceRecord('${esc(row.id)}',this)">删除</button>` : ''}</td></tr>`;
+    }).join('') : '<tr><td colspan="7">暂无财务记录</td></tr>';
+    const formHtml = canEdit ? `<div class="ops-panel"><h3>新增收支</h3><div class="ops-form"><label>日期<input id="financeDate" type="date" value="${today()}"></label><label>房源<select id="financeProp">${financePropertyOptions(propId || Array.from(financeScopePropertyIds())[0] || '', false)}</select></label><label>类型<select id="financeDirection"><option value="expense">支出</option><option value="income">收入</option></select></label><label>分类<input id="financeCategory" placeholder="房费 / 保洁 / 维修 / 耗材"></label><label>金额<input id="financeAmount" type="number" step="0.01" value="0"></label><label>对象<input id="financeVendor" placeholder="客人 / 商家 / 平台"></label><label style="grid-column:1/-1">备注<input id="financeNote" placeholder="订单号、发票、用途"></label><button class="smallbtn primary" onclick="addFinanceRecord(this)">新增记录</button></div></div>` : '';
+    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>财务管理</h2><div class="small">按月份和房源统计收入、支出、保洁成本和净额；和运营中心费用账本使用同一份数据。</div></div><div class="property-actions"><input id="financeMonth" type="month" value="${esc(currentMonth)}" onchange="renderFinanceManager()"><select id="financePropFilter" onchange="renderFinanceManager()">${financePropertyOptions(propId, true)}</select></div></div></div><div class="grid"><div class="metric"><div class="small">收入</div><div class="num">${money(income)}</div></div><div class="metric"><div class="small">支出</div><div class="num">${money(expenses)}</div></div><div class="metric"><div class="small">保洁成本</div><div class="num">${money(cleaningCost)}</div></div><div class="metric"><div class="small">净额</div><div class="num">${money(net)}</div></div></div>${formHtml}<div class="ops-panel"><div class="property-detail-head"><h3>收支明细</h3><span class="badge blue">${records.length} 条</span></div><table><tr><th>日期</th><th>房源</th><th>类型</th><th>分类</th><th>金额</th><th>备注</th><th></th></tr>${rowsHtml}</table></div><div class="ops-panel"><div class="property-detail-head"><h3>本月保洁成本明细</h3><span class="badge yellow">${cleaningRows.length} 条 / ${money(cleaningCost)}</span></div>${cleaningRows.length ? cleaningTableScoped(cleaningRows) : '<div class="ops-empty">本月暂无保洁成本。</div>'}</div>`;
+  }
+  async function addFinanceRecord(btn){
+    if(!canPermission('finance_edit')) return alert('当前账号没有财务编辑权限。');
+    const propId = (qs('financeProp') && qs('financeProp').value) || Array.from(financeScopePropertyIds())[0] || '';
+    const amount = Math.abs(Number((qs('financeAmount') && qs('financeAmount').value) || 0));
+    if(!propId) return alert('请先选择房源。');
+    if(!amount) return alert('请填写金额。');
+    const direction = (qs('financeDirection') && qs('financeDirection').value) || 'expense';
+    const category = String((qs('financeCategory') && qs('financeCategory').value) || (direction === 'income' ? '房费' : '其他')).trim();
+    getExpenseRecords().unshift({id:'finance_'+Date.now(),property_id:propId,date:(qs('financeDate')&&qs('financeDate').value)||today(),direction,category,amount,vendor:(qs('financeVendor')&&qs('financeVendor').value)||'',note:(qs('financeNote')&&qs('financeNote').value)||'',created_by:userName('房东'),created_at:nowIso()});
+    appendAudit(direction === 'income' ? '新增收入' : '新增支出', `${category} ${money(amount)}`, propId);
+    await persistAll(btn);
+    renderFinanceManagerImpl();
+  }
+  async function deleteFinanceRecord(id,btn){
+    if(!canPermission('finance_edit')) return alert('当前账号没有财务编辑权限。');
+    if(!confirm('删除这条财务记录？')) return;
+    const row = getExpenseRecords().find(x => String(x.id) === String(id));
+    setExpenseRecords(getExpenseRecords().filter(x => String(x.id) !== String(id)));
+    appendAudit('删除财务记录', row ? `${row.category || ''} ${money(row.amount)}` : id, row && row.property_id);
+    await persistAll(btn);
+    renderFinanceManagerImpl();
+  }
+  function permissionMapForUser(user){
+    const raw = user && user.permissions && typeof user.permissions === 'object' ? user.permissions : {};
+    return raw;
+  }
+  function permissionChecked(user, key){
+    const map = permissionMapForUser(user);
+    if(!map || !Object.keys(map).length) return true;
+    return !!map[key];
+  }
+  function accessPropertyChecked(user, propId){
+    let raw = null;
+    if(user && Object.prototype.hasOwnProperty.call(user, 'allowed_property_ids')) raw = user.allowed_property_ids;
+    else if(user && Object.prototype.hasOwnProperty.call(user, 'property_ids')) raw = user.property_ids;
+    else if(user && Object.prototype.hasOwnProperty.call(user, 'propertyIds')) raw = user.propertyIds;
+    if(!Array.isArray(raw)) return true;
+    return raw.map(String).includes(String(propId));
+  }
+  function managedUsers(){
+    const current = getCurrentUser() || {};
+    return getUsers().filter(user => user && user.id && String(user.id) !== String(current.id || '') && ['owner','cleaner','admin'].includes(String(user.role || '').toLowerCase()));
+  }
+  function renderAccessManagerImpl(){
+    const root = qs('ownerAccessShell');
+    if(!root) return;
+    if(!canPermission('users_manage')){
+      root.innerHTML = '<div class="card"><h2>权限管理</h2><p class="small">当前账号没有子账号权限。</p></div>';
+      return;
+    }
+    const props = propList().filter(p => financeScopePropertyIds().has(String(p.id)));
+    const rows = managedUsers();
+    const cards = rows.length ? rows.map(user => {
+      const roleText = roleLabel(user.role);
+      const isOwnerUser = String(user.role || '').toLowerCase() === 'owner';
+      const permissionHtml = OWNER_PERMISSION_DEFS.map(([key,label]) => `<label class="access-check"><input type="checkbox" data-permission="${esc(key)}" ${permissionChecked(user,key) ? 'checked' : ''}> ${esc(label)}</label>`).join('');
+      const propHtml = isOwnerUser ? props.map(prop => `<label class="access-check"><input type="checkbox" data-property="${esc(prop.id)}" ${accessPropertyChecked(user,prop.id) ? 'checked' : ''}> ${esc(prop.name || prop.id)}</label>`).join('') : '<div class="small">保洁账号按房源里的保洁绑定控制，不在这里单独选房源。</div>';
+      return `<div class="ops-row access-user-card" data-user-id="${esc(user.id)}"><div class="property-detail-head"><div><div class="ops-title">${esc(user.name || user.username || user.cleaner_code || user.id)}</div><div class="small">${esc(roleText)} · ${esc(user.username || user.cleaner_code || user.id)}</div></div><button class="smallbtn primary" onclick="saveUserAccess('${esc(user.id)}',this)">保存权限</button></div><div class="access-section"><h4>可看房源</h4><div class="access-grid">${propHtml}</div></div><div class="access-section"><h4>功能权限</h4><div class="access-grid">${permissionHtml}</div></div></div>`;
+    }).join('') : '<div class="ops-empty">暂无可管理的子账号。房东子账号需要先注册或加入同一房东组；保洁账号需要先绑定到房源。</div>';
+    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>权限管理</h2><div class="small">控制子账号能看哪些房源、能不能看财务、编辑财务、管理房间/iCal、操作运营中心和管理其他子账号。</div></div><span class="badge blue">${rows.length} 个账号</span></div></div><div class="ops-list">${cards}</div>`;
+  }
+  async function saveUserAccess(userId,btn){
+    if(!canPermission('users_manage')) return alert('当前账号没有子账号权限。');
+    const card = Array.from(document.querySelectorAll('.access-user-card')).find(el => String(el.getAttribute('data-user-id')) === String(userId));
+    const users = getUsers();
+    const user = users.find(x => String(x.id) === String(userId));
+    if(!card || !user) return;
+    const permissions = {};
+    OWNER_PERMISSION_DEFS.forEach(([key]) => {
+      const input = card.querySelector(`input[data-permission="${key}"]`);
+      permissions[key] = !!(input && input.checked);
+    });
+    const allowedProps = Array.from(card.querySelectorAll('input[data-property]:checked')).map(input => input.getAttribute('data-property')).filter(Boolean);
+    user.permissions = permissions;
+    if(String(user.role || '').toLowerCase() === 'owner') user.allowed_property_ids = allowedProps;
+    setUsers(users);
+    appendAudit('更新子账号权限', user.name || user.username || user.id, selectedOpsPropertyId());
+    const old = btn && btn.textContent;
+    if(btn){btn.disabled = true; btn.textContent = t('profile.saving');}
+    try{
+      const res = await fetch(apiUrl('/api/state'), {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({users:getUsers(), auditLog:getAuditLog()})
+      });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || data.ok === false) throw new Error(data.error || ('保存失败 HTTP ' + res.status));
+      if(data.state) applyStateFromServerImpl(data.state);
+      renderAccessManagerImpl();
+    }catch(e){
+      alert('保存权限失败：' + (e && e.message ? e.message : e));
+    }finally{
+      if(btn){btn.disabled = false; btn.textContent = old || '保存权限';}
+    }
+  }
   function showOpsTab(tab, btn){
     ui.opsTab = tab || 'dashboard';
     if(btn && btn.parentElement) btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
@@ -3835,14 +4101,16 @@
     const openTickets = tickets.filter(x => String(x.status || 'open') !== 'done');
     const lowStock = inventory.filter(x => Number(x.current_qty || 0) <= Number(x.min_qty || 0));
     const month = today().slice(0,7);
-    const monthExpenses = expenses.filter(x => String(x.date || '').slice(0,7) === month).reduce((sum,x) => sum + Number(x.amount || 0), 0);
+    const monthExpenses = expenses.filter(x => financeDirection(x) !== 'income' && String(x.date || '').slice(0,7) === month).reduce((sum,x) => sum + Number(x.amount || 0), 0);
     const channels = getChannels().filter(ch => ownerRoomEntityIds().has(roomEntityId(ch.room_id)));
-    root.innerHTML = `<div class="ops-shell"><div class="card"><div class="property-detail-head"><div><h2>${esc(t('ops.title'))}</h2><div class="small">${esc(t('ops.sub'))}</div></div><div class="ops-tabs">${opsTabButton('dashboard',t('ops.dashboard'))}${opsTabButton('maintenance',t('ops.maintenance'))}${opsTabButton('inventory',t('ops.inventory'))}${opsTabButton('expenses',t('ops.expenses'))}${opsTabButton('guests',t('ops.guests'))}${opsTabButton('channels',t('ops.channels'))}${opsTabButton('audit',t('ops.audit'))}</div></div></div><div class="ops-grid"><div class="metric"><div class="small">${esc(t('ops.properties'))}</div><div class="num">${props.length}</div></div><div class="metric"><div class="small">${esc(t('ops.openMaintenance'))}</div><div class="num">${openTickets.length}</div></div><div class="metric"><div class="small">${esc(t('ops.lowStock'))}</div><div class="num">${lowStock.length}</div></div><div class="metric"><div class="small">${esc(t('ops.monthExpenses'))}</div><div class="num">${money(monthExpenses)}</div></div><div class="metric"><div class="small">${esc(t('ops.guestProfiles'))}</div><div class="num">${guests.length}</div></div><div class="metric"><div class="small">${esc(t('ops.channelCount'))}</div><div class="num">${channels.length}</div></div></div>${renderOpsTabContent()}</div>`;
+    const opsTabs = `${opsTabButton('dashboard',t('ops.dashboard'))}${opsTabButton('maintenance',t('ops.maintenance'))}${opsTabButton('inventory',t('ops.inventory'))}${canPermission('finance_view') ? opsTabButton('expenses',t('ops.expenses')) : ''}${opsTabButton('guests',t('ops.guests'))}${opsTabButton('channels',t('ops.channels'))}${opsTabButton('audit',t('ops.audit'))}`;
+    const expenseMetric = canPermission('finance_view') ? `<div class="metric"><div class="small">${esc(t('ops.monthExpenses'))}</div><div class="num">${money(monthExpenses)}</div></div>` : '';
+    root.innerHTML = `<div class="ops-shell"><div class="card"><div class="property-detail-head"><div><h2>${esc(t('ops.title'))}</h2><div class="small">${esc(t('ops.sub'))}</div></div><div class="ops-tabs">${opsTabs}</div></div></div><div class="ops-grid"><div class="metric"><div class="small">${esc(t('ops.properties'))}</div><div class="num">${props.length}</div></div><div class="metric"><div class="small">${esc(t('ops.openMaintenance'))}</div><div class="num">${openTickets.length}</div></div><div class="metric"><div class="small">${esc(t('ops.lowStock'))}</div><div class="num">${lowStock.length}</div></div>${expenseMetric}<div class="metric"><div class="small">${esc(t('ops.guestProfiles'))}</div><div class="num">${guests.length}</div></div><div class="metric"><div class="small">${esc(t('ops.channelCount'))}</div><div class="num">${channels.length}</div></div></div>${renderOpsTabContent()}</div>`;
   }
   function renderOpsTabContent(){
     if(ui.opsTab === 'maintenance') return renderMaintenanceOps();
     if(ui.opsTab === 'inventory') return renderInventoryOps();
-    if(ui.opsTab === 'expenses') return renderExpenseOps();
+    if(ui.opsTab === 'expenses' && canPermission('finance_view')) return renderExpenseOps();
     if(ui.opsTab === 'guests') return renderGuestOps();
     if(ui.opsTab === 'channels') return renderChannelHealthOps();
     if(ui.opsTab === 'audit') return renderAuditOps();
@@ -3875,7 +4143,7 @@
   }
   function renderExpenseOps(){
     const propId = selectedOpsPropertyId();
-    const rows = opsRowsByProperty(getExpenseRecords()).sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')));
+    const rows = opsRowsByProperty(getExpenseRecords()).filter(row => financeDirection(row) !== 'income').sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')));
     const total = rows.reduce((sum,x) => sum + Number(x.amount || 0), 0);
     return `<div class="ops-panel"><h3>费用账本</h3><div class="ops-form"><label>日期<input id="expenseDate" type="date" value="${today()}"></label><label>房源<select id="expenseProp">${opsPropertyOptions(propId)}</select></label><label>分类<select id="expenseCategory"><option value="repair">维修</option><option value="supply">耗材</option><option value="cleaning">保洁</option><option value="utility">水电网</option><option value="other">其他</option></select></label><label>金额<input id="expenseAmount" type="number" step="0.01" value="0"></label><label>商家<input id="expenseVendor" placeholder="Costco / Home Depot"></label><label style="grid-column:1/-1">备注<input id="expenseNote" placeholder="发票、用途、关联房间"></label><button class="smallbtn primary" onclick="addExpenseRecord(this)">新增费用</button></div></div><div class="ops-panel"><div class="property-detail-head"><h3>费用记录</h3><span class="badge yellow">合计 ${money(total)}</span></div>${rows.length ? `<table><tr><th>日期</th><th>房源</th><th>分类</th><th>金额</th><th>备注</th><th></th></tr>${rows.map(r => `<tr><td>${esc(r.date || '')}</td><td>${esc(propName(r.property_id))}</td><td>${esc(r.category || '')}</td><td>${money(r.amount)}</td><td>${esc([r.vendor,r.note].filter(Boolean).join(' / '))}</td><td><button class="smallbtn" onclick="deleteExpenseRecord('${esc(r.id)}',this)">删除</button></td></tr>`).join('')}</table>` : '<div class="ops-empty">暂无费用。</div>'}</div>`;
   }
@@ -3940,14 +4208,16 @@
     await persistAll(btn); renderOpsCenterImpl();
   }
   async function addExpenseRecord(btn){
+    if(!canPermission('finance_edit')) return alert('当前账号没有财务编辑权限。');
     const propId = (qs('expenseProp') && qs('expenseProp').value) || selectedOpsPropertyId();
     const amount = Number((qs('expenseAmount') && qs('expenseAmount').value) || 0);
     if(!propId) return alert('请先选择房源。');
-    getExpenseRecords().unshift({id:'expense_'+Date.now(),property_id:propId,date:(qs('expenseDate')&&qs('expenseDate').value)||today(),category:(qs('expenseCategory')&&qs('expenseCategory').value)||'other',amount,vendor:(qs('expenseVendor')&&qs('expenseVendor').value)||'',note:(qs('expenseNote')&&qs('expenseNote').value)||'',created_by:userName('房东'),created_at:nowIso()});
+    getExpenseRecords().unshift({id:'expense_'+Date.now(),property_id:propId,date:(qs('expenseDate')&&qs('expenseDate').value)||today(),direction:'expense',category:(qs('expenseCategory')&&qs('expenseCategory').value)||'other',amount,vendor:(qs('expenseVendor')&&qs('expenseVendor').value)||'',note:(qs('expenseNote')&&qs('expenseNote').value)||'',created_by:userName('房东'),created_at:nowIso()});
     appendAudit('新增费用', money(amount), propId);
     await persistAll(btn); renderOpsCenterImpl();
   }
   async function deleteExpenseRecord(id,btn){
+    if(!canPermission('finance_edit')) return alert('当前账号没有财务编辑权限。');
     if(!confirm('删除这条费用？')) return;
     const row = getExpenseRecords().find(x => String(x.id) === String(id));
     setExpenseRecords(getExpenseRecords().filter(x => String(x.id) !== String(id)));
@@ -3988,6 +4258,11 @@
     renderCleaner: renderCleanerImpl,
     renderOwner: renderOwnerImpl,
     renderOwnerTab: renderOwnerTabImpl,
+    renderFinanceManager: renderFinanceManagerImpl,
+    addFinanceRecord,
+    deleteFinanceRecord,
+    renderAccessManager: renderAccessManagerImpl,
+    saveUserAccess,
     showCleaningSubTab: showCleaningSubTabImpl,
     setCleaningWorkDate: setCleaningWorkDateImpl,
     setWorkDate: setWorkDateImpl,
