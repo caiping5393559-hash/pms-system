@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-05-v65-language-switcher';
+  const VERSION = '2026-07-05-v66-language-sync';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -3152,6 +3152,8 @@
       if(data.state) applyStateFromServerImpl(data.state);
       renderUserProfileImpl();
       setHeader(isActualCleaner() ? 'cleaner' : 'owner');
+      ensureLanguageSelector();
+      ensureTimezoneSelector();
       const status = qs(rootId + '_profileStatus');
       if(status) status.textContent = t('profile.saved');
     }catch(e){
