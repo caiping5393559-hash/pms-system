@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_APP_VERSION = "2026-07-05-v67-finance-subaccounts"
+PMS_APP_VERSION = "2026-07-05-v68-mobile-calendar"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -1467,8 +1467,8 @@ def _pms_inject_html_version_badge(text, content_type):
     badge = ""
     if 'id="pmsVersionBadge"' not in raw:
         badge = f"""<style id="pmsVersionBadgeServerStyle">
-#pmsVersionBadge{{position:fixed;right:12px;bottom:12px;top:auto;z-index:999;display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:6px 9px;font:900 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;white-space:nowrap;box-shadow:0 8px 20px rgba(15,23,42,.10);pointer-events:none;opacity:.88}}
-</style><span id="pmsVersionBadge">PMS v{PMS_APP_VERSION}</span>"""
+#pmsVersionBadge{{display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:6px 9px;font:900 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;white-space:nowrap;box-shadow:0 8px 20px rgba(15,23,42,.08);pointer-events:none;opacity:.9}}
+</style><span id="pmsVersionBadge" class="pms-version-badge">PMS v{PMS_APP_VERSION}</span>"""
     inject = badge
     if not inject:
         return raw

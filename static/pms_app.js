@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-05-v67-finance-subaccounts';
+  const VERSION = '2026-07-05-v68-mobile-calendar';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -1140,17 +1140,21 @@
     if(!style){
       style = document.createElement('style');
       style.id = 'pmsVersionBadgeStyles';
-      style.textContent = '.pms-version-badge{position:fixed;right:12px;bottom:12px;z-index:999;display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:6px 9px;font-size:11px;font-weight:900;line-height:1;white-space:nowrap;pointer-events:none;opacity:.88;box-shadow:0 8px 20px rgba(15,23,42,.10)}';
+      style.textContent = '.pms-version-badge{display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:6px 9px;font-size:11px;font-weight:900;line-height:1;white-space:nowrap;pointer-events:none;opacity:.9;box-shadow:0 8px 20px rgba(15,23,42,.08)}@media(max-width:600px){.pms-version-badge{order:99;padding:5px 8px;font-size:10px}}';
       document.head.appendChild(style);
     }
+    const nav = document.querySelector('.nav') || document.querySelector('header') || document.body;
     let badge = qs('pmsVersionBadge');
     if(!badge){
       badge = document.createElement('span');
       badge.id = 'pmsVersionBadge';
-      badge.className = 'pms-version-badge';
-      document.body.appendChild(badge);
     }
-    badge.textContent = 'PMS v' + VERSION;
+    badge.className = 'pms-version-badge';
+    if(nav && badge.parentNode !== nav) nav.appendChild(badge);
+    badge.title = 'PMS v' + VERSION;
+    const compact = window.matchMedia && window.matchMedia('(max-width: 600px)').matches;
+    const match = String(VERSION).match(/v\d+/);
+    badge.textContent = compact && match ? 'PMS ' + match[0] : 'PMS v' + VERSION;
   }
   function setHeader(view){
     const h = document.querySelector('header h1');
@@ -1454,12 +1458,17 @@
       .property-edit-grid{display:grid;grid-template-columns:minmax(160px,1.1fr) minmax(140px,.8fr) minmax(180px,1fr) minmax(190px,1fr) auto auto;gap:8px;align-items:end}
       .property-edit-grid label{display:grid;gap:5px;font-size:12px;font-weight:900;color:#475569}
       .timezone-picker{max-width:260px}
+      .scroll{overflow:auto;-webkit-overflow-scrolling:touch}
+      #calendarGrid{display:grid;gap:6px;align-items:stretch;min-width:max-content;padding-bottom:4px}
+      #calendarGrid .cell{position:relative;overflow:hidden;min-width:64px;min-height:54px;border:1px solid #d8e1ef;background:#fff;border-radius:8px;padding:6px;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:850;line-height:1.12;color:#0f172a}
+      #calendarGrid .cell.head{background:#eaf1fb;font-weight:900;z-index:2}
+      #calendarGrid .cell.room{position:sticky;left:0;z-index:3;justify-content:flex-start;text-align:left;background:#f8fafc;font-weight:900;box-shadow:5px 0 10px rgba(15,23,42,.08)}
+      #calendarGrid .cell.head:first-child{position:sticky;left:0;z-index:4}
       #calendarGrid.vacancy-only .cell:not(.head):not(.room){background:#fff!important;border-color:#d8e1ef!important;color:#0f172a!important;outline:none!important;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:900}
       #calendarGrid.vacancy-only .cell:not(.head):not(.room):before,#calendarGrid.vacancy-only .cell:not(.head):not(.room):after{display:none!important}
       #calendarGrid.vacancy-only .cell.empty-night{color:#0f766e!important}
       #calendarGrid.vacancy-only .cell.hidden-occupied{color:transparent!important}
       #calendarGrid.vacancy-only .cell.hidden-occupied *{display:none!important}
-      #calendarGrid .cell{position:relative;overflow:hidden;min-width:64px}
       #calendarGrid .cell.head.weekend{background:#fffbeb!important;color:#92400e!important;border-color:#f59e0b!important}
       #calendarGrid .cell.head.weekend-sun{background:#fff7ed!important;color:#9a3412!important;border-color:#fb923c!important}
       #calendarGrid .cell.weekend{outline:2px solid #f59e0b!important;outline-offset:-2px}
@@ -1565,6 +1574,32 @@
       @media(max-width:1200px){.common-area-form{grid-template-columns:1fr 1fr}.common-area-form>.common-area-field:nth-child(2){grid-column:1/-1}.common-area-actions{grid-column:1/-1;justify-content:flex-start}.area-component-list{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}}
       @media(max-width:900px){.room-basics,.channel-grid,.property-edit-grid,.common-area-form,.cleaning-task-row{grid-template-columns:1fr}.property-module-head,.property-detail-head,.property-actions,.property-card-top,.cleaning-work-head{align-items:stretch}.property-actions>*,.property-card-top>*{width:100%}.property-card-top{flex-direction:column}.common-area-actions{justify-content:flex-start}.common-area-actions>*{width:100%}.cleaning-work-meta{justify-content:flex-start;min-width:0}}
       @media(max-width:600px){
+        header{padding:10px 12px}
+        .header-inner{display:grid;grid-template-columns:1fr;gap:8px;align-items:start}
+        header h1{font-size:20px;line-height:1.15}
+        header .small{font-size:12px}
+        main{margin-top:10px;padding:0 8px 72px}
+        .nav{gap:6px;align-items:center}
+        .nav button,.nav .smallbtn{min-height:36px;padding:7px 10px;font-size:13px}
+        #pmsTimezoneWrap,#pmsLanguageWrap{margin-left:0!important;gap:5px!important}
+        #pmsTimezoneWrap{flex:1 1 100%}
+        #pmsTimezoneSelect{max-width:100%;width:min(100%,330px)}
+        #pmsLanguageSelect{min-width:112px}
+        .card{padding:10px;margin-bottom:10px}
+        .grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px}
+        .metric{padding:10px!important;min-width:0}
+        .metric .num{font-size:24px!important}
+        .tabbar,.toolbar{display:flex;gap:6px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+        .tabbar button,.toolbar button,.toolbar .smallbtn{flex:0 0 auto;white-space:nowrap}
+        .toolbar input,.toolbar select{flex:0 0 auto;max-width:150px}
+        .toolbar>.small{display:none}
+        #calendarGrid{gap:4px;padding-bottom:8px}
+        #calendarGrid .cell{min-width:52px;min-height:38px;border-radius:7px;padding:4px;font-size:12px;line-height:1.05}
+        #calendarGrid .cell.room{min-width:88px;max-width:88px;font-size:12px;line-height:1.15;box-shadow:4px 0 8px rgba(15,23,42,.10)}
+        #calendarGrid .cell.head{font-size:11px}
+        #calendarGrid .cell .cell-platform{font-size:12px}
+        #calendarGrid .cell.locked .cell-platform{font-size:11px}
+        .weekend-label{font-size:10px}
         #cleaner .card,#ownerCleaningShell .card{padding:10px}
         .cleaning-list-card{padding:8px;background:#f8fafc}
         .cleaning-work-list{gap:10px}
@@ -2481,7 +2516,8 @@
       updateCalendarVacancyControls(range, rows.length);
       return;
     }
-    grid.style.gridTemplateColumns = `140px repeat(${days.length}, minmax(64px,1fr))`;
+    const compactCalendar = window.matchMedia && window.matchMedia('(max-width: 600px)').matches;
+    grid.style.gridTemplateColumns = compactCalendar ? `88px repeat(${days.length}, 52px)` : `140px repeat(${days.length}, minmax(64px,1fr))`;
     let html = `<div class="cell head">房间 / 日期</div>` + days.map(day => `<div class="cell head ${weekendClass(day)}">${esc(day.slice(5))}${weekendLabel(day)?`<span class="weekend-label">${weekendLabel(day)}</span>`:''}</div>`).join('');
     rows.forEach(room => {
       const real = dedupeBookings(bookingsForRoom(room, ownerRealBookings()));
