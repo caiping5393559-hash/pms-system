@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_PATCH_VERSION = "2026-07-05-v64-ops-center-single-shell"
+PMS_APP_VERSION = "2026-07-05-v65-language-switcher"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -1208,7 +1208,7 @@ def pms_public_profile(user):
     public = {}
     if not isinstance(user, dict):
         return public
-    for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids", "default_room_ids", "defaultRoomIds", "timezone", "time_zone", "timeZone"):
+    for key in ("id", "role", "username", "name", "email", "phone", "mobile", "tel", "phone_number", "wechat", "weixin", "wx", "wechat_id", "cleaner_code", "group_id", "group_ids", "default_room_ids", "defaultRoomIds", "timezone", "time_zone", "timeZone", "language", "locale", "lang"):
         value = user.get(key)
         if value not in (None, ""):
             public[key] = value
@@ -1226,6 +1226,21 @@ def pms_valid_timezone(value):
         return ""
 
 
+def pms_valid_language(value):
+    text = str(value or "").strip()
+    aliases = {
+        "zh": "zh-CN",
+        "zh-cn": "zh-CN",
+        "zh-hans": "zh-CN",
+        "cn": "zh-CN",
+        "en": "en-US",
+        "en-us": "en-US",
+        "es": "es-ES",
+        "es-es": "es-ES",
+    }
+    return aliases.get(text.lower(), "") if text else ""
+
+
 def update_current_user_profile(payload, actor=None):
     if not isinstance(payload, dict):
         raise RuntimeError("payload must be an object")
@@ -1235,6 +1250,7 @@ def update_current_user_profile(payload, actor=None):
     if len(display_name) > 80:
         raise RuntimeError("display name is too long")
     timezone_value = pms_valid_timezone(payload.get("timezone") or payload.get("time_zone") or payload.get("timeZone"))
+    language_value = pms_valid_language(payload.get("language") or payload.get("locale") or payload.get("lang"))
 
     state = normalize_state(load_main_state())
     users = state.setdefault("users", [])
@@ -1255,13 +1271,16 @@ def update_current_user_profile(payload, actor=None):
 
     if not display_name:
         display_name = str(target.get("name") or target.get("username") or actor.get("name") or actor.get("username") or "").strip()
-    if not display_name and not timezone_value and not ("default_room_ids" in payload or "defaultRoomIds" in payload):
+    if not display_name and not timezone_value and not language_value and not ("default_room_ids" in payload or "defaultRoomIds" in payload):
         raise RuntimeError("display name is required")
     if display_name:
         target["name"] = display_name
     if timezone_value:
         target["timezone"] = timezone_value
         target["time_zone"] = timezone_value
+    if language_value:
+        target["language"] = language_value
+        target["locale"] = language_value
     if "default_room_ids" in payload or "defaultRoomIds" in payload:
         raw_defaults = payload.get("default_room_ids", payload.get("defaultRoomIds"))
         if raw_defaults is None:
@@ -1340,7 +1359,7 @@ def _pms_inject_html_version_badge(text, content_type):
     if 'id="pmsVersionBadge"' not in raw:
         badge = f"""<style id="pmsVersionBadgeServerStyle">
 #pmsVersionBadge{{position:fixed;right:12px;bottom:12px;top:auto;z-index:999;display:inline-flex;align-items:center;justify-content:center;border:1px solid #99f6e4;background:#ecfeff;color:#0f766e;border-radius:999px;padding:6px 9px;font:900 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;white-space:nowrap;box-shadow:0 8px 20px rgba(15,23,42,.10);pointer-events:none;opacity:.88}}
-</style><span id="pmsVersionBadge">PMS v{PMS_PATCH_VERSION}</span>"""
+</style><span id="pmsVersionBadge">PMS v{PMS_APP_VERSION}</span>"""
     inject = badge
     if not inject:
         return raw
@@ -1856,7 +1875,7 @@ class Handler(BaseHTTPRequestHandler):
                 text_response(self, "OK")
                 return
             if path == "/api/version":
-                json_response(self, {"ok": True, "version": PMS_PATCH_VERSION})
+                json_response(self, {"ok": True, "version": PMS_APP_VERSION})
                 return
             if path == "/api/health":
                 json_response(self, {"ok": True, "firebase_project": firebase_project_id(), "driver": "firestore-rest"})

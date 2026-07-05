@@ -1,6 +1,6 @@
 (function(){
-  const VERSION = '2026-07-05-v64-ops-center-single-shell';
-  window.__PMS_PATCH_VERSION = VERSION;
+  const VERSION = '2026-07-05-v65-language-switcher';
+  window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
   const CLEANING_TASK_RAMP_DAYS = 7;
@@ -42,10 +42,91 @@
   ui.cleaningWorkDate = ui.cleaningWorkDate || '';
   ui.opsTab = ['dashboard','maintenance','inventory','expenses','guests','channels','audit'].includes(ui.opsTab) ? ui.opsTab : 'dashboard';
 
+  const LANGUAGES = [
+    ['zh-CN','中文'],
+    ['en-US','English'],
+    ['es-ES','Español']
+  ];
+  const I18N = {
+    'zh-CN': {
+      'nav.cleaner':'保洁页面','nav.owner':'房东管理','nav.ops':'运营中心','nav.profile':'用户设置','nav.logout':'退出登录',
+      'pref.timezone':'时区','pref.language':'语言',
+      'role.admin':'管理员','role.owner':'房东','role.cleaner':'保洁','role.unknown':'未识别',
+      'header.owner.title':'{name} · 房东管理后台','header.owner.sub':'管理房源、房间、公区、iCal 同步和保洁绑定。',
+      'header.cleaner.title':'{name} · 保洁工作台','header.cleaner.sub':'查看绑定房源的今日保洁、未来保洁、历史保洁和备注。',
+      'header.cleaner.ownerTitle':'{name} · 保洁任务查看','header.cleaner.ownerSub':'房东查看当前房源范围内的保洁任务和历史记录。',
+      'profile.title':'用户设置','profile.sub':'查看当前登录账号资料；可修改对外显示名、默认时区和语言。',
+      'profile.displayName':'对外显示名','profile.timezone':'个人默认时区','profile.language':'界面语言','profile.username':'用户名','profile.email':'邮箱','profile.phone':'手机号','profile.wechat':'微信号','profile.cleanerCode':'保洁编号','profile.role':'账号类型','profile.save':'保存用户设置','profile.saving':'保存中...','profile.saved':'已保存','profile.saveFailed':'保存用户设置失败：','profile.required':'对外显示名不能为空。',
+      'ops.title':'运营中心','ops.sub':'集中查看维护、耗材、费用、客人档案、渠道健康和操作记录。当前跟随上方房源/房间范围。',
+      'ops.dashboard':'总览','ops.maintenance':'维护','ops.inventory':'耗材','ops.expenses':'费用','ops.guests':'客人','ops.channels':'渠道健康','ops.audit':'日志',
+      'ops.properties':'房源','ops.openMaintenance':'待处理维护','ops.lowStock':'低库存耗材','ops.monthExpenses':'本月费用','ops.guestProfiles':'客人档案','ops.channelCount':'渠道数',
+      'ops.noMaintenance':'暂无待处理维护。','ops.noLowStock':'暂无低库存提醒。','ops.noChannelErrors':'暂无渠道异常。','ops.maintenanceTitle':'维护工单','ops.maintenanceList':'维护列表','ops.inventoryTitle':'耗材库存','ops.inventoryList':'耗材列表','ops.expenseTitle':'费用账本','ops.expenseList':'费用记录','ops.guestTitle':'客人档案','ops.guestList':'客人列表','ops.channelHealthTitle':'渠道 / iCal 健康','ops.auditTitle':'操作日志',
+      'common.property':'房源','common.room':'房间','common.category':'分类','common.priority':'优先级','common.dueDate':'到期日','common.title':'标题','common.note':'备注','common.add':'新增','common.delete':'删除','common.done':'完成','common.inProgress':'处理中','common.pending':'待处理','common.normal':'普通','common.urgent':'紧急','common.low':'低','common.date':'日期','common.amount':'金额','common.vendor':'商家','common.name':'姓名','common.phone':'电话','common.source':'来源','common.tags':'标签','common.time':'时间','common.actor':'人员','common.action':'动作','common.content':'内容','common.noRoom':'不指定房间','common.statusDone':'已完成','common.statusNormal':'正常','common.statusLowStock':'低库存','common.synced':'已同步','common.syncFailed':'同步失败','common.notSynced':'未同步'
+    },
+    'en-US': {
+      'nav.cleaner':'Cleaner','nav.owner':'Owner','nav.ops':'Operations','nav.profile':'User settings','nav.logout':'Log out',
+      'pref.timezone':'Time zone','pref.language':'Language',
+      'role.admin':'Admin','role.owner':'Owner','role.cleaner':'Cleaner','role.unknown':'Unknown',
+      'header.owner.title':'{name} · Owner dashboard','header.owner.sub':'Manage properties, rooms, common areas, iCal sync, and cleaner bindings.',
+      'header.cleaner.title':'{name} · Cleaner workspace','header.cleaner.sub':'View today, upcoming, and historical cleaning tasks and notes for bound properties.',
+      'header.cleaner.ownerTitle':'{name} · Cleaning task view','header.cleaner.ownerSub':'Owner view of cleaning tasks and history for the selected property scope.',
+      'profile.title':'User settings','profile.sub':'View account details and update display name, default time zone, and language.',
+      'profile.displayName':'Display name','profile.timezone':'Default time zone','profile.language':'Interface language','profile.username':'Username','profile.email':'Email','profile.phone':'Phone','profile.wechat':'WeChat','profile.cleanerCode':'Cleaner code','profile.role':'Account type','profile.save':'Save settings','profile.saving':'Saving...','profile.saved':'Saved','profile.saveFailed':'Failed to save settings: ','profile.required':'Display name is required.',
+      'ops.title':'Operations','ops.sub':'Track maintenance, supplies, expenses, guest profiles, channel health, and activity logs. Uses the selected property and room scope.',
+      'ops.dashboard':'Overview','ops.maintenance':'Maintenance','ops.inventory':'Supplies','ops.expenses':'Expenses','ops.guests':'Guests','ops.channels':'Channel health','ops.audit':'Log',
+      'ops.properties':'Properties','ops.openMaintenance':'Open maintenance','ops.lowStock':'Low stock','ops.monthExpenses':'This month','ops.guestProfiles':'Guest profiles','ops.channelCount':'Channels',
+      'ops.noMaintenance':'No open maintenance.','ops.noLowStock':'No low-stock alerts.','ops.noChannelErrors':'No channel errors.','ops.maintenanceTitle':'Maintenance tickets','ops.maintenanceList':'Maintenance list','ops.inventoryTitle':'Supply inventory','ops.inventoryList':'Supply list','ops.expenseTitle':'Expense ledger','ops.expenseList':'Expense records','ops.guestTitle':'Guest profiles','ops.guestList':'Guest list','ops.channelHealthTitle':'Channel / iCal health','ops.auditTitle':'Activity log',
+      'common.property':'Property','common.room':'Room','common.category':'Category','common.priority':'Priority','common.dueDate':'Due date','common.title':'Title','common.note':'Note','common.add':'Add','common.delete':'Delete','common.done':'Done','common.inProgress':'In progress','common.pending':'Pending','common.normal':'Normal','common.urgent':'Urgent','common.low':'Low','common.date':'Date','common.amount':'Amount','common.vendor':'Vendor','common.name':'Name','common.phone':'Phone','common.source':'Source','common.tags':'Tags','common.time':'Time','common.actor':'User','common.action':'Action','common.content':'Content','common.noRoom':'No room','common.statusDone':'Done','common.statusNormal':'Normal','common.statusLowStock':'Low stock','common.synced':'Synced','common.syncFailed':'Sync failed','common.notSynced':'Not synced'
+    },
+    'es-ES': {
+      'nav.cleaner':'Limpieza','nav.owner':'Propietario','nav.ops':'Operaciones','nav.profile':'Usuario','nav.logout':'Salir',
+      'pref.timezone':'Zona horaria','pref.language':'Idioma',
+      'role.admin':'Administrador','role.owner':'Propietario','role.cleaner':'Limpieza','role.unknown':'Desconocido',
+      'header.owner.title':'{name} · Panel del propietario','header.owner.sub':'Gestiona propiedades, habitaciones, áreas comunes, iCal y limpieza.',
+      'header.cleaner.title':'{name} · Panel de limpieza','header.cleaner.sub':'Ver tareas de limpieza de hoy, próximas, historial y notas.',
+      'header.cleaner.ownerTitle':'{name} · Vista de limpieza','header.cleaner.ownerSub':'Vista del propietario para tareas e historial de limpieza.',
+      'profile.title':'Configuración de usuario','profile.sub':'Ver cuenta y cambiar nombre público, zona horaria e idioma.',
+      'profile.displayName':'Nombre visible','profile.timezone':'Zona horaria','profile.language':'Idioma','profile.username':'Usuario','profile.email':'Correo','profile.phone':'Teléfono','profile.wechat':'WeChat','profile.cleanerCode':'Código de limpieza','profile.role':'Tipo de cuenta','profile.save':'Guardar','profile.saving':'Guardando...','profile.saved':'Guardado','profile.saveFailed':'No se pudo guardar: ','profile.required':'El nombre visible es obligatorio.',
+      'ops.title':'Operaciones','ops.sub':'Seguimiento de mantenimiento, insumos, gastos, huéspedes, canales y registros.',
+      'ops.dashboard':'Resumen','ops.maintenance':'Mantenimiento','ops.inventory':'Insumos','ops.expenses':'Gastos','ops.guests':'Huéspedes','ops.channels':'Canales','ops.audit':'Registro',
+      'ops.properties':'Propiedades','ops.openMaintenance':'Mantenimiento abierto','ops.lowStock':'Stock bajo','ops.monthExpenses':'Este mes','ops.guestProfiles':'Huéspedes','ops.channelCount':'Canales',
+      'ops.noMaintenance':'No hay mantenimiento abierto.','ops.noLowStock':'No hay alertas de stock.','ops.noChannelErrors':'No hay errores de canal.','ops.maintenanceTitle':'Tickets de mantenimiento','ops.maintenanceList':'Lista de mantenimiento','ops.inventoryTitle':'Inventario','ops.inventoryList':'Lista de insumos','ops.expenseTitle':'Gastos','ops.expenseList':'Registros de gastos','ops.guestTitle':'Huéspedes','ops.guestList':'Lista de huéspedes','ops.channelHealthTitle':'Estado de canales / iCal','ops.auditTitle':'Registro de actividad',
+      'common.property':'Propiedad','common.room':'Habitación','common.category':'Categoría','common.priority':'Prioridad','common.dueDate':'Vence','common.title':'Título','common.note':'Nota','common.add':'Agregar','common.delete':'Eliminar','common.done':'Completar','common.inProgress':'En proceso','common.pending':'Pendiente','common.normal':'Normal','common.urgent':'Urgente','common.low':'Baja','common.date':'Fecha','common.amount':'Monto','common.vendor':'Proveedor','common.name':'Nombre','common.phone':'Teléfono','common.source':'Fuente','common.tags':'Etiquetas','common.time':'Hora','common.actor':'Usuario','common.action':'Acción','common.content':'Contenido','common.noRoom':'Sin habitación','common.statusDone':'Completado','common.statusNormal':'Normal','common.statusLowStock':'Stock bajo','common.synced':'Sincronizado','common.syncFailed':'Error de sync','common.notSynced':'Sin sync'
+    }
+  };
+
   function esc(value){
     return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[ch]));
+  }
+  function normalizeLanguage(value){
+    const text = String(value || '').trim().toLowerCase();
+    const map = {'zh':'zh-CN','zh-cn':'zh-CN','zh-hans':'zh-CN','cn':'zh-CN','en':'en-US','en-us':'en-US','es':'es-ES','es-es':'es-ES'};
+    return map[text] || 'zh-CN';
+  }
+  function browserLanguage(){
+    try{return navigator.language || '';}catch(e){return '';}
+  }
+  function currentLanguage(){
+    const u = getCurrentUser ? (getCurrentUser() || {}) : {};
+    const saved = u.language || u.locale || u.lang || (() => {try{return localStorage.getItem('pms_language') || '';}catch(e){return '';}})() || browserLanguage();
+    return normalizeLanguage(saved);
+  }
+  function t(key, vars){
+    const lang = currentLanguage();
+    let text = (I18N[lang] && I18N[lang][key]) || (I18N['zh-CN'] && I18N['zh-CN'][key]) || key;
+    Object.keys(vars || {}).forEach(name => {
+      text = text.replace(new RegExp('\\{' + name + '\\}','g'), vars[name]);
+    });
+    return text;
+  }
+  function languageOptions(selected){
+    const current = normalizeLanguage(selected || currentLanguage());
+    return LANGUAGES.map(row => `<option value="${esc(row[0])}" ${row[0] === current ? 'selected' : ''}>${esc(row[1])}</option>`).join('');
+  }
+  function saveLanguageLocal(lang){
+    try{localStorage.setItem('pms_language', normalizeLanguage(lang));}catch(e){}
   }
   function safe(value){return String(value || '').replace(/[^a-zA-Z0-9_-]/g, '_') || 'x';}
   function qs(id){return document.getElementById(id);}
@@ -842,7 +923,7 @@
   async function persistAll(btn){
     ensureRealDefaultProperty();
     const old = btn && btn.textContent;
-    if(btn){btn.disabled = true; btn.textContent = '保存中...';}
+    if(btn){btn.disabled = true; btn.textContent = t('profile.saving');}
     try{
       const payload = {
         properties: getProperties(),
@@ -921,11 +1002,13 @@
       wrap.style.alignItems = 'center';
       wrap.style.gap = '6px';
       wrap.style.marginLeft = '8px';
-      wrap.innerHTML = '<span>时区</span><select id="pmsTimezoneSelect" class="smallbtn timezone-picker"></select>';
+      wrap.innerHTML = '<span>' + esc(t('pref.timezone')) + '</span><select id="pmsTimezoneSelect" class="smallbtn timezone-picker"></select>';
       const logout = qs('logoutBtn');
       if(logout && logout.parentNode === nav) nav.insertBefore(wrap, logout);
       else nav.appendChild(wrap);
     }
+    const tzLabel = wrap.querySelector('span');
+    if(tzLabel) tzLabel.textContent = t('pref.timezone');
     const select = qs('pmsTimezoneSelect');
     if(select){
       const current = userTimeZone();
@@ -940,9 +1023,51 @@
           await fetch(apiUrl('/api/profile'), {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({name: user.name || user.username || '用户', timezone: tz, time_zone: tz})
+            body: JSON.stringify({name: user.name || user.username || '用户', timezone: tz, time_zone: tz, language: currentLanguage(), locale: currentLanguage()})
           });
         }catch(e){console.warn('save timezone failed', e);}
+        renderAll();
+      };
+    }
+    ensureLanguageSelector();
+    return wrap;
+  }
+  function ensureLanguageSelector(){
+    const nav = document.querySelector('.nav') || document.querySelector('header') || document.body;
+    if(!nav) return null;
+    let wrap = qs('pmsLanguageWrap');
+    if(!wrap){
+      wrap = document.createElement('label');
+      wrap.id = 'pmsLanguageWrap';
+      wrap.className = 'small';
+      wrap.style.display = 'inline-flex';
+      wrap.style.alignItems = 'center';
+      wrap.style.gap = '6px';
+      wrap.style.marginLeft = '8px';
+      wrap.innerHTML = '<span></span><select id="pmsLanguageSelect" class="smallbtn language-picker"></select>';
+      const logout = qs('logoutBtn');
+      if(logout && logout.parentNode === nav) nav.insertBefore(wrap, logout);
+      else nav.appendChild(wrap);
+    }
+    const label = wrap.querySelector('span');
+    if(label) label.textContent = t('pref.language');
+    const select = qs('pmsLanguageSelect');
+    if(select){
+      const current = currentLanguage();
+      select.innerHTML = languageOptions(current);
+      select.value = current;
+      select.onchange = async function(){
+        const lang = normalizeLanguage(select.value);
+        saveLanguageLocal(lang);
+        const user = {...(getCurrentUser() || {}), language: lang, locale: lang};
+        setCurrentUser(user);
+        try{
+          await fetch(apiUrl('/api/profile'), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: user.name || user.username || '用户', timezone: userTimeZone(), time_zone: userTimeZone(), language: lang, locale: lang})
+          });
+        }catch(e){console.warn('save language failed', e);}
         renderAll();
       };
     }
@@ -951,6 +1076,7 @@
   function ensureLogoutButton(){
     const nav = document.querySelector('.nav') || document.querySelector('header') || document.body;
     ensureTimezoneSelector();
+    updateMainNavLabels();
     let btn = qs('logoutBtn');
     if(!btn){
       btn = document.createElement('button');
@@ -959,7 +1085,7 @@
       btn.className = 'smallbtn';
       nav.appendChild(btn);
     }
-    btn.textContent = '退出登录';
+    btn.textContent = t('nav.logout');
     btn.style.display = '';
     btn.onclick = logoutImpl;
     syncNavForRole();
@@ -971,8 +1097,21 @@
     const cleanerOnly = isActualCleaner() || (cleanerPath() && !isOwnerLike());
     nav.querySelectorAll('button,a').forEach(el => {
       if(el.id === 'logoutBtn'){ el.style.display = ''; return; }
+      if(el.closest && (el.closest('#pmsTimezoneWrap') || el.closest('#pmsLanguageWrap'))){ el.style.display = ''; return; }
       const text = (el.textContent || '').trim();
-      el.style.display = cleanerOnly && (text.includes('房东管理') || text.includes('房源管理')) ? 'none' : '';
+      const action = el.getAttribute('onclick') || '';
+      const isOwnerNav = action.includes("showSection('owner'") || action.includes('showSection("owner"') || text.includes('房东管理') || text.includes('房源管理') || text.includes('Owner') || text.includes('Propietario');
+      el.style.display = cleanerOnly && isOwnerNav ? 'none' : '';
+    });
+  }
+  function updateMainNavLabels(){
+    const nav = document.querySelector('.nav');
+    if(!nav) return;
+    nav.querySelectorAll('button').forEach(btn => {
+      if(btn.id === 'logoutBtn') return;
+      const action = btn.getAttribute('onclick') || '';
+      if(action.includes("showSection('cleaner'") || action.includes('showSection("cleaner"')) btn.textContent = t('nav.cleaner');
+      if(action.includes("showSection('owner'") || action.includes('showSection("owner"')) btn.textContent = t('nav.owner');
     });
   }
   function ensureVersionBadge(){
@@ -995,21 +1134,22 @@
   function setHeader(view){
     const h = document.querySelector('header h1');
     const sub = document.querySelector('header h1 + .small');
-    const name = userName(isActualCleaner() ? '保洁' : '房东');
+    const name = userName(isActualCleaner() ? t('role.cleaner') : t('role.owner'));
     if(view === 'cleaner'){
       if(isActualCleaner()){
-        if(h) h.textContent = `${name} · 保洁工作台`;
-        if(sub) sub.textContent = '查看绑定房源的今日保洁、未来保洁、历史保洁和备注。';
+        if(h) h.textContent = t('header.cleaner.title', {name});
+        if(sub) sub.textContent = t('header.cleaner.sub');
       }else{
-        if(h) h.textContent = `${name} · 保洁任务查看`;
-        if(sub) sub.textContent = '房东查看当前房源范围内的保洁任务和历史记录。';
+        if(h) h.textContent = t('header.cleaner.ownerTitle', {name});
+        if(sub) sub.textContent = t('header.cleaner.ownerSub');
       }
-      document.title = h ? h.textContent : '保洁工作台';
+      document.title = h ? h.textContent : t('nav.cleaner');
     }else{
-      if(h) h.textContent = `${name} · 房东管理后台`;
-      if(sub) sub.textContent = '管理房源、房间、公区、iCal 同步和保洁绑定。';
-      document.title = h ? h.textContent : '房东管理后台';
+      if(h) h.textContent = t('header.owner.title', {name});
+      if(sub) sub.textContent = t('header.owner.sub');
+      document.title = h ? h.textContent : t('nav.owner');
     }
+    updateMainNavLabels();
     syncNavForRole();
   }
 
@@ -1071,11 +1211,13 @@
     const owner = qs('owner');
     if(!owner) return;
     const tabbar = owner.querySelector('#ownerTabsCard .tabbar') || owner.querySelector('.tabbar');
+    const existing = tabbar && tabbar.querySelector('[data-pms-ops-tab]');
+    if(existing) existing.textContent = t('nav.ops');
     if(tabbar && !tabbar.querySelector('[data-pms-ops-tab]')){
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.dataset.pmsOpsTab = '1';
-      btn.textContent = '运营中心';
+      btn.textContent = t('nav.ops');
       btn.onclick = function(){showOwnerTabImpl('ownerOps', this);};
       tabbar.appendChild(btn);
     }
@@ -1091,11 +1233,13 @@
     const owner = qs('owner');
     if(!owner) return;
     const tabbar = owner.querySelector('#ownerTabsCard .tabbar') || owner.querySelector('.tabbar');
+    const existing = tabbar && tabbar.querySelector('[data-pms-profile-tab]');
+    if(existing) existing.textContent = t('nav.profile');
     if(tabbar && !tabbar.querySelector('[data-pms-profile-tab]')){
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.dataset.pmsProfileTab = '1';
-      btn.textContent = '用户设置';
+      btn.textContent = t('nav.profile');
       btn.onclick = function(){showOwnerTabImpl('ownerProfile', this);};
       tabbar.appendChild(btn);
     }
@@ -1121,7 +1265,7 @@
       ensureCleanerProfileTab();
       return;
     }
-    const profileTab = isActualCleaner() ? `<button data-pms-profile-tab="1" onclick="showTab('cleanerProfile', this)">用户设置</button>` : '';
+    const profileTab = isActualCleaner() ? `<button data-pms-profile-tab="1" onclick="showTab('cleanerProfile', this)">${esc(t('nav.profile'))}</button>` : '';
     const profilePane = isActualCleaner() ? '<div id="cleanerProfile" class="tab-content"></div>' : '';
     root.innerHTML = `<div id="cleanerDashboardShell"><div id="cleanerSummary"></div><div id="cleanerMetrics" class="grid"></div><div id="cleanerTodayNotes"></div><div class="card"><div class="tabbar"><button class="active" onclick="showTab('cleanerToday', this)">今日保洁</button><button onclick="showTab('cleanerFuture', this)">未来保洁</button><button onclick="showTab('cleanerManual', this)">手动调整记录</button><button onclick="showTab('cleanerHistory', this)">历史保洁</button>${profileTab}</div></div><div id="cleanerToday" class="tab-content active"></div><div id="cleanerFuture" class="tab-content"></div><div id="cleanerManual" class="tab-content"></div><div id="cleanerHistory" class="tab-content"></div>${profilePane}</div>`;
     ensureCleanerProfileTab();
@@ -1147,7 +1291,7 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.dataset.pmsProfileTab = '1';
-      btn.textContent = '用户设置';
+      btn.textContent = t('nav.profile');
       btn.onclick = function(){showTabImpl('cleanerProfile', this);};
       tabbar.appendChild(btn);
     }
@@ -2959,10 +3103,10 @@
   }
   function roleLabel(value){
     const text = String(value || role() || '').toLowerCase();
-    if(text === 'admin') return '管理员';
-    if(text === 'owner') return '房东';
-    if(text === 'cleaner') return '保洁';
-    return text || '未识别';
+    if(text === 'admin') return t('role.admin');
+    if(text === 'owner') return t('role.owner');
+    if(text === 'cleaner') return t('role.cleaner');
+    return text || t('role.unknown');
   }
   function renderUserProfilePanel(rootId){
     const root = qs(rootId);
@@ -2972,8 +3116,9 @@
     const phone = profilePhone(u);
     const wechat = profileWechat(u);
     const cleanerCode = u.cleaner_code || u.cleanerCode || '';
-    const cleanerCodeField = isCleanerProfile(u) ? `<div class="profile-field"><label>保洁编号</label><input readonly value="${esc(cleanerCode || '未生成')}"></div>` : '';
-    root.innerHTML = `<div class="card user-profile-card"><div class="property-detail-head"><div><h2>用户设置</h2><div class="small">查看当前登录账号资料；可修改对外显示名和个人默认时区。</div></div><span class="badge green">${esc(roleLabel(u.role))}</span></div><div class="profile-grid"><div class="profile-field"><label>对外显示名</label><input id="${rootId}_displayName" value="${esc(u.name || '')}" placeholder="例如 zhoulimei"></div><div class="profile-field"><label>个人默认时区</label><select id="${rootId}_timezone">${timeZoneOptions(userTimeZone())}</select></div><div class="profile-field"><label>用户名</label><input readonly value="${esc(u.username || '未填写')}"></div><div class="profile-field"><label>邮箱</label><input readonly value="${esc(email || '未填写')}"></div><div class="profile-field"><label>手机号</label><input readonly value="${esc(phone || '未填写')}"></div><div class="profile-field"><label>微信号</label><input readonly value="${esc(wechat || '未填写')}"></div>${cleanerCodeField}<div class="profile-field"><label>账号类型</label><input readonly value="${esc(roleLabel(u.role))}"></div></div><div class="profile-actions"><button class="smallbtn primary" onclick="saveUserProfile('${rootId}',this)">保存用户设置</button><span id="${rootId}_profileStatus" class="profile-status"></span></div></div>`;
+    const emptyText = currentLanguage() === 'zh-CN' ? '未填写' : '';
+    const cleanerCodeField = isCleanerProfile(u) ? `<div class="profile-field"><label>${esc(t('profile.cleanerCode'))}</label><input readonly value="${esc(cleanerCode || (currentLanguage() === 'zh-CN' ? '未生成' : ''))}"></div>` : '';
+    root.innerHTML = `<div class="card user-profile-card"><div class="property-detail-head"><div><h2>${esc(t('profile.title'))}</h2><div class="small">${esc(t('profile.sub'))}</div></div><span class="badge green">${esc(roleLabel(u.role))}</span></div><div class="profile-grid"><div class="profile-field"><label>${esc(t('profile.displayName'))}</label><input id="${rootId}_displayName" value="${esc(u.name || '')}" placeholder="例如 zhoulimei"></div><div class="profile-field"><label>${esc(t('profile.timezone'))}</label><select id="${rootId}_timezone">${timeZoneOptions(userTimeZone())}</select></div><div class="profile-field"><label>${esc(t('profile.language'))}</label><select id="${rootId}_language">${languageOptions(currentLanguage())}</select></div><div class="profile-field"><label>${esc(t('profile.username'))}</label><input readonly value="${esc(u.username || emptyText)}"></div><div class="profile-field"><label>${esc(t('profile.email'))}</label><input readonly value="${esc(email || emptyText)}"></div><div class="profile-field"><label>${esc(t('profile.phone'))}</label><input readonly value="${esc(phone || emptyText)}"></div><div class="profile-field"><label>${esc(t('profile.wechat'))}</label><input readonly value="${esc(wechat || emptyText)}"></div>${cleanerCodeField}<div class="profile-field"><label>${esc(t('profile.role'))}</label><input readonly value="${esc(roleLabel(u.role))}"></div></div><div class="profile-actions"><button class="smallbtn primary" onclick="saveUserProfile('${rootId}',this)">${esc(t('profile.save'))}</button><span id="${rootId}_profileStatus" class="profile-status"></span></div></div>`;
   }
   function renderUserProfileImpl(){
     renderUserProfilePanel('ownerProfile');
@@ -2986,30 +3131,33 @@
   async function saveUserProfile(rootId,btn){
     const input = qs(rootId + '_displayName');
     const name = String((input && input.value) || '').trim();
-    if(!name) return alert('对外显示名不能为空。');
+    if(!name) return alert(t('profile.required'));
     const timezoneInput = qs(rootId + '_timezone');
     const tz = normalizeTimeZone(timezoneInput && timezoneInput.value);
+    const languageInput = qs(rootId + '_language');
+    const lang = normalizeLanguage(languageInput && languageInput.value);
     const old = btn && btn.textContent;
-    if(btn){btn.disabled = true; btn.textContent = '保存中...';}
+    if(btn){btn.disabled = true; btn.textContent = t('profile.saving');}
     try{
       const res = await fetch(apiUrl('/api/profile'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name, timezone: tz, time_zone: tz})
+        body: JSON.stringify({name, timezone: tz, time_zone: tz, language: lang, locale: lang})
       });
       const data = await res.json().catch(() => ({}));
       if(!res.ok || data.ok === false) throw new Error(data.error || ('保存失败 HTTP ' + res.status));
       try{localStorage.setItem('pms_timezone', tz);}catch(e){}
+      saveLanguageLocal(lang);
       if(data.user) setCurrentUser({...getCurrentUser(), ...data.user});
       if(data.state) applyStateFromServerImpl(data.state);
       renderUserProfileImpl();
       setHeader(isActualCleaner() ? 'cleaner' : 'owner');
       const status = qs(rootId + '_profileStatus');
-      if(status) status.textContent = '已保存';
+      if(status) status.textContent = t('profile.saved');
     }catch(e){
-      alert('保存用户设置失败：' + (e && e.message ? e.message : e));
+      alert(t('profile.saveFailed') + (e && e.message ? e.message : e));
     }finally{
-      if(btn){btn.disabled = false; btn.textContent = old || '保存用户设置';}
+      if(btn){btn.disabled = false; btn.textContent = old || t('profile.save');}
     }
   }
   function renderCleanerNotesToday(){
@@ -3278,7 +3426,7 @@
     const user = getCurrentUser() || {};
     const name = String(user.name || user.username || '房东').trim();
     const old = btn && btn.textContent;
-    if(btn){btn.disabled = true; btn.textContent = '保存中...';}
+    if(btn){btn.disabled = true; btn.textContent = t('profile.saving');}
     try{
       const res = await fetch(apiUrl('/api/profile'), {
         method: 'POST',
@@ -3468,7 +3616,7 @@
       return alert('请先填写 Airbnb 通知邮箱。');
     }
     const old = btn && btn.textContent;
-    if(btn){btn.disabled = true; btn.textContent = '保存中...';}
+    if(btn){btn.disabled = true; btn.textContent = t('profile.saving');}
     setMailPanelStatus(propId,'warn','正在保存邮箱设置...');
     try{
       const res = await fetch(apiUrl('/api/property-mail'), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(row)});
@@ -3668,7 +3816,7 @@
     renderOpsCenterImpl();
   }
   function opsTabButton(id,label){
-    return `<button class="${ui.opsTab === id ? 'active' : ''}" onclick="showOpsTab('${id}',this)">${label}</button>`;
+    return `<button class="${ui.opsTab === id ? 'active' : ''}" onclick="showOpsTab('${id}',this)">${esc(label)}</button>`;
   }
   function opsRowsByProperty(rows){
     const ids = new Set(ownerPropIds());
@@ -3687,7 +3835,7 @@
     const month = today().slice(0,7);
     const monthExpenses = expenses.filter(x => String(x.date || '').slice(0,7) === month).reduce((sum,x) => sum + Number(x.amount || 0), 0);
     const channels = getChannels().filter(ch => ownerRoomEntityIds().has(roomEntityId(ch.room_id)));
-    root.innerHTML = `<div class="ops-shell"><div class="card"><div class="property-detail-head"><div><h2>运营中心</h2><div class="small">集中查看维护、耗材、费用、客人档案、渠道健康和操作记录。当前跟随上方房源/房间范围。</div></div><div class="ops-tabs">${opsTabButton('dashboard','总览')}${opsTabButton('maintenance','维护')}${opsTabButton('inventory','耗材')}${opsTabButton('expenses','费用')}${opsTabButton('guests','客人')}${opsTabButton('channels','渠道健康')}${opsTabButton('audit','日志')}</div></div></div><div class="ops-grid"><div class="metric"><div class="small">房源</div><div class="num">${props.length}</div></div><div class="metric"><div class="small">待处理维护</div><div class="num">${openTickets.length}</div></div><div class="metric"><div class="small">低库存耗材</div><div class="num">${lowStock.length}</div></div><div class="metric"><div class="small">本月费用</div><div class="num">${money(monthExpenses)}</div></div><div class="metric"><div class="small">客人档案</div><div class="num">${guests.length}</div></div><div class="metric"><div class="small">渠道数</div><div class="num">${channels.length}</div></div></div>${renderOpsTabContent()}</div>`;
+    root.innerHTML = `<div class="ops-shell"><div class="card"><div class="property-detail-head"><div><h2>${esc(t('ops.title'))}</h2><div class="small">${esc(t('ops.sub'))}</div></div><div class="ops-tabs">${opsTabButton('dashboard',t('ops.dashboard'))}${opsTabButton('maintenance',t('ops.maintenance'))}${opsTabButton('inventory',t('ops.inventory'))}${opsTabButton('expenses',t('ops.expenses'))}${opsTabButton('guests',t('ops.guests'))}${opsTabButton('channels',t('ops.channels'))}${opsTabButton('audit',t('ops.audit'))}</div></div></div><div class="ops-grid"><div class="metric"><div class="small">${esc(t('ops.properties'))}</div><div class="num">${props.length}</div></div><div class="metric"><div class="small">${esc(t('ops.openMaintenance'))}</div><div class="num">${openTickets.length}</div></div><div class="metric"><div class="small">${esc(t('ops.lowStock'))}</div><div class="num">${lowStock.length}</div></div><div class="metric"><div class="small">${esc(t('ops.monthExpenses'))}</div><div class="num">${money(monthExpenses)}</div></div><div class="metric"><div class="small">${esc(t('ops.guestProfiles'))}</div><div class="num">${guests.length}</div></div><div class="metric"><div class="small">${esc(t('ops.channelCount'))}</div><div class="num">${channels.length}</div></div></div>${renderOpsTabContent()}</div>`;
   }
   function renderOpsTabContent(){
     if(ui.opsTab === 'maintenance') return renderMaintenanceOps();
@@ -3702,12 +3850,12 @@
     const tickets = opsRowsByProperty(getMaintenanceTickets()).filter(x => String(x.status || 'open') !== 'done').slice(0,6);
     const low = opsRowsByProperty(getInventoryItems()).filter(x => Number(x.current_qty || 0) <= Number(x.min_qty || 0)).slice(0,6);
     const errors = getChannels().filter(ch => ownerRoomEntityIds().has(roomEntityId(ch.room_id)) && ch.sync_error).slice(0,6);
-    return `<div class="ops-grid"><div class="ops-panel"><h3>待处理维护</h3>${tickets.length ? `<div class="ops-list">${tickets.map(maintenanceRowHtml).join('')}</div>` : '<div class="ops-empty">暂无待处理维护。</div>'}</div><div class="ops-panel"><h3>低库存耗材</h3>${low.length ? `<div class="ops-list">${low.map(inventoryRowHtml).join('')}</div>` : '<div class="ops-empty">暂无低库存提醒。</div>'}</div><div class="ops-panel"><h3>渠道异常</h3>${errors.length ? `<div class="ops-list">${errors.map(channelHealthRowHtml).join('')}</div>` : '<div class="ops-empty">暂无渠道异常。</div>'}</div></div>`;
+    return `<div class="ops-grid"><div class="ops-panel"><h3>${esc(t('ops.openMaintenance'))}</h3>${tickets.length ? `<div class="ops-list">${tickets.map(maintenanceRowHtml).join('')}</div>` : `<div class="ops-empty">${esc(t('ops.noMaintenance'))}</div>`}</div><div class="ops-panel"><h3>${esc(t('ops.lowStock'))}</h3>${low.length ? `<div class="ops-list">${low.map(inventoryRowHtml).join('')}</div>` : `<div class="ops-empty">${esc(t('ops.noLowStock'))}</div>`}</div><div class="ops-panel"><h3>${esc(t('ops.channels'))}</h3>${errors.length ? `<div class="ops-list">${errors.map(channelHealthRowHtml).join('')}</div>` : `<div class="ops-empty">${esc(t('ops.noChannelErrors'))}</div>`}</div></div>`;
   }
   function maintenanceRowHtml(row){
     const status = String(row.status || 'open');
     const cls = status === 'done' ? 'ok' : status === 'in_progress' ? 'warn' : 'error';
-    return `<div class="ops-row"><div class="ops-row-head"><div><div class="ops-title">${esc(row.title || '维护事项')}</div><div class="small">${esc(propName(row.property_id))}${row.room_id ? ' / ' + esc(roomName(row.room_id)) : ''}</div></div><span class="sync-status ${cls}">${esc(status === 'done' ? '已完成' : status === 'in_progress' ? '处理中' : '待处理')}</span></div><div class="small">${esc(row.note || '')}</div><div class="ops-actions"><button class="smallbtn" onclick="setMaintenanceStatus('${esc(row.id)}','in_progress',this)">处理中</button><button class="smallbtn primary" onclick="setMaintenanceStatus('${esc(row.id)}','done',this)">完成</button><button class="smallbtn" onclick="deleteMaintenanceTicket('${esc(row.id)}',this)">删除</button></div></div>`;
+    return `<div class="ops-row"><div class="ops-row-head"><div><div class="ops-title">${esc(row.title || t('ops.maintenanceTitle'))}</div><div class="small">${esc(propName(row.property_id))}${row.room_id ? ' / ' + esc(roomName(row.room_id)) : ''}</div></div><span class="sync-status ${cls}">${esc(status === 'done' ? t('common.statusDone') : status === 'in_progress' ? t('common.inProgress') : t('common.pending'))}</span></div><div class="small">${esc(row.note || '')}</div><div class="ops-actions"><button class="smallbtn" onclick="setMaintenanceStatus('${esc(row.id)}','in_progress',this)">${esc(t('common.inProgress'))}</button><button class="smallbtn primary" onclick="setMaintenanceStatus('${esc(row.id)}','done',this)">${esc(t('common.done'))}</button><button class="smallbtn" onclick="deleteMaintenanceTicket('${esc(row.id)}',this)">${esc(t('common.delete'))}</button></div></div>`;
   }
   function renderMaintenanceOps(){
     const propId = selectedOpsPropertyId();
