@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-05-v73-property-edit-layout';
+  const VERSION = '2026-07-05-v74-owner-english-ui';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -61,7 +61,14 @@
       'ops.dashboard':'总览','ops.maintenance':'维护','ops.inventory':'耗材','ops.expenses':'费用','ops.guests':'客人','ops.channels':'渠道健康','ops.audit':'日志',
       'ops.properties':'房源','ops.openMaintenance':'待处理维护','ops.lowStock':'低库存耗材','ops.monthExpenses':'本月费用','ops.guestProfiles':'客人档案','ops.channelCount':'渠道数',
       'ops.noMaintenance':'暂无待处理维护。','ops.noLowStock':'暂无低库存提醒。','ops.noChannelErrors':'暂无渠道异常。','ops.maintenanceTitle':'维护工单','ops.maintenanceList':'维护列表','ops.inventoryTitle':'耗材库存','ops.inventoryList':'耗材列表','ops.expenseTitle':'费用账本','ops.expenseList':'费用记录','ops.guestTitle':'客人档案','ops.guestList':'客人列表','ops.channelHealthTitle':'渠道 / iCal 健康','ops.auditTitle':'操作日志',
-      'common.property':'房源','common.room':'房间','common.category':'分类','common.priority':'优先级','common.dueDate':'到期日','common.title':'标题','common.note':'备注','common.add':'新增','common.delete':'删除','common.done':'完成','common.inProgress':'处理中','common.pending':'待处理','common.normal':'普通','common.urgent':'紧急','common.low':'低','common.date':'日期','common.amount':'金额','common.vendor':'商家','common.name':'姓名','common.phone':'电话','common.source':'来源','common.tags':'标签','common.time':'时间','common.actor':'人员','common.action':'动作','common.content':'内容','common.noRoom':'不指定房间','common.statusDone':'已完成','common.statusNormal':'正常','common.statusLowStock':'低库存','common.synced':'已同步','common.syncFailed':'同步失败','common.notSynced':'未同步'
+      'common.property':'房源','common.room':'房间','common.category':'分类','common.priority':'优先级','common.dueDate':'到期日','common.title':'标题','common.note':'备注','common.add':'新增','common.delete':'删除','common.done':'完成','common.inProgress':'处理中','common.pending':'待处理','common.normal':'普通','common.urgent':'紧急','common.low':'低','common.date':'日期','common.amount':'金额','common.vendor':'商家','common.name':'姓名','common.phone':'电话','common.source':'来源','common.tags':'标签','common.time':'时间','common.actor':'人员','common.action':'动作','common.content':'内容','common.noRoom':'不指定房间','common.statusDone':'已完成','common.statusNormal':'正常','common.statusLowStock':'低库存','common.synced':'已同步','common.syncFailed':'同步失败','common.notSynced':'未同步',
+      'owner.tab.daily':'指定日期工作表','owner.tab.calendar':'未来预订','owner.tab.cleaning':'保洁/备注/调整','owner.tab.rooms':'房间/公区设置',
+      'owner.property.title':'房源管理','owner.property.sub':'勾选房源后，下面所有工作表、预订、保洁、备注和房间筛选都会按这个范围显示。','owner.property.selected':'已选 {selected}/{total} 个房源','owner.property.all':'全部房源','owner.property.add':'添加房源','owner.property.prefix':'房源:','owner.property.rooms':'{count} 个房间','owner.property.areas':'{count} 个公区','owner.property.cleaners':'{count} 个保洁绑定','owner.property.select':'选择','owner.property.edit':'修改房源资料','owner.property.openRooms':'进入房间管理','owner.property.only':'只看这个房源','owner.property.delete':'删除房源','owner.property.mail':'邮件提醒 {count}','owner.property.empty':'还没有房源。点“添加房源”开始配置。','owner.property.name':'房源名称','owner.property.city':'城市','owner.property.address':'地址','owner.property.timezone':'房源时区','owner.property.save':'保存房源资料','owner.property.cancel':'取消',
+      'owner.scope.title':'房间范围','owner.scope.sub':'先在上面勾房源，再在这里勾房间；点“保存默认”后，下次刷新或重新进入会直接按这些房间显示。','owner.scope.selected':'已选 {selected}/{total} 个房间','owner.scope.default':'默认 {count} 个','owner.scope.saveDefault':'保存默认','owner.scope.allRooms':'全部房间','owner.scope.only':'只看','owner.scope.empty':'当前房源没有房间。',
+      'owner.metric.futureOrders':'未来订单','owner.metric.futureNights':'未来占用晚数','owner.metric.todayCleaning':'今日实际保洁','owner.metric.todayNotes':'今日备注',
+      'owner.daily.title':'指定日期工作表','owner.daily.date':'日期：','owner.daily.today':'今天','owner.daily.next':'下一天','owner.daily.prev':'上一天',
+      'owner.calendar.title':'未来房态总览','owner.calendar.sub':'默认未来 14 天，可切换 28 天，也可指定日期范围：','owner.calendar.range14':'未来14天','owner.calendar.range28':'未来28天','owner.calendar.vacancyOnly':'只看空房','owner.calendar.showAll':'显示全部房态','owner.calendar.vacancySummary':'只标空晚 · {visible}/{total} 个房间','owner.calendar.noVacancy':'当前日期范围没有空房','owner.calendar.noRooms':'当前房源没有房间','owner.calendar.roomDate':'房间 / 日期','owner.calendar.emptyNight':'空','owner.calendar.emptyNightTitle':'当晚空房','owner.calendar.note':'备注','owner.calendar.noteTitle':'有房东日期备注','owner.calendar.blocked':'不开放锁定','owner.calendar.stats':'{range}每个房间预订统计','owner.calendar.currentStats':'当前区间每个房间预订统计','owner.calendar.bookings':'{range}预订列表','owner.calendar.currentBookings':'当前区间预订列表','owner.calendar.platformAll':'全部平台','owner.calendar.direct':'微信直订',
+      'owner.table.property':'房源','owner.table.room':'房间','owner.table.orders':'订单数','owner.table.orderNights':'订单晚数','owner.table.lockNights':'不开放锁定晚数','owner.table.availableNights':'可订晚数','owner.table.occupancy':'预订率','owner.table.cleaningFee':'单次保洁费','owner.table.noRooms':'当前筛选没有房间','owner.table.checkin':'入住/开始','owner.table.checkout':'退房/结束','owner.table.source':'来源','owner.table.guest':'客人','owner.table.status':'状态','owner.table.dateNotes':'日期备注','owner.table.noBookings':'当前日期范围没有预订'
     },
     'en-US': {
       'nav.cleaner':'Cleaner','nav.owner':'Owner','nav.finance':'Finance','nav.access':'Access','nav.ops':'Operations','nav.profile':'User settings','nav.logout':'Log out',
@@ -76,7 +83,14 @@
       'ops.dashboard':'Overview','ops.maintenance':'Maintenance','ops.inventory':'Supplies','ops.expenses':'Expenses','ops.guests':'Guests','ops.channels':'Channel health','ops.audit':'Log',
       'ops.properties':'Properties','ops.openMaintenance':'Open maintenance','ops.lowStock':'Low stock','ops.monthExpenses':'This month','ops.guestProfiles':'Guest profiles','ops.channelCount':'Channels',
       'ops.noMaintenance':'No open maintenance.','ops.noLowStock':'No low-stock alerts.','ops.noChannelErrors':'No channel errors.','ops.maintenanceTitle':'Maintenance tickets','ops.maintenanceList':'Maintenance list','ops.inventoryTitle':'Supply inventory','ops.inventoryList':'Supply list','ops.expenseTitle':'Expense ledger','ops.expenseList':'Expense records','ops.guestTitle':'Guest profiles','ops.guestList':'Guest list','ops.channelHealthTitle':'Channel / iCal health','ops.auditTitle':'Activity log',
-      'common.property':'Property','common.room':'Room','common.category':'Category','common.priority':'Priority','common.dueDate':'Due date','common.title':'Title','common.note':'Note','common.add':'Add','common.delete':'Delete','common.done':'Done','common.inProgress':'In progress','common.pending':'Pending','common.normal':'Normal','common.urgent':'Urgent','common.low':'Low','common.date':'Date','common.amount':'Amount','common.vendor':'Vendor','common.name':'Name','common.phone':'Phone','common.source':'Source','common.tags':'Tags','common.time':'Time','common.actor':'User','common.action':'Action','common.content':'Content','common.noRoom':'No room','common.statusDone':'Done','common.statusNormal':'Normal','common.statusLowStock':'Low stock','common.synced':'Synced','common.syncFailed':'Sync failed','common.notSynced':'Not synced'
+      'common.property':'Property','common.room':'Room','common.category':'Category','common.priority':'Priority','common.dueDate':'Due date','common.title':'Title','common.note':'Note','common.add':'Add','common.delete':'Delete','common.done':'Done','common.inProgress':'In progress','common.pending':'Pending','common.normal':'Normal','common.urgent':'Urgent','common.low':'Low','common.date':'Date','common.amount':'Amount','common.vendor':'Vendor','common.name':'Name','common.phone':'Phone','common.source':'Source','common.tags':'Tags','common.time':'Time','common.actor':'User','common.action':'Action','common.content':'Content','common.noRoom':'No room','common.statusDone':'Done','common.statusNormal':'Normal','common.statusLowStock':'Low stock','common.synced':'Synced','common.syncFailed':'Sync failed','common.notSynced':'Not synced',
+      'owner.tab.daily':'Work sheet','owner.tab.calendar':'Reservations','owner.tab.cleaning':'Cleaning / notes','owner.tab.rooms':'Rooms / areas',
+      'owner.property.title':'Property management','owner.property.sub':'After selecting properties, all worksheets, reservations, cleaning tasks, notes, and room filters below follow this scope.','owner.property.selected':'Selected {selected}/{total} properties','owner.property.all':'All properties','owner.property.add':'Add property','owner.property.prefix':'Property: ','owner.property.rooms':'{count} rooms','owner.property.areas':'{count} common areas','owner.property.cleaners':'{count} cleaner bindings','owner.property.select':'Select','owner.property.edit':'Edit property','owner.property.openRooms':'Manage rooms','owner.property.only':'Only this property','owner.property.delete':'Delete property','owner.property.mail':'Mail alerts {count}','owner.property.empty':'No properties yet. Click “Add property” to start.','owner.property.name':'Property name','owner.property.city':'City','owner.property.address':'Address','owner.property.timezone':'Property time zone','owner.property.save':'Save property','owner.property.cancel':'Cancel',
+      'owner.scope.title':'Room scope','owner.scope.sub':'Select properties above, then select rooms here. After saving defaults, refreshes and new visits use these rooms automatically.','owner.scope.selected':'Selected {selected}/{total} rooms','owner.scope.default':'Default {count}','owner.scope.saveDefault':'Save default','owner.scope.allRooms':'All rooms','owner.scope.only':'Only','owner.scope.empty':'No rooms in the current property scope.',
+      'owner.metric.futureOrders':'Future orders','owner.metric.futureNights':'Future occupied nights','owner.metric.todayCleaning':'Today cleaning','owner.metric.todayNotes':'Today notes',
+      'owner.daily.title':'Work sheet','owner.daily.date':'Date:','owner.daily.today':'Today','owner.daily.next':'Next day','owner.daily.prev':'Previous day',
+      'owner.calendar.title':'Future calendar','owner.calendar.sub':'Default 14 days. Switch to 28 days or choose a custom range:','owner.calendar.range14':'Next 14 days','owner.calendar.range28':'Next 28 days','owner.calendar.vacancyOnly':'Vacant only','owner.calendar.showAll':'Show all status','owner.calendar.vacancySummary':'Vacant nights only · {visible}/{total} rooms','owner.calendar.noVacancy':'No vacant rooms in this date range','owner.calendar.noRooms':'No rooms in the current property scope','owner.calendar.roomDate':'Room / date','owner.calendar.emptyNight':'Open','owner.calendar.emptyNightTitle':'Open for the night','owner.calendar.note':'Note','owner.calendar.noteTitle':'Owner date note','owner.calendar.blocked':'Blocked','owner.calendar.stats':'{range} reservation stats by room','owner.calendar.currentStats':'Current range reservation stats by room','owner.calendar.bookings':'{range} reservation list','owner.calendar.currentBookings':'Current range reservation list','owner.calendar.platformAll':'All platforms','owner.calendar.direct':'Direct booking',
+      'owner.table.property':'Property','owner.table.room':'Room','owner.table.orders':'Orders','owner.table.orderNights':'Booked nights','owner.table.lockNights':'Blocked nights','owner.table.availableNights':'Available nights','owner.table.occupancy':'Occupancy','owner.table.cleaningFee':'Cleaning fee','owner.table.noRooms':'No rooms match the current filter','owner.table.checkin':'Check-in / start','owner.table.checkout':'Check-out / end','owner.table.source':'Source','owner.table.guest':'Guest','owner.table.status':'Status','owner.table.dateNotes':'Date notes','owner.table.noBookings':'No reservations in this date range'
     },
     'es-ES': {
       'nav.cleaner':'Limpieza','nav.owner':'Propietario','nav.finance':'Finanzas','nav.access':'Permisos','nav.ops':'Operaciones','nav.profile':'Usuario','nav.logout':'Salir',
@@ -91,7 +105,14 @@
       'ops.dashboard':'Resumen','ops.maintenance':'Mantenimiento','ops.inventory':'Insumos','ops.expenses':'Gastos','ops.guests':'Huéspedes','ops.channels':'Canales','ops.audit':'Registro',
       'ops.properties':'Propiedades','ops.openMaintenance':'Mantenimiento abierto','ops.lowStock':'Stock bajo','ops.monthExpenses':'Este mes','ops.guestProfiles':'Huéspedes','ops.channelCount':'Canales',
       'ops.noMaintenance':'No hay mantenimiento abierto.','ops.noLowStock':'No hay alertas de stock.','ops.noChannelErrors':'No hay errores de canal.','ops.maintenanceTitle':'Tickets de mantenimiento','ops.maintenanceList':'Lista de mantenimiento','ops.inventoryTitle':'Inventario','ops.inventoryList':'Lista de insumos','ops.expenseTitle':'Gastos','ops.expenseList':'Registros de gastos','ops.guestTitle':'Huéspedes','ops.guestList':'Lista de huéspedes','ops.channelHealthTitle':'Estado de canales / iCal','ops.auditTitle':'Registro de actividad',
-      'common.property':'Propiedad','common.room':'Habitación','common.category':'Categoría','common.priority':'Prioridad','common.dueDate':'Vence','common.title':'Título','common.note':'Nota','common.add':'Agregar','common.delete':'Eliminar','common.done':'Completar','common.inProgress':'En proceso','common.pending':'Pendiente','common.normal':'Normal','common.urgent':'Urgente','common.low':'Baja','common.date':'Fecha','common.amount':'Monto','common.vendor':'Proveedor','common.name':'Nombre','common.phone':'Teléfono','common.source':'Fuente','common.tags':'Etiquetas','common.time':'Hora','common.actor':'Usuario','common.action':'Acción','common.content':'Contenido','common.noRoom':'Sin habitación','common.statusDone':'Completado','common.statusNormal':'Normal','common.statusLowStock':'Stock bajo','common.synced':'Sincronizado','common.syncFailed':'Error de sync','common.notSynced':'Sin sync'
+      'common.property':'Propiedad','common.room':'Habitación','common.category':'Categoría','common.priority':'Prioridad','common.dueDate':'Vence','common.title':'Título','common.note':'Nota','common.add':'Agregar','common.delete':'Eliminar','common.done':'Completar','common.inProgress':'En proceso','common.pending':'Pendiente','common.normal':'Normal','common.urgent':'Urgente','common.low':'Baja','common.date':'Fecha','common.amount':'Monto','common.vendor':'Proveedor','common.name':'Nombre','common.phone':'Teléfono','common.source':'Fuente','common.tags':'Etiquetas','common.time':'Hora','common.actor':'Usuario','common.action':'Acción','common.content':'Contenido','common.noRoom':'Sin habitación','common.statusDone':'Completado','common.statusNormal':'Normal','common.statusLowStock':'Stock bajo','common.synced':'Sincronizado','common.syncFailed':'Error de sync','common.notSynced':'Sin sync',
+      'owner.tab.daily':'Hoja diaria','owner.tab.calendar':'Reservas','owner.tab.cleaning':'Limpieza / notas','owner.tab.rooms':'Habitaciones / áreas',
+      'owner.property.title':'Gestión de propiedades','owner.property.sub':'Después de seleccionar propiedades, las hojas, reservas, limpiezas, notas y filtros de habitaciones usan este alcance.','owner.property.selected':'Seleccionadas {selected}/{total} propiedades','owner.property.all':'Todas','owner.property.add':'Agregar propiedad','owner.property.prefix':'Propiedad: ','owner.property.rooms':'{count} habitaciones','owner.property.areas':'{count} áreas comunes','owner.property.cleaners':'{count} vínculos de limpieza','owner.property.select':'Seleccionar','owner.property.edit':'Editar propiedad','owner.property.openRooms':'Gestionar habitaciones','owner.property.only':'Solo esta propiedad','owner.property.delete':'Eliminar propiedad','owner.property.mail':'Alertas correo {count}','owner.property.empty':'No hay propiedades. Haz clic en “Agregar propiedad”.','owner.property.name':'Nombre','owner.property.city':'Ciudad','owner.property.address':'Dirección','owner.property.timezone':'Zona horaria','owner.property.save':'Guardar propiedad','owner.property.cancel':'Cancelar',
+      'owner.scope.title':'Alcance de habitaciones','owner.scope.sub':'Selecciona propiedades arriba y habitaciones aquí. Al guardar, se usarán por defecto.','owner.scope.selected':'Seleccionadas {selected}/{total} habitaciones','owner.scope.default':'Predeterminado {count}','owner.scope.saveDefault':'Guardar defecto','owner.scope.allRooms':'Todas las habitaciones','owner.scope.only':'Solo','owner.scope.empty':'No hay habitaciones en este alcance.',
+      'owner.metric.futureOrders':'Pedidos futuros','owner.metric.futureNights':'Noches ocupadas','owner.metric.todayCleaning':'Limpieza hoy','owner.metric.todayNotes':'Notas hoy',
+      'owner.daily.title':'Hoja diaria','owner.daily.date':'Fecha:','owner.daily.today':'Hoy','owner.daily.next':'Día siguiente','owner.daily.prev':'Día anterior',
+      'owner.calendar.title':'Calendario futuro','owner.calendar.sub':'Predeterminado 14 días. Cambia a 28 días o elige rango:','owner.calendar.range14':'Próximos 14 días','owner.calendar.range28':'Próximos 28 días','owner.calendar.vacancyOnly':'Solo vacantes','owner.calendar.showAll':'Mostrar todo','owner.calendar.vacancySummary':'Solo noches libres · {visible}/{total} habitaciones','owner.calendar.noVacancy':'No hay vacantes en este rango','owner.calendar.noRooms':'No hay habitaciones en este alcance','owner.calendar.roomDate':'Habitación / fecha','owner.calendar.emptyNight':'Libre','owner.calendar.emptyNightTitle':'Libre esa noche','owner.calendar.note':'Nota','owner.calendar.noteTitle':'Nota del propietario','owner.calendar.blocked':'Bloqueado','owner.calendar.stats':'{range} estadísticas por habitación','owner.calendar.currentStats':'Estadísticas del rango por habitación','owner.calendar.bookings':'{range} lista de reservas','owner.calendar.currentBookings':'Lista de reservas del rango','owner.calendar.platformAll':'Todas las plataformas','owner.calendar.direct':'Reserva directa',
+      'owner.table.property':'Propiedad','owner.table.room':'Habitación','owner.table.orders':'Pedidos','owner.table.orderNights':'Noches reservadas','owner.table.lockNights':'Noches bloqueadas','owner.table.availableNights':'Noches disponibles','owner.table.occupancy':'Ocupación','owner.table.cleaningFee':'Tarifa limpieza','owner.table.noRooms':'No hay habitaciones con este filtro','owner.table.checkin':'Entrada / inicio','owner.table.checkout':'Salida / fin','owner.table.source':'Fuente','owner.table.guest':'Huésped','owner.table.status':'Estado','owner.table.dateNotes':'Notas de fecha','owner.table.noBookings':'No hay reservas en este rango'
     }
   };
 
@@ -1208,10 +1229,10 @@
       card.id = 'ownerTabsCard';
       card.className = 'card';
       card.innerHTML = `<div class="tabbar">
-        <button class="active" onclick="showOwnerTab('ownerDailyWork', this)">指定日期工作表</button>
-        <button onclick="showOwnerTab('ownerCalendar', this)">未来预订</button>
-        <button onclick="showOwnerTab('ownerCleaning', this)">保洁/备注/调整</button>
-        <button onclick="showOwnerTab('ownerRooms', this)">房间/公区设置</button>
+        <button class="active" onclick="showOwnerTab('ownerDailyWork', this)">${esc(t('owner.tab.daily'))}</button>
+        <button onclick="showOwnerTab('ownerCalendar', this)">${esc(t('owner.tab.calendar'))}</button>
+        <button onclick="showOwnerTab('ownerCleaning', this)">${esc(t('owner.tab.cleaning'))}</button>
+        <button onclick="showOwnerTab('ownerRooms', this)">${esc(t('owner.tab.rooms'))}</button>
       </div>`;
       qs('ownerMetrics').insertAdjacentElement('afterend', card);
     }
@@ -1227,12 +1248,44 @@
       div.innerHTML = html;
       owner.appendChild(div);
     };
-    pane('ownerDailyWork', `<div class="card"><h2>指定日期工作表</h2><div class="toolbar"><span class="small">日期：</span><input id="workDate" type="date" onchange="setWorkDate(this.value)"><button class="smallbtn primary" onclick="setWorkDateToday()">今天</button><button class="smallbtn" onclick="shiftWorkDate(1)">下一天</button><button class="smallbtn" onclick="shiftWorkDate(-1)">上一天</button></div><div id="dailyWorkMetrics" class="grid"></div></div><div id="dailyWorkContent"></div>`);
-    pane('ownerCalendar', `<div class="card"><h2>未来房态总览</h2><div class="toolbar"><span class="small">默认未来 14 天，可切换 28 天，也可指定日期范围：</span><button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">未来14天</button><button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">未来28天</button><input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()"><input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()"><span id="ownerRoomFilterSummary" class="badge blue"></span><button id="calendarVacancyOnlyBtn" class="smallbtn" onclick="toggleCalendarVacancyOnly()">只看空房</button><span id="calendarVacancySummary" class="badge green"></span></div><div class="scroll"><div id="calendarGrid" class="timeline"></div></div></div><div class="card"><h2 id="futureStatsTitle">当前区间每个房间预订统计</h2><div id="sixMonthStats"></div></div><div class="card"><div class="toolbar"><strong id="futureBookingsTitle">当前区间预订列表</strong><select id="platformFilter" onchange="renderOwnerBookings()"><option value="">全部平台</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>Other</option><option>微信直订</option></select><span id="bookingRoomFilterSummary" class="badge blue"></span></div><div id="ownerBookings"></div></div>`);
+    pane('ownerDailyWork', `<div class="card"><h2>${esc(t('owner.daily.title'))}</h2><div class="toolbar"><span class="small">${esc(t('owner.daily.date'))}</span><input id="workDate" type="date" onchange="setWorkDate(this.value)"><button class="smallbtn primary" onclick="setWorkDateToday()">${esc(t('owner.daily.today'))}</button><button class="smallbtn" onclick="shiftWorkDate(1)">${esc(t('owner.daily.next'))}</button><button class="smallbtn" onclick="shiftWorkDate(-1)">${esc(t('owner.daily.prev'))}</button></div><div id="dailyWorkMetrics" class="grid"></div></div><div id="dailyWorkContent"></div>`);
+    pane('ownerCalendar', `<div class="card"><h2>${esc(t('owner.calendar.title'))}</h2><div class="toolbar"><span class="small">${esc(t('owner.calendar.sub'))}</span><button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">${esc(t('owner.calendar.range14'))}</button><button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">${esc(t('owner.calendar.range28'))}</button><input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()"><input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()"><span id="ownerRoomFilterSummary" class="badge blue"></span><button id="calendarVacancyOnlyBtn" class="smallbtn" onclick="toggleCalendarVacancyOnly()">${esc(t('owner.calendar.vacancyOnly'))}</button><span id="calendarVacancySummary" class="badge green"></span></div><div class="scroll"><div id="calendarGrid" class="timeline"></div></div></div><div class="card"><h2 id="futureStatsTitle">${esc(t('owner.calendar.currentStats'))}</h2><div id="sixMonthStats"></div></div><div class="card"><div class="toolbar"><strong id="futureBookingsTitle">${esc(t('owner.calendar.currentBookings'))}</strong><select id="platformFilter" onchange="renderOwnerBookings()"><option value="">${esc(t('owner.calendar.platformAll'))}</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>Other</option><option value="微信直订">${esc(t('owner.calendar.direct'))}</option></select><span id="bookingRoomFilterSummary" class="badge blue"></span></div><div id="ownerBookings"></div></div>`);
     pane('ownerCleaning', `<div id="ownerCleaningShell"></div>`);
     pane('ownerRooms', `<div id="roomSettingsUnifiedShell" class="room-settings-shell"><div id="roomSettings"></div></div>`);
+    syncOwnerPaneLabels();
     ensureOwnerProfileTab();
     ensureRoomSettingsShell();
+  }
+  function syncOwnerPaneLabels(){
+    const daily = qs('ownerDailyWork');
+    if(daily){
+      const h2 = daily.querySelector('h2'); if(h2) h2.textContent = t('owner.daily.title');
+      const dateLabel = daily.querySelector('.toolbar .small'); if(dateLabel) dateLabel.textContent = t('owner.daily.date');
+      const dailyButtons = Array.from(daily.querySelectorAll('button'));
+      const todayBtn = dailyButtons.find(btn => String(btn.getAttribute('onclick') || '').includes('setWorkDateToday'));
+      const nextBtn = dailyButtons.find(btn => String(btn.getAttribute('onclick') || '').includes('shiftWorkDate(1)'));
+      const prevBtn = dailyButtons.find(btn => String(btn.getAttribute('onclick') || '').includes('shiftWorkDate(-1)'));
+      if(todayBtn) todayBtn.textContent = t('owner.daily.today');
+      if(nextBtn) nextBtn.textContent = t('owner.daily.next');
+      if(prevBtn) prevBtn.textContent = t('owner.daily.prev');
+    }
+    const calendar = qs('ownerCalendar');
+    if(calendar){
+      const h2 = calendar.querySelector('h2'); if(h2) h2.textContent = t('owner.calendar.title');
+      const sub = calendar.querySelector('.toolbar .small'); if(sub) sub.textContent = t('owner.calendar.sub');
+      const preset14 = calendar.querySelector('[data-range-preset="14"]'); if(preset14) preset14.textContent = t('owner.calendar.range14');
+      const preset28 = calendar.querySelector('[data-range-preset="28"]'); if(preset28) preset28.textContent = t('owner.calendar.range28');
+      const vacantBtn = qs('calendarVacancyOnlyBtn'); if(vacantBtn) vacantBtn.textContent = ui.calendarVacancyOnly ? t('owner.calendar.showAll') : t('owner.calendar.vacancyOnly');
+      const statsTitle = qs('futureStatsTitle'); if(statsTitle) statsTitle.textContent = t('owner.calendar.currentStats');
+      const bookingTitle = qs('futureBookingsTitle'); if(bookingTitle) bookingTitle.textContent = t('owner.calendar.currentBookings');
+      const platform = qs('platformFilter');
+      if(platform && platform.options && platform.options.length){
+        platform.options[0].textContent = t('owner.calendar.platformAll');
+        Array.from(platform.options).forEach(opt => {
+          if(opt.value === '微信直订') opt.textContent = t('owner.calendar.direct');
+        });
+      }
+    }
   }
   function ownerTabAllowed(id){
     if(id === 'ownerDailyWork' || id === 'ownerCalendar') return canPermission('calendar_view');
@@ -1258,7 +1311,7 @@
   function syncOwnerBaseTabs(){
     const tabbar = qs('ownerTabsCard') && qs('ownerTabsCard').querySelector('.tabbar');
     if(!tabbar) return;
-    [['ownerDailyWork','指定日期工作表'],['ownerCalendar','未来预订'],['ownerCleaning','保洁/备注/调整'],['ownerRooms','房间/公区设置']].forEach(([id,label]) => {
+    [['ownerDailyWork',t('owner.tab.daily')],['ownerCalendar',t('owner.tab.calendar')],['ownerCleaning',t('owner.tab.cleaning')],['ownerRooms',t('owner.tab.rooms')]].forEach(([id,label]) => {
       const btn = tabbar.querySelector(`button[onclick*="${id}"]`);
       if(btn){
         btn.textContent = label;
@@ -2392,7 +2445,7 @@
   }
   function propertyMailDigest(propertyId){
     const count = ui.mail.mailEvents.filter(e => String(e.property_id) === String(propertyId)).length;
-    return `<button type="button" class="smallbtn" onclick="openPropertyMailInRooms('${esc(propertyId)}')">邮件提醒 ${count}</button>`;
+    return `<button type="button" class="smallbtn" onclick="openPropertyMailInRooms('${esc(propertyId)}')">${esc(t('owner.property.mail', {count}))}</button>`;
   }
   function propertyCard(prop){
     const rooms = propRooms(prop.id);
@@ -2402,20 +2455,20 @@
     const checked = ownerPropIds().includes(prop.id);
     const tz = propertyTimeZone(prop);
     const nameBlock = editing
-      ? `<div class="property-edit-grid"><label>房源名称<input id="propertyName_${safe(prop.id)}" value="${esc(prop.name || '')}" placeholder="例如 901老"></label><label>城市<input id="propertyCity_${safe(prop.id)}" value="${esc(propertyCity(prop))}" placeholder="Los Angeles"></label><label>地址<input id="propertyAddress_${safe(prop.id)}" value="${esc(propertyAddress(prop))}" placeholder="Los Angeles, CA"></label><label>房源时区<select id="propertyTimezone_${safe(prop.id)}">${timeZoneOptions(tz)}</select></label><div class="property-edit-actions"><button class="smallbtn primary" onclick="savePropertyName('${esc(prop.id)}',this)">保存房源资料</button><button class="smallbtn" onclick="cancelPropertyNameEdit()">取消</button></div></div>`
-      : `<div class="property-title">房源:${esc(prop.name || prop.id)}</div><div class="property-location">${esc(propertyLocationText(prop))} · ${esc(tz)}</div>`;
+      ? `<div class="property-edit-grid"><label>${esc(t('owner.property.name'))}<input id="propertyName_${safe(prop.id)}" value="${esc(prop.name || '')}" placeholder="901"></label><label>${esc(t('owner.property.city'))}<input id="propertyCity_${safe(prop.id)}" value="${esc(propertyCity(prop))}" placeholder="Los Angeles"></label><label>${esc(t('owner.property.address'))}<input id="propertyAddress_${safe(prop.id)}" value="${esc(propertyAddress(prop))}" placeholder="Los Angeles, CA"></label><label>${esc(t('owner.property.timezone'))}<select id="propertyTimezone_${safe(prop.id)}">${timeZoneOptions(tz)}</select></label><div class="property-edit-actions"><button class="smallbtn primary" onclick="savePropertyName('${esc(prop.id)}',this)">${esc(t('owner.property.save'))}</button><button class="smallbtn" onclick="cancelPropertyNameEdit()">${esc(t('owner.property.cancel'))}</button></div></div>`
+      : `<div class="property-title">${esc(t('owner.property.prefix'))}${esc(prop.name || prop.id)}</div><div class="property-location">${esc(propertyLocationText(prop))} · ${esc(tz)}</div>`;
     const actions = editing
-      ? `<button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">进入房间管理</button>`
-      : `<button class="smallbtn" onclick="editPropertyName('${esc(prop.id)}')">修改房源资料</button><button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">进入房间管理</button><button class="smallbtn" onclick="setOnlyOwnerProperty('${esc(prop.id)}')">只看这个房源</button><button class="smallbtn" onclick="deletePropertyUi('${esc(prop.id)}',this)">删除房源</button>${propertyMailDigest(prop.id)}`;
-    return `<div class="property-card ${checked?'active':''} ${editing?'editing':''}"><div><div class="property-card-top"><div>${nameBlock}<div class="property-meta"><span class="badge blue">${rooms.length} 个房间</span><span class="badge orange">${areas.length} 个公区</span><span class="badge green">${cleaners.length} 个保洁绑定</span></div></div><label class="property-select" title="纳入下面所有统计和列表"><input type="checkbox" ${checked?'checked':''} onchange="setOwnerPropertyFilter('${esc(prop.id)}',this.checked)">选择</label></div></div><div class="property-actions">${actions}</div></div>`;
+      ? `<button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">${esc(t('owner.property.openRooms'))}</button>`
+      : `<button class="smallbtn" onclick="editPropertyName('${esc(prop.id)}')">${esc(t('owner.property.edit'))}</button><button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">${esc(t('owner.property.openRooms'))}</button><button class="smallbtn" onclick="setOnlyOwnerProperty('${esc(prop.id)}')">${esc(t('owner.property.only'))}</button><button class="smallbtn" onclick="deletePropertyUi('${esc(prop.id)}',this)">${esc(t('owner.property.delete'))}</button>${propertyMailDigest(prop.id)}`;
+    return `<div class="property-card ${checked?'active':''} ${editing?'editing':''}"><div><div class="property-card-top"><div>${nameBlock}<div class="property-meta"><span class="badge blue">${esc(t('owner.property.rooms', {count: rooms.length}))}</span><span class="badge orange">${esc(t('owner.property.areas', {count: areas.length}))}</span><span class="badge green">${esc(t('owner.property.cleaners', {count: cleaners.length}))}</span></div></div><label class="property-select" title="${esc(t('owner.property.sub'))}"><input type="checkbox" ${checked?'checked':''} onchange="setOwnerPropertyFilter('${esc(prop.id)}',this.checked)">${esc(t('owner.property.select'))}</label></div></div><div class="property-actions">${actions}</div></div>`;
   }
   function ensureOwnerPropertyModuleVisible(){
     if(visibleAsCleaner()) return;
     const host = ensureOwnerPropertyHost();
     if(!host) return;
     const props = propList();
-    const label = `已选 ${ownerPropIds().length}/${props.length} 个房源`;
-    host.innerHTML = `<div class="property-module-head"><div><h2 style="margin:0">房源管理</h2><div class="small">勾选房源后，下面所有工作表、预订、保洁、备注和房间筛选都会按这个范围显示。</div></div><div class="property-actions"><span class="badge green">${esc(label)}</span><button class="smallbtn" onclick="setOwnerPropertyAll()">全部房源</button><button class="smallbtn primary" onclick="addProperty()">添加房源</button></div></div><div class="property-cards">${props.length ? props.map(propertyCard).join('') : '<div class="empty-panel">还没有房源。点“添加房源”开始配置。</div>'}</div>`;
+    const label = t('owner.property.selected', {selected: ownerPropIds().length, total: props.length});
+    host.innerHTML = `<div class="property-module-head"><div><h2 style="margin:0">${esc(t('owner.property.title'))}</h2><div class="small">${esc(t('owner.property.sub'))}</div></div><div class="property-actions"><span class="badge green">${esc(label)}</span><button class="smallbtn" onclick="setOwnerPropertyAll()">${esc(t('owner.property.all'))}</button><button class="smallbtn primary" onclick="addProperty()">${esc(t('owner.property.add'))}</button></div></div><div class="property-cards">${props.length ? props.map(propertyCard).join('') : `<div class="empty-panel">${esc(t('owner.property.empty'))}</div>`}</div>`;
     renderOwnerScopeFilter();
   }
   function ensureOwnerScopeFilterHost(){
@@ -2432,7 +2485,7 @@
   function roomScopeChip(room){
     const checked = ownerRoomIds().some(id => String(id) === String(room.id));
     const showProp = ownerPropIds().length !== 1;
-    return `<label class="scope-chip ${checked?'active':''}"><input type="checkbox" ${checked?'checked':''} onchange="setOwnerRoomFilter('${esc(room.id)}',this.checked)"><span>${esc(roomName(room.id))}</span>${showProp?`<span class="prop-label">${esc(propName(roomPropId(room.id)))}</span>`:''}<button type="button" class="smallbtn" onclick="event.preventDefault();event.stopPropagation();setOnlyOwnerRoom('${esc(room.id)}')">只看</button></label>`;
+    return `<label class="scope-chip ${checked?'active':''}"><input type="checkbox" ${checked?'checked':''} onchange="setOwnerRoomFilter('${esc(room.id)}',this.checked)"><span>${esc(roomName(room.id))}</span>${showProp?`<span class="prop-label">${esc(propName(roomPropId(room.id)))}</span>`:''}<button type="button" class="smallbtn" onclick="event.preventDefault();event.stopPropagation();setOnlyOwnerRoom('${esc(room.id)}')">${esc(t('owner.scope.only'))}</button></label>`;
   }
   function renderOwnerScopeFilter(){
     const host = ensureOwnerScopeFilterHost();
@@ -2440,14 +2493,14 @@
     const rooms = validOwnerRoomIds().map(id => getRooms().find(r => String(r.id) === String(id))).filter(Boolean);
     const selectedCount = ownerRoomIds().length;
     const defaultCount = savedDefaultRoomIds().length;
-    host.innerHTML = `<div class="scope-filter-head"><div><div class="scope-filter-title">房间范围</div><div class="small">先在上面勾房源，再在这里勾房间；点“保存默认”后，下次刷新或重新进入会直接按这些房间显示。</div></div><div class="property-actions"><span class="badge blue">已选 ${selectedCount}/${rooms.length} 个房间</span><span id="roomDefaultStatus" class="sync-status ok" style="${defaultCount ? '' : 'display:none'}">默认 ${defaultCount} 个</span><button class="smallbtn primary" onclick="saveOwnerRoomDefault(this)">保存默认</button><button class="smallbtn" onclick="setOwnerRoomAll()">全部房间</button></div></div><div class="scope-chip-list">${rooms.length ? rooms.map(roomScopeChip).join('') : '<span class="small">当前房源没有房间。</span>'}</div>`;
+    host.innerHTML = `<div class="scope-filter-head"><div><div class="scope-filter-title">${esc(t('owner.scope.title'))}</div><div class="small">${esc(t('owner.scope.sub'))}</div></div><div class="property-actions"><span class="badge blue">${esc(t('owner.scope.selected', {selected: selectedCount, total: rooms.length}))}</span><span id="roomDefaultStatus" class="sync-status ok" style="${defaultCount ? '' : 'display:none'}">${esc(t('owner.scope.default', {count: defaultCount}))}</span><button class="smallbtn primary" onclick="saveOwnerRoomDefault(this)">${esc(t('owner.scope.saveDefault'))}</button><button class="smallbtn" onclick="setOwnerRoomAll()">${esc(t('owner.scope.allRooms'))}</button></div></div><div class="scope-chip-list">${rooms.length ? rooms.map(roomScopeChip).join('') : `<span class="small">${esc(t('owner.scope.empty'))}</span>`}</div>`;
   }
 
   function initSelectsImpl(){
     renderOwnerScopeFilter();
     ['ownerRoomFilterSummary','bookingRoomFilterSummary'].forEach(id => {
       const el = qs(id);
-      if(el) el.textContent = `已选 ${ownerRoomIds().length}/${validOwnerRoomIds().length} 个房间`;
+      if(el) el.textContent = t('owner.scope.selected', {selected: ownerRoomIds().length, total: validOwnerRoomIds().length});
     });
     const roomNoteRoom = qs('roomNoteRoom'); if(roomNoteRoom) roomNoteRoom.innerHTML = ownerRooms().map(r => `<option value="${esc(r.id)}">${esc(roomName(r.id))}</option>`).join('');
     refreshManualTargetOptionsImpl();
@@ -2478,7 +2531,7 @@
     const cleanToday = scopedCleaningRows(today(),today()).filter(r => r.date === today()).length;
     const notesToday = getNotes().filter(n => !n.recurring_task && n.date === today() && targetMatches(n.target_id,n.target_type || 'room')).length + getRoomNotes().filter(n => n.date === today() && roomMatches(n.room_id)).length;
     const el = qs('ownerMetrics');
-    if(el) el.innerHTML = `<div class="metric"><div class="small">未来订单</div><div class="num">${future.length}</div></div><div class="metric"><div class="small">未来占用晚数</div><div class="num">${nights}</div></div><div class="metric"><div class="small">今日实际保洁</div><div class="num">${cleanToday}</div></div><div class="metric"><div class="small">今日备注</div><div class="num">${notesToday}</div></div>`;
+    if(el) el.innerHTML = `<div class="metric"><div class="small">${esc(t('owner.metric.futureOrders'))}</div><div class="num">${future.length}</div></div><div class="metric"><div class="small">${esc(t('owner.metric.futureNights'))}</div><div class="num">${nights}</div></div><div class="metric"><div class="small">${esc(t('owner.metric.todayCleaning'))}</div><div class="num">${cleanToday}</div></div><div class="metric"><div class="small">${esc(t('owner.metric.todayNotes'))}</div><div class="num">${notesToday}</div></div>`;
   }
 
   function setRangePresetImpl(n){
@@ -2497,9 +2550,9 @@
   }
   function rangeLabel(range){
     const r = range || calendarRange();
-    if(r.start === today() && r.dayCount === 14) return '未来14天';
-    if(r.start === today() && r.dayCount === 28) return '未来28天';
-    return `${r.start} 至 ${r.end}`;
+    if(r.start === today() && r.dayCount === 14) return t('owner.calendar.range14');
+    if(r.start === today() && r.dayCount === 28) return t('owner.calendar.range28');
+    return currentLanguage() === 'zh-CN' ? `${r.start} 至 ${r.end}` : `${r.start} to ${r.end}`;
   }
   function weekendClass(day){
     const d = parseDate(day).getDay();
@@ -2507,7 +2560,9 @@
   }
   function weekendLabel(day){
     const d = parseDate(day).getDay();
-    return d === 0 ? '周日' : d === 6 ? '周六' : '';
+    if(d === 0) return currentLanguage() === 'zh-CN' ? '周日' : currentLanguage() === 'es-ES' ? 'Dom' : 'Sun';
+    if(d === 6) return currentLanguage() === 'zh-CN' ? '周六' : currentLanguage() === 'es-ES' ? 'Sáb' : 'Sat';
+    return '';
   }
   function updateRangePresetButtons(){
     const range = calendarRange();
@@ -2539,11 +2594,11 @@
     const btn = qs('calendarVacancyOnlyBtn');
     if(btn){
       btn.classList.toggle('primary', !!ui.calendarVacancyOnly);
-      btn.textContent = ui.calendarVacancyOnly ? '显示全部房态' : '只看空房';
+      btn.textContent = ui.calendarVacancyOnly ? t('owner.calendar.showAll') : t('owner.calendar.vacancyOnly');
     }
     const summary = qs('calendarVacancySummary');
     if(summary){
-      summary.textContent = ui.calendarVacancyOnly ? `只标空晚 · ${visibleCount}/${total} 个房间` : '';
+      summary.textContent = ui.calendarVacancyOnly ? t('owner.calendar.vacancySummary', {visible: visibleCount, total}) : '';
       summary.style.display = ui.calendarVacancyOnly ? 'inline-flex' : 'none';
     }
   }
@@ -2562,14 +2617,14 @@
     grid.classList.toggle('vacancy-only', !!ui.calendarVacancyOnly);
     if(!rows.length){
       grid.style.gridTemplateColumns = '1fr';
-      grid.innerHTML = `<div class="cell head">${ui.calendarVacancyOnly ? '当前日期范围没有空房' : '当前房源没有房间'}</div>`;
+      grid.innerHTML = `<div class="cell head">${esc(ui.calendarVacancyOnly ? t('owner.calendar.noVacancy') : t('owner.calendar.noRooms'))}</div>`;
       updateRangePresetButtons();
       updateCalendarVacancyControls(range, rows.length);
       return;
     }
     const compactCalendar = window.matchMedia && window.matchMedia('(max-width: 600px)').matches;
     grid.style.gridTemplateColumns = compactCalendar ? `88px repeat(${days.length}, 52px)` : `140px repeat(${days.length}, minmax(64px,1fr))`;
-    let html = `<div class="cell head">房间 / 日期</div>` + days.map(day => `<div class="cell head ${weekendClass(day)}">${esc(day.slice(5))}${weekendLabel(day)?`<span class="weekend-label">${weekendLabel(day)}</span>`:''}</div>`).join('');
+    let html = `<div class="cell head">${esc(t('owner.calendar.roomDate'))}</div>` + days.map(day => `<div class="cell head ${weekendClass(day)}">${esc(day.slice(5))}${weekendLabel(day)?`<span class="weekend-label">${weekendLabel(day)}</span>`:''}</div>`).join('');
     rows.forEach(room => {
       const real = dedupeBookings(bookingsForRoom(room, ownerRealBookings()));
       const locks = dedupeBookings(bookingsForRoom(room, ownerLockBookings()));
@@ -2599,7 +2654,7 @@
           titles.push(`在住：${bookingLabels(stay).join('/')} ${stay.checkin} 到 ${stay.checkout}`);
         }else if(lock){
           classes.push('locked');
-          body = '<span class="cell-platform">不开放锁定</span>';
+          body = `<span class="cell-platform">${esc(t('owner.calendar.blocked'))}</span>`;
           titles.push(`不开放锁定：${lock.checkin} 到 ${lock.checkout}；${lockReason(lock)}`);
         }
         if(ui.calendarVacancyOnly){
@@ -2607,14 +2662,14 @@
             body = '';
             classes.push('hidden-occupied');
           }else{
-            body = '<span class="cell-platform">空</span>';
+            body = `<span class="cell-platform">${esc(t('owner.calendar.emptyNight'))}</span>`;
             classes.push('empty-night');
-            titles.push('当晚空房');
+            titles.push(t('owner.calendar.emptyNightTitle'));
           }
         }else if(hasNote){
           classes.push('hasnote');
-          body += '<span class="cell-note">备注</span>';
-          titles.push('有房东日期备注');
+          body += `<span class="cell-note">${esc(t('owner.calendar.note'))}</span>`;
+          titles.push(t('owner.calendar.noteTitle'));
         }
         html += `<div class="${classes.join(' ')}" title="${esc(titles.join('；'))}">${body}</div>`;
       });
@@ -2630,7 +2685,7 @@
     const el = qs('sixMonthStats');
     if(!el) return;
     const title = qs('futureStatsTitle') || (el.closest('.card') && el.closest('.card').querySelector('h2'));
-    if(title) title.textContent = `${rangeLabel(range)}每个房间预订统计`;
+    if(title) title.textContent = t('owner.calendar.stats', {range: rangeLabel(range)});
     const rows = rooms.map(room => {
       const real = dedupeBookings(bookingsForRoom(room, ownerRealBookings())).filter(b => b.checkin < range.endExclusive && b.checkout > range.start);
       const locks = dedupeBookings(bookingsForRoom(room, ownerLockBookings())).filter(b => b.checkin < range.endExclusive && b.checkout > range.start);
@@ -2642,12 +2697,12 @@
       const rate = available ? Math.round(orderDays.size / available * 1000) / 10 + '%' : '-';
       return `<tr>${showProp?`<td>${esc(propName(roomPropId(room.id)))}</td>`:''}<td>${esc(roomName(room.id))}</td><td>${real.length}</td><td>${orderDays.size}</td><td>${lockDays.size}</td><td>${available}</td><td>${rate}</td><td>${money(targetFee(room.id,'room'))}</td></tr>`;
     }).join('');
-    el.innerHTML = `<table><tr>${showProp?'<th>房源</th>':''}<th>房间</th><th>订单数</th><th>订单晚数</th><th>不开放锁定晚数</th><th>可订晚数</th><th>预订率</th><th>单次保洁费</th></tr>${rows || `<tr><td colspan="${showProp?8:7}">当前筛选没有房间</td></tr>`}</table>`;
+    el.innerHTML = `<table><tr>${showProp?`<th>${esc(t('owner.table.property'))}</th>`:''}<th>${esc(t('owner.table.room'))}</th><th>${esc(t('owner.table.orders'))}</th><th>${esc(t('owner.table.orderNights'))}</th><th>${esc(t('owner.table.lockNights'))}</th><th>${esc(t('owner.table.availableNights'))}</th><th>${esc(t('owner.table.occupancy'))}</th><th>${esc(t('owner.table.cleaningFee'))}</th></tr>${rows || `<tr><td colspan="${showProp?8:7}">${esc(t('owner.table.noRooms'))}</td></tr>`}</table>`;
   }
   function renderOwnerBookingsImpl(){
     const range = calendarRange();
     const title = qs('futureBookingsTitle');
-    if(title) title.textContent = `${rangeLabel(range)}预订列表`;
+    if(title) title.textContent = t('owner.calendar.bookings', {range: rangeLabel(range)});
     const pf = qs('platformFilter') && qs('platformFilter').value || '';
     let rows = dedupeBookings(ownerBookingsAll()).filter(b => b.checkin < range.endExclusive && b.checkout > range.start);
     if(pf) rows = rows.filter(b => bookingLabels(b).includes(pf) || b.platform === pf);
@@ -2655,10 +2710,10 @@
     const showProp = ownerPropIds().length !== 1;
     const el = qs('ownerBookings');
     if(!el) return;
-    el.innerHTML = `<table><tr><th>入住/开始</th><th>退房/结束</th>${showProp?'<th>房源</th>':''}<th>房间</th><th>来源</th><th>客人</th><th>状态</th><th>日期备注</th></tr>${rows.length ? rows.map(b => {
+    el.innerHTML = `<table><tr><th>${esc(t('owner.table.checkin'))}</th><th>${esc(t('owner.table.checkout'))}</th>${showProp?`<th>${esc(t('owner.table.property'))}</th>`:''}<th>${esc(t('owner.table.room'))}</th><th>${esc(t('owner.table.source'))}</th><th>${esc(t('owner.table.guest'))}</th><th>${esc(t('owner.table.status'))}</th><th>${esc(t('owner.table.dateNotes'))}</th></tr>${rows.length ? rows.map(b => {
       const locked = isLockedBooking(b);
-      return `<tr class="${locked?'lock-row':''}"><td>${esc(b.checkin)}</td><td>${esc(b.checkout)}</td>${showProp?`<td>${esc(propName(roomPropId(b.room_id)))}</td>`:''}<td><span class="badge">${esc(roomName(b.room_id))}</span></td><td>${bookingSourceBadges(b)}</td><td>${locked?'':esc(b.guest || '')}</td><td>${locked?`<span class="badge red">不开放锁定</span> ${esc(lockReason(b))}`:esc(b.status || '')}</td><td>${getRoomNotes().filter(n => n.room_id === b.room_id && n.date >= b.checkin && n.date <= b.checkout).length}</td></tr>`;
-    }).join('') : `<tr><td colspan="${showProp?8:7}">当前日期范围没有预订</td></tr>`}</table>`;
+      return `<tr class="${locked?'lock-row':''}"><td>${esc(b.checkin)}</td><td>${esc(b.checkout)}</td>${showProp?`<td>${esc(propName(roomPropId(b.room_id)))}</td>`:''}<td><span class="badge">${esc(roomName(b.room_id))}</span></td><td>${bookingSourceBadges(b)}</td><td>${locked?'':esc(b.guest || '')}</td><td>${locked?`<span class="badge red">${esc(t('owner.calendar.blocked'))}</span> ${esc(lockReason(b))}`:esc(b.status || '')}</td><td>${getRoomNotes().filter(n => n.room_id === b.room_id && n.date >= b.checkin && n.date <= b.checkout).length}</td></tr>`;
+    }).join('') : `<tr><td colspan="${showProp?8:7}">${esc(t('owner.table.noBookings'))}</td></tr>`}</table>`;
   }
   function refreshCalendarRangeViewsImpl(){
     initSelectsImpl();
