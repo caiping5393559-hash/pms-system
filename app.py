@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_APP_VERSION = "2026-07-05-v72-cancel-review-identity"
+PMS_APP_VERSION = "2026-07-05-v73-property-edit-layout"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()

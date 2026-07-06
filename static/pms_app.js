@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-05-v72-cancel-review-identity';
+  const VERSION = '2026-07-05-v73-property-edit-layout';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -1414,12 +1414,17 @@
       .property-module-head,.property-detail-head,.property-actions,.room-head,.channel-row,.mail-actions{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
       .property-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}
       .property-card,.property-subcard,.room-setting-card{border:1px solid var(--line);background:#fff;padding:14px}
-      .property-card{display:grid;gap:10px;align-content:space-between;min-height:145px}
+      .property-card{display:grid;gap:10px;align-content:space-between;min-height:145px;min-width:0}
+      .property-card.editing{grid-column:1/-1}
+      .property-card.editing .property-card-top{display:block}
+      .property-card.editing .property-select{margin-top:8px}
+      .property-card.editing .property-actions{justify-content:flex-start}
+      .property-card.editing .property-actions>*{width:auto}
       .property-card-top{display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
       .property-title{font-size:18px;font-weight:900;color:#0f172a}
       .property-select{display:flex;align-items:center;gap:8px;font-weight:900;color:#0f766e}
       .property-select input,.scope-chip input{width:18px!important;height:18px;min-width:18px}
-      .property-card input,.room-setting-card input,.room-setting-card select,.mail-panel input,.mail-panel textarea{width:100%;min-width:0}
+      .property-card input,.property-card select,.room-setting-card input,.room-setting-card select,.mail-panel input,.mail-panel textarea{width:100%;min-width:0}
       .property-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
       .scope-filter{display:grid;gap:10px;border:1px solid var(--line);background:#fff;border-radius:8px;padding:12px;margin:10px 0}
       .scope-filter-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
@@ -1475,8 +1480,10 @@
       .sync-status{display:inline-flex;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:900;border:1px solid #d8e1ef;background:#f8fafc;color:#475569}
       .sync-status.ok{border-color:#86efac;background:#f0fdf4;color:#166534}.sync-status.error{border-color:#fb7185;background:#fff1f2;color:#be123c}.sync-status.warn{border-color:#fbbf24;background:#fffbeb;color:#92400e}
       .property-location{margin-top:6px;color:#475569;font-size:13px;line-height:1.45}
-      .property-edit-grid{display:grid;grid-template-columns:minmax(160px,1.1fr) minmax(140px,.8fr) minmax(180px,1fr) minmax(190px,1fr) auto auto;gap:8px;align-items:end}
-      .property-edit-grid label{display:grid;gap:5px;font-size:12px;font-weight:900;color:#475569}
+      .property-edit-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end;max-width:100%}
+      .property-edit-grid label{display:grid;gap:5px;font-size:12px;font-weight:900;color:#475569;min-width:0}
+      .property-edit-actions{grid-column:1/-1;display:flex;gap:8px;justify-content:flex-start;flex-wrap:wrap}
+      .property-edit-actions .smallbtn{min-width:120px}
       .timezone-picker{max-width:260px}
       .scroll{overflow:auto;-webkit-overflow-scrolling:touch}
       #calendarGrid{display:grid;gap:6px;align-items:stretch;min-width:max-content;padding-bottom:4px}
@@ -2395,9 +2402,12 @@
     const checked = ownerPropIds().includes(prop.id);
     const tz = propertyTimeZone(prop);
     const nameBlock = editing
-      ? `<div class="property-edit-grid"><label>房源名称<input id="propertyName_${safe(prop.id)}" value="${esc(prop.name || '')}" placeholder="例如 901老"></label><label>城市<input id="propertyCity_${safe(prop.id)}" value="${esc(propertyCity(prop))}" placeholder="Los Angeles"></label><label>地址<input id="propertyAddress_${safe(prop.id)}" value="${esc(propertyAddress(prop))}" placeholder="Los Angeles, CA"></label><label>房源时区<select id="propertyTimezone_${safe(prop.id)}">${timeZoneOptions(tz)}</select></label><button class="smallbtn primary" onclick="savePropertyName('${esc(prop.id)}',this)">保存房源资料</button><button class="smallbtn" onclick="cancelPropertyNameEdit()">取消</button></div>`
+      ? `<div class="property-edit-grid"><label>房源名称<input id="propertyName_${safe(prop.id)}" value="${esc(prop.name || '')}" placeholder="例如 901老"></label><label>城市<input id="propertyCity_${safe(prop.id)}" value="${esc(propertyCity(prop))}" placeholder="Los Angeles"></label><label>地址<input id="propertyAddress_${safe(prop.id)}" value="${esc(propertyAddress(prop))}" placeholder="Los Angeles, CA"></label><label>房源时区<select id="propertyTimezone_${safe(prop.id)}">${timeZoneOptions(tz)}</select></label><div class="property-edit-actions"><button class="smallbtn primary" onclick="savePropertyName('${esc(prop.id)}',this)">保存房源资料</button><button class="smallbtn" onclick="cancelPropertyNameEdit()">取消</button></div></div>`
       : `<div class="property-title">房源:${esc(prop.name || prop.id)}</div><div class="property-location">${esc(propertyLocationText(prop))} · ${esc(tz)}</div>`;
-    return `<div class="property-card ${checked?'active':''}"><div><div class="property-card-top"><div>${nameBlock}<div class="property-meta"><span class="badge blue">${rooms.length} 个房间</span><span class="badge orange">${areas.length} 个公区</span><span class="badge green">${cleaners.length} 个保洁绑定</span></div></div><label class="property-select" title="纳入下面所有统计和列表"><input type="checkbox" ${checked?'checked':''} onchange="setOwnerPropertyFilter('${esc(prop.id)}',this.checked)">选择</label></div></div><div class="property-actions">${editing?'':`<button class="smallbtn" onclick="editPropertyName('${esc(prop.id)}')">修改房源资料</button>`}<button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">进入房间管理</button><button class="smallbtn" onclick="setOnlyOwnerProperty('${esc(prop.id)}')">只看这个房源</button><button class="smallbtn" onclick="deletePropertyUi('${esc(prop.id)}',this)">删除房源</button>${propertyMailDigest(prop.id)}</div></div>`;
+    const actions = editing
+      ? `<button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">进入房间管理</button>`
+      : `<button class="smallbtn" onclick="editPropertyName('${esc(prop.id)}')">修改房源资料</button><button class="smallbtn primary" onclick="openPropertyRooms('${esc(prop.id)}')">进入房间管理</button><button class="smallbtn" onclick="setOnlyOwnerProperty('${esc(prop.id)}')">只看这个房源</button><button class="smallbtn" onclick="deletePropertyUi('${esc(prop.id)}',this)">删除房源</button>${propertyMailDigest(prop.id)}`;
+    return `<div class="property-card ${checked?'active':''} ${editing?'editing':''}"><div><div class="property-card-top"><div>${nameBlock}<div class="property-meta"><span class="badge blue">${rooms.length} 个房间</span><span class="badge orange">${areas.length} 个公区</span><span class="badge green">${cleaners.length} 个保洁绑定</span></div></div><label class="property-select" title="纳入下面所有统计和列表"><input type="checkbox" ${checked?'checked':''} onchange="setOwnerPropertyFilter('${esc(prop.id)}',this.checked)">选择</label></div></div><div class="property-actions">${actions}</div></div>`;
   }
   function ensureOwnerPropertyModuleVisible(){
     if(visibleAsCleaner()) return;
