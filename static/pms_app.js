@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-05-v70-profile-layout-order-identity';
+  const VERSION = '2026-07-05-v71-fast-ical-feed';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
