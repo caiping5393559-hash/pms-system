@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-05-v68-mobile-calendar';
+  const VERSION = '2026-07-05-v70-profile-layout-order-identity';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -1390,6 +1390,26 @@
     style.id = 'pmsUnifiedStyles';
     style.textContent = `
       .card,.metric,.property-card,.property-subcard,.room-setting-card,.work-card,.note-card,.month-block,.cell,.empty-panel{border-radius:8px!important}
+      .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px}
+      .metric{background:#fff;border:1px solid var(--line);padding:14px;box-shadow:var(--shadow);min-width:0}
+      .metric .small{font-size:13px;color:var(--muted)}
+      .metric .num{font-size:28px;line-height:1.1;font-weight:900;color:#0f766e;margin-top:6px}
+      .tabbar,.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+      .badge{display:inline-flex;align-items:center;justify-content:center;border:1px solid #d8e1ef;background:#f8fafc;color:#0f172a;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:900;line-height:1.1}
+      .badge.green{border-color:#bbf7d0;background:#dcfce7;color:#047857}.badge.blue{border-color:#bae6fd;background:#e0f2fe;color:#0369a1}.badge.orange{border-color:#fed7aa;background:#ffedd5;color:#c2410c}.badge.red{border-color:#fecdd3;background:#ffe4e6;color:#be123c}.badge.yellow{border-color:#fde68a;background:#fef3c7;color:#92400e}.badge.purple{border-color:#ddd6fe;background:#f5f3ff;color:#6d28d9}
+      .formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;align-items:end}
+      .formgrid label,label{font-weight:900;color:#0f172a}
+      input,select,textarea{border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:inherit;max-width:100%}
+      textarea{min-height:78px;resize:vertical}
+      table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+      th,td{padding:10px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}
+      th{background:#eaf1fb;font-weight:900;color:#0f172a}
+      tr:last-child td{border-bottom:0}
+      .note-card{border:1px solid #fbbf24;background:#fffbeb;border-radius:8px;padding:10px;margin:8px 0;color:#0f172a}
+      .note-card.important{border-color:#fb7185;background:#fff1f2}
+      .note-title{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-weight:900;margin-bottom:5px}
+      .work-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+      .work-card{border:1px solid var(--line);background:#fff;border-radius:8px;padding:12px;box-shadow:var(--shadow);min-width:0}
       .property-module{display:grid;gap:12px;border:2px solid #2dd4bf;background:#fbfffe;box-shadow:inset 5px 0 0 #0f766e,0 10px 22px rgba(15,118,110,.08)}
       .property-module-head,.property-detail-head,.property-actions,.room-head,.channel-row,.mail-actions{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
       .property-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}
@@ -1977,7 +1997,7 @@
           date,
           target_id: note.target_id,
           target_type: type,
-          source: status === 'clean_needed' ? '房东确认退房保洁' : '订单消失待确认',
+          source: note.review_task_label || note.review_source || (status === 'clean_needed' ? '房东确认退房保洁' : '订单消失待确认'),
           type: 'cancel_review_task',
           actual: true,
           reason: note.note || '订单消失后的退房保洁待确认',
@@ -3252,7 +3272,7 @@
     const cleanerCode = u.cleaner_code || u.cleanerCode || '';
     const emptyText = currentLanguage() === 'zh-CN' ? '未填写' : '';
     const cleanerCodeField = isCleanerProfile(u) ? `<div class="profile-field"><label>${esc(t('profile.cleanerCode'))}</label><input readonly value="${esc(cleanerCode || (currentLanguage() === 'zh-CN' ? '未生成' : ''))}"></div>` : '';
-    root.innerHTML = `<div class="card user-profile-card"><div class="property-detail-head"><div><h2>${esc(t('profile.title'))}</h2><div class="small">${esc(t('profile.sub'))}</div></div><span class="badge green">${esc(roleLabel(u.role))}</span></div><div class="profile-grid"><div class="profile-field"><label>${esc(t('profile.displayName'))}</label><input id="${rootId}_displayName" value="${esc(u.name || '')}" placeholder="例如 zhoulimei"></div><div class="profile-field"><label>${esc(t('profile.timezone'))}</label><select id="${rootId}_timezone">${timeZoneOptions(userTimeZone())}</select></div><div class="profile-field"><label>${esc(t('profile.language'))}</label><select id="${rootId}_language">${languageOptions(currentLanguage())}</select></div><div class="profile-field"><label>${esc(t('profile.username'))}</label><input readonly value="${esc(u.username || emptyText)}"></div><div class="profile-field"><label>${esc(t('profile.email'))}</label><input readonly value="${esc(email || emptyText)}"></div><div class="profile-field"><label>${esc(t('profile.phone'))}</label><input readonly value="${esc(phone || emptyText)}"></div><div class="profile-field"><label>${esc(t('profile.wechat'))}</label><input readonly value="${esc(wechat || emptyText)}"></div>${cleanerCodeField}<div class="profile-field"><label>${esc(t('profile.role'))}</label><input readonly value="${esc(roleLabel(u.role))}"></div></div><div class="profile-actions"><button class="smallbtn primary" onclick="saveUserProfile('${rootId}',this)">${esc(t('profile.save'))}</button><span id="${rootId}_profileStatus" class="profile-status"></span></div></div>`;
+    root.innerHTML = `<div class="card user-profile-card"><div class="property-detail-head"><div><h2>${esc(t('profile.title'))}</h2><div class="small">${esc(t('profile.sub'))}</div></div><span class="badge green">${esc(roleLabel(u.role))}</span></div><div class="profile-grid"><div class="profile-field"><label>${esc(t('profile.displayName'))}</label><input id="${rootId}_displayName" value="${esc(u.name || '')}" placeholder="例如 zhoulimei"></div><div class="profile-field"><label>${esc(t('profile.timezone'))}</label><select id="${rootId}_timezone">${timeZoneOptions(userTimeZone())}</select></div><div class="profile-field"><label>${esc(t('profile.language'))}</label><select id="${rootId}_language">${languageOptions(currentLanguage())}</select></div><div class="profile-field"><label>${esc(t('profile.username'))}</label><input readonly value="${esc(u.username || emptyText)}"></div><div class="profile-field"><label>${esc(t('profile.email'))}</label><input readonly value="${esc(email || emptyText)}"></div><div class="profile-field"><label>${esc(t('profile.phone'))}</label><input id="${rootId}_phone" value="${esc(phone || '')}" autocomplete="tel" placeholder="手机号"></div><div class="profile-field"><label>${esc(t('profile.wechat'))}</label><input id="${rootId}_wechat" value="${esc(wechat || '')}" placeholder="微信号"></div>${cleanerCodeField}<div class="profile-field"><label>${esc(t('profile.role'))}</label><input readonly value="${esc(roleLabel(u.role))}"></div><div class="profile-field"><label>新密码</label><input id="${rootId}_password" type="password" autocomplete="new-password" placeholder="不修改请留空"></div><div class="profile-field"><label>确认新密码</label><input id="${rootId}_password2" type="password" autocomplete="new-password" placeholder="再输入一次"></div></div><div class="profile-actions"><button class="smallbtn primary" onclick="saveUserProfile('${rootId}',this)">${esc(t('profile.save'))}</button><span id="${rootId}_profileStatus" class="profile-status"></span></div></div>`;
   }
   function renderUserProfileImpl(){
     renderUserProfilePanel('ownerProfile');
@@ -3270,13 +3290,21 @@
     const tz = normalizeTimeZone(timezoneInput && timezoneInput.value);
     const languageInput = qs(rootId + '_language');
     const lang = normalizeLanguage(languageInput && languageInput.value);
+    const phone = String((qs(rootId + '_phone') && qs(rootId + '_phone').value) || '').trim();
+    const wechat = String((qs(rootId + '_wechat') && qs(rootId + '_wechat').value) || '').trim();
+    const password = String((qs(rootId + '_password') && qs(rootId + '_password').value) || '');
+    const password2 = String((qs(rootId + '_password2') && qs(rootId + '_password2').value) || '');
+    if(password || password2){
+      if(password !== password2) return alert('两次输入的新密码不一致');
+      if(password.length < 6) return alert('新密码至少 6 位');
+    }
     const old = btn && btn.textContent;
     if(btn){btn.disabled = true; btn.textContent = t('profile.saving');}
     try{
       const res = await fetch(apiUrl('/api/profile'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name, timezone: tz, time_zone: tz, language: lang, locale: lang})
+        body: JSON.stringify({name, timezone: tz, time_zone: tz, language: lang, locale: lang, phone, wechat, new_password: password})
       });
       const data = await res.json().catch(() => ({}));
       if(!res.ok || data.ok === false) throw new Error(data.error || ('保存失败 HTTP ' + res.status));

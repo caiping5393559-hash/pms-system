@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_APP_VERSION = "2026-07-05-v68-mobile-calendar"
+PMS_APP_VERSION = "2026-07-05-v70-profile-layout-order-identity"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -1360,6 +1360,15 @@ def update_current_user_profile(payload, actor=None):
         raise RuntimeError("display name is too long")
     timezone_value = pms_valid_timezone(payload.get("timezone") or payload.get("time_zone") or payload.get("timeZone"))
     language_value = pms_valid_language(payload.get("language") or payload.get("locale") or payload.get("lang"))
+    phone_value = str(payload.get("phone") or payload.get("mobile") or payload.get("tel") or payload.get("phone_number") or "").strip()
+    wechat_value = str(payload.get("wechat") or payload.get("weixin") or payload.get("wx") or payload.get("wechat_id") or "").strip()
+    new_password = str(payload.get("new_password") or payload.get("password") or "").strip()
+    if len(phone_value) > 80:
+        raise RuntimeError("phone is too long")
+    if len(wechat_value) > 80:
+        raise RuntimeError("wechat is too long")
+    if new_password and len(new_password) < 6:
+        raise RuntimeError("password must be at least 6 characters")
 
     state = normalize_state(load_main_state())
     users = state.setdefault("users", [])
@@ -1380,7 +1389,7 @@ def update_current_user_profile(payload, actor=None):
 
     if not display_name:
         display_name = str(target.get("name") or target.get("username") or actor.get("name") or actor.get("username") or "").strip()
-    if not display_name and not timezone_value and not language_value and not ("default_room_ids" in payload or "defaultRoomIds" in payload):
+    if not display_name and not timezone_value and not language_value and not phone_value and not wechat_value and not new_password and not ("default_room_ids" in payload or "defaultRoomIds" in payload):
         raise RuntimeError("display name is required")
     if display_name:
         target["name"] = display_name
@@ -1390,6 +1399,14 @@ def update_current_user_profile(payload, actor=None):
     if language_value:
         target["language"] = language_value
         target["locale"] = language_value
+    target["phone"] = phone_value
+    target["mobile"] = phone_value
+    target["phone_number"] = phone_value
+    target["wechat"] = wechat_value
+    target["weixin"] = wechat_value
+    target["wechat_id"] = wechat_value
+    if new_password:
+        target["password_hash"] = password_hash(new_password)
     if "default_room_ids" in payload or "defaultRoomIds" in payload:
         raw_defaults = payload.get("default_room_ids", payload.get("defaultRoomIds"))
         if raw_defaults is None:
@@ -2561,7 +2578,7 @@ def _pms_channel_parse_ics(text, listing):
             "channel_note": listing.get("channel_note") or "",
             "listing_url": listing.get("listing_url") or "",
             "is_new_listing": bool(listing.get("is_new_listing")),
-            "guest": "",
+            "guest": _pms_channel_guest_hint(summary, description),
             "checkin": checkin,
             "checkout": checkout,
             "checkin_utc": checkin_utc,
@@ -2575,6 +2592,7 @@ def _pms_channel_parse_ics(text, listing):
             "is_locked": bool(lock_reason),
             "lock_reason": lock_reason or "",
             "summary": summary,
+            "description": description[:600],
         })
     return rows
 
@@ -2661,6 +2679,143 @@ def _pms_channel_event_history_snapshot(item):
         "summary": _pms_channel_text(item.get("summary") or item.get("status")),
         "status": _pms_channel_text(item.get("status")),
     }
+
+
+_PMS_ICAL_GENERIC_IDENTITIES = {
+    "reserved",
+    "reservation",
+    "booked",
+    "busy",
+    "blocked",
+    "not available",
+    "unavailable",
+    "airbnb",
+    "booking",
+    "vrbo",
+    "ical",
+    "unknown",
+    "平台状态变更锁定",
+}
+
+
+def _pms_channel_identity_text(value):
+    text = ical_clean_text(value).strip()
+    if not text:
+        return ""
+    low = re.sub(r"\s+", " ", text.lower()).strip(" .,:;|/-_")
+    if len(low) < 3:
+        return ""
+    if low in _PMS_ICAL_GENERIC_IDENTITIES:
+        return ""
+    compact = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", " ", low).strip()
+    if not compact or compact in _PMS_ICAL_GENERIC_IDENTITIES:
+        return ""
+    if all(part in _PMS_ICAL_GENERIC_IDENTITIES for part in compact.split()):
+        return ""
+    return compact[:180]
+
+
+def _pms_channel_guest_hint(summary, description):
+    text = "\n".join([ical_clean_text(summary), ical_clean_text(description)])
+    for pattern in (
+        r"(?:guest\s*name|guest|name|房客|客人|姓名)\s*[:：]\s*([^\n\r,;|]{2,80})",
+        r"(?:reserved\s+for|reservation\s+for)\s+([A-Za-z][A-Za-z\s.'-]{1,70})",
+    ):
+        match = re.search(pattern, text, flags=re.I)
+        if match:
+            value = _pms_channel_identity_text(match.group(1))
+            if value:
+                return value
+    value = _pms_channel_identity_text(summary)
+    return "" if value in _PMS_ICAL_GENERIC_IDENTITIES else value
+
+
+def _pms_channel_booking_identity_tokens(item):
+    if not isinstance(item, dict):
+        return set()
+    tokens = set()
+    uid = _pms_channel_text(item.get("external_event_uid") or item.get("uid"))
+    if uid and not uid.lower().startswith("missing-lock-"):
+        tokens.add("uid:" + uid.lower())
+    for key in ("guest", "summary", "status"):
+        value = _pms_channel_identity_text(item.get(key))
+        if value:
+            tokens.add("text:" + value)
+    description = _pms_channel_text(item.get("description"))
+    if description:
+        for pattern in (
+            r"reservations?/details/([A-Za-z0-9_-]{6,})",
+            r"reservation(?:[_\s-]?(?:id|code|number))?[:=#/\s-]+([A-Za-z0-9_-]{6,})",
+            r"\b(HM[A-Za-z0-9]{6,})\b",
+        ):
+            for match in re.findall(pattern, description, flags=re.I):
+                if match:
+                    tokens.add("rid:" + str(match).lower())
+        guest = _pms_channel_guest_hint("", description)
+        if guest:
+            tokens.add("text:" + guest)
+    return tokens
+
+
+def _pms_channel_date_gap_days(left, right):
+    try:
+        return (datetime.strptime(str(right), "%Y-%m-%d").date() - datetime.strptime(str(left), "%Y-%m-%d").date()).days
+    except Exception:
+        return None
+
+
+def _pms_channel_ranges_overlap(a, b):
+    a_in, a_out = str(a.get("checkin") or ""), str(a.get("checkout") or "")
+    b_in, b_out = str(b.get("checkin") or ""), str(b.get("checkout") or "")
+    return bool(a_in and a_out and b_in and b_out and a_in < b_out and b_in < a_out)
+
+
+def _pms_channel_ranges_touch_or_near(a, b):
+    a_in, a_out = str(a.get("checkin") or ""), str(a.get("checkout") or "")
+    b_in, b_out = str(b.get("checkin") or ""), str(b.get("checkout") or "")
+    forward = _pms_channel_date_gap_days(a_out, b_in)
+    backward = _pms_channel_date_gap_days(b_out, a_in)
+    return (forward is not None and 0 <= forward <= 1) or (backward is not None and 0 <= backward <= 1)
+
+
+def _pms_channel_order_relation(disappeared, imported_rows):
+    old_tokens = _pms_channel_booking_identity_tokens(disappeared)
+    if not old_tokens:
+        return "missing", None
+    old_uid_tokens = {item for item in old_tokens if item.startswith("uid:")}
+    split_match = None
+    for current in imported_rows or []:
+        if not isinstance(current, dict):
+            continue
+        if current.get("is_locked") or current.get("booking_type") == "lock":
+            continue
+        if current.get("room_id") != disappeared.get("room_id"):
+            continue
+        current_tokens = _pms_channel_booking_identity_tokens(current)
+        shared = old_tokens.intersection(current_tokens)
+        if not shared:
+            continue
+        if old_uid_tokens.intersection(current_tokens):
+            return "same_order_modified", current
+        if _pms_channel_ranges_overlap(disappeared, current):
+            return "same_guest_modified", current
+        if _pms_channel_ranges_touch_or_near(disappeared, current):
+            split_match = current
+    if split_match:
+        return "same_guest_split_stay", split_match
+    return "missing", None
+
+
+def _pms_channel_split_boundary_date(old_booking, new_booking, fallback_date):
+    old_out = str(old_booking.get("checkout") or "")
+    old_in = str(old_booking.get("checkin") or "")
+    new_in = str(new_booking.get("checkin") or "")
+    new_out = str(new_booking.get("checkout") or "")
+    if old_out and new_in and old_out <= new_in:
+        return old_out
+    if new_out and old_in and new_out <= old_in:
+        return new_out
+    return fallback_date
 
 
 def _pms_channel_history_room(state, room_id):
@@ -2799,6 +2954,63 @@ def _pms_channel_add_cancel_cleaning_review(state, booking, listing, synced_at):
         "platform": platform,
         "channel_listing_id": listing.get("id"),
         "external_event_uid": uid,
+    }
+    notes.insert(0, note)
+    state["cleaningNotes"] = notes[:1000]
+    return True
+
+
+def _pms_channel_add_split_stay_cleaning_review(state, old_booking, new_booking, listing, synced_at):
+    if not isinstance(old_booking, dict) or not isinstance(new_booking, dict):
+        return False
+    if old_booking.get("is_locked") or old_booking.get("booking_type") == "lock":
+        return False
+    room = _pms_channel_history_room(state, listing.get("room_id") or old_booking.get("room_id"))
+    property_id = room.get("property_id") or "property_default"
+    local_today = _pms_channel_local_date(state, property_id)
+    room_id = listing.get("room_id") or old_booking.get("room_id")
+    platform = listing.get("platform") or old_booking.get("platform") or new_booking.get("platform") or "iCal"
+    uid_old = _pms_channel_text(old_booking.get("external_event_uid") or old_booking.get("uid") or old_booking.get("id"))
+    uid_new = _pms_channel_text(new_booking.get("external_event_uid") or new_booking.get("uid") or new_booking.get("id"))
+    boundary = _pms_channel_split_boundary_date(old_booking, new_booking, local_today)
+    review_date = boundary if boundary and boundary >= local_today else local_today
+    stable = hashlib.sha1(("split-stay-review|" + _pms_channel_text(listing.get("id")) + "|" + uid_old + "|" + uid_new + "|" + _pms_channel_text(old_booking.get("checkin")) + "|" + _pms_channel_text(old_booking.get("checkout")) + "|" + _pms_channel_text(new_booking.get("checkin")) + "|" + _pms_channel_text(new_booking.get("checkout"))).encode("utf-8")).hexdigest()[:24]
+    note_id = "split_stay_review_" + stable
+    notes = [item for item in state.get("cleaningNotes", []) if isinstance(item, dict)]
+    if any(item.get("id") == note_id for item in notes):
+        return False
+    guest = _pms_channel_guest_hint(
+        old_booking.get("summary") or new_booking.get("summary") or "",
+        " ".join([
+            _pms_channel_text(old_booking.get("description")),
+            _pms_channel_text(new_booking.get("description")),
+            _pms_channel_text(old_booking.get("guest")),
+            _pms_channel_text(new_booking.get("guest")),
+        ]),
+    )
+    guest_text = f"同客人（{guest}）" if guest else "同一客人/同一订单"
+    note = {
+        "id": note_id,
+        "date": review_date,
+        "review_dates": [review_date],
+        "target_id": room_id,
+        "target_type": "room",
+        "note": f"{platform} iCal 检测到{guest_text}把住宿拆成相邻订单：{old_booking.get('checkin')} → {old_booking.get('checkout')}，续到 {new_booking.get('checkin')} → {new_booking.get('checkout')}。这不是旧订单突然消失；请房东确认两个订单之间是否需要安排中间保洁。为控制成本，未确认前不派给保洁。",
+        "priority": "保洁确认",
+        "note_type": "split_stay_review",
+        "review_task_label": "续住中间保洁待确认",
+        "amount": 0,
+        "amount_present": False,
+        "source": "iCal续住复核",
+        "created_by": "系统",
+        "created_at": synced_at,
+        "cancellation_review": True,
+        "checkin": old_booking.get("checkin"),
+        "checkout": new_booking.get("checkout") or old_booking.get("checkout"),
+        "platform": platform,
+        "channel_listing_id": listing.get("id"),
+        "external_event_uid": uid_old,
+        "matched_event_uid": uid_new,
     }
     notes.insert(0, note)
     state["cleaningNotes"] = notes[:1000]
@@ -3313,26 +3525,48 @@ def _pms_channel_sync_icals(actor=None, property_id=None, incoming_channels=None
                 if str(item.get("checkout") or item.get("checkin") or "") >= listing_today
             ]
             imported_ranges = {(str(item.get("checkin") or ""), str(item.get("checkout") or "")) for item in imported}
-            disappeared = [
+            disappeared_candidates = [
                 item for item in previous_future
                 if _pms_missing_event_key(item) not in imported_keys
                 and (str(item.get("checkin") or ""), str(item.get("checkout") or "")) not in imported_ranges
             ]
-            if disappeared and not listing.get("is_new_listing"):
+            disappeared = []
+            modified_count = 0
+            split_review_count = 0
+            for item in disappeared_candidates:
+                relation, matched = _pms_channel_order_relation(item, imported)
+                if relation in ("same_order_modified", "same_guest_modified"):
+                    modified_count += 1
+                    continue
+                if relation == "same_guest_split_stay":
+                    if _pms_channel_add_split_stay_cleaning_review(state, item, matched, listing, now):
+                        split_review_count += 1
+                    continue
+                disappeared.append(item)
+            if (disappeared or split_review_count) and not listing.get("is_new_listing"):
                 examples = "、".join(
                     f"{item.get('checkin')}→{item.get('checkout')}"
                     for item in disappeared[:3]
-                )
-                listing["availability_status"] = "order_disappeared"
-                listing["sync_warning"] = f"iCal 本次少了 {len(disappeared)} 条当天或未来订单记录（{examples}）。系统已保存取消/移除历史；如果发生在入住日16:00后或入住后，会生成保洁确认任务。"
+                ) if disappeared else ""
+                listing["availability_status"] = "order_disappeared" if disappeared else "order_review"
+                warning_parts = []
+                if disappeared:
+                    warning_parts.append(f"iCal 本次少了 {len(disappeared)} 条当天或未来订单记录（{examples}）。系统已保存取消/移除历史；如果发生在入住日16:00后或入住后，会生成保洁确认任务。")
+                if split_review_count:
+                    warning_parts.append(f"检测到 {split_review_count} 条同客人拆单续住，已生成“中间是否保洁”房东确认。")
+                if modified_count:
+                    warning_parts.append(f"另有 {modified_count} 条同订单/同客人改期记录，已按延期或缩短处理，不生成退房确认。")
+                listing["sync_warning"] = " ".join(warning_parts)
                 review_count = sum(1 for item in disappeared if _pms_channel_add_cancel_cleaning_review(state, item, listing, now))
             else:
                 review_count = 0
+                if modified_count:
+                    listing["sync_warning"] = f"检测到 {modified_count} 条同订单/同客人改期记录，已按延期或缩短处理，不生成退房确认。"
             _pms_channel_append_ical_history(
                 state,
                 listing,
                 now,
-                "order_disappeared" if disappeared and not listing.get("is_new_listing") else "ok",
+                "order_disappeared" if disappeared and not listing.get("is_new_listing") else ("order_review" if split_review_count and not listing.get("is_new_listing") else "ok"),
                 events=imported,
                 raw_events=raw_events,
                 warning=listing.get("sync_warning", ""),
