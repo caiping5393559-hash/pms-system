@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-05-v71-fast-ical-feed';
+  const VERSION = '2026-07-05-v72-cancel-review-identity';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -1981,10 +1981,31 @@
     if(!base) return [];
     return Array.from(new Set([base, addDay(base,1)].filter(Boolean)));
   }
+  function cancelReviewResolvedByCurrentBooking(note){
+    if(!note || String(note.owner_review_status || 'pending') !== 'pending') return false;
+    const targetId = String(note.target_id || '');
+    const oldIn = String(note.checkin || '').slice(0,10);
+    const oldOut = String(note.checkout || '').slice(0,10);
+    if(!targetId || !oldIn || !oldOut) return false;
+    return ownerRealBookings().some(b => {
+      if(String(b.room_id || '') !== targetId) return false;
+      const newIn = String(b.checkin || '').slice(0,10);
+      const newOut = String(b.checkout || '').slice(0,10);
+      if(!newIn || !newOut) return false;
+      if(newIn === oldIn || newOut === oldOut) return true;
+      const overlapStart = newIn > oldIn ? newIn : oldIn;
+      const overlapEnd = newOut < oldOut ? newOut : oldOut;
+      const overlapDays = daysBetweenSafe(overlapStart, overlapEnd);
+      const oldDays = daysBetweenSafe(oldIn, oldOut);
+      const contained = (newIn <= oldIn && newOut >= oldOut) || (oldIn <= newIn && oldOut >= newOut);
+      return contained && overlapDays >= Math.max(2, Math.min(3, oldDays || 0));
+    });
+  }
   function cancelReviewTaskRows(start,end,includePending=false,applyOwnerScope=true){
     const out = [];
     getNotes().forEach(note => {
       if(!note || !note.cancellation_review || note.inactive || note.deleted) return;
+      if(cancelReviewResolvedByCurrentBooking(note)) return;
       const type = note.target_type || 'room';
       if(applyOwnerScope && !targetMatches(note.target_id,type)) return;
       const status = String(note.owner_review_status || 'pending');

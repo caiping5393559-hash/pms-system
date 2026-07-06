@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_APP_VERSION = "2026-07-05-v71-fast-ical-feed"
+PMS_APP_VERSION = "2026-07-05-v72-cancel-review-identity"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -2780,11 +2780,35 @@ def _pms_channel_ranges_touch_or_near(a, b):
     return (forward is not None and 0 <= forward <= 1) or (backward is not None and 0 <= backward <= 1)
 
 
+def _pms_channel_same_room_date_change(disappeared, current):
+    if not isinstance(disappeared, dict) or not isinstance(current, dict):
+        return False
+    if current.get("is_locked") or current.get("booking_type") == "lock":
+        return False
+    if current.get("room_id") != disappeared.get("room_id"):
+        return False
+    old_in, old_out = str(disappeared.get("checkin") or ""), str(disappeared.get("checkout") or "")
+    new_in, new_out = str(current.get("checkin") or ""), str(current.get("checkout") or "")
+    if not old_in or not old_out or not new_in or not new_out:
+        return False
+    if old_in == new_in or old_out == new_out:
+        return True
+    if not _pms_channel_ranges_overlap(disappeared, current):
+        return False
+    overlap_start = max(old_in, new_in)
+    overlap_end = min(old_out, new_out)
+    overlap_days = _pms_channel_date_gap_days(overlap_start, overlap_end)
+    old_days = _pms_channel_date_gap_days(old_in, old_out)
+    if overlap_days is None or old_days is None:
+        return False
+    contained = (new_in <= old_in and new_out >= old_out) or (old_in <= new_in and old_out >= new_out)
+    return contained and overlap_days >= max(2, min(3, old_days))
+
+
 def _pms_channel_order_relation(disappeared, imported_rows):
     old_tokens = _pms_channel_booking_identity_tokens(disappeared)
-    if not old_tokens:
-        return "missing", None
     old_uid_tokens = {item for item in old_tokens if item.startswith("uid:")}
+    date_change_match = None
     split_match = None
     for current in imported_rows or []:
         if not isinstance(current, dict):
@@ -2793,6 +2817,8 @@ def _pms_channel_order_relation(disappeared, imported_rows):
             continue
         if current.get("room_id") != disappeared.get("room_id"):
             continue
+        if _pms_channel_same_room_date_change(disappeared, current):
+            date_change_match = current
         current_tokens = _pms_channel_booking_identity_tokens(current)
         shared = old_tokens.intersection(current_tokens)
         if not shared:
@@ -2803,6 +2829,8 @@ def _pms_channel_order_relation(disappeared, imported_rows):
             return "same_guest_modified", current
         if _pms_channel_ranges_touch_or_near(disappeared, current):
             split_match = current
+    if date_change_match:
+        return "same_order_modified", date_change_match
     if split_match:
         return "same_guest_split_stay", split_match
     return "missing", None
