@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-05-v75-owner-cleaning-english';
+  const VERSION = '2026-07-05-v76-cleaner-mobile-content';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -1765,6 +1765,29 @@
         #calendarGrid .cell.locked .cell-platform{font-size:11px}
         .weekend-label{font-size:10px}
         #cleaner .card,#ownerCleaningShell .card{padding:10px}
+        #cleanerSummary .card{padding:8px 10px;margin-bottom:8px}
+        #cleanerSummary h2{font-size:18px;margin:0}
+        #cleanerSummary .small{font-size:12px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+        #cleanerSummary .badge{font-size:11px;padding:3px 7px}
+        #cleanerMetrics{display:flex!important;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:8px;padding-bottom:2px}
+        #cleanerMetrics .metric{flex:0 0 86px;padding:7px 8px!important;box-shadow:none}
+        #cleanerMetrics .metric .small{font-size:11px;line-height:1.15}
+        #cleanerMetrics .metric .num{font-size:20px!important;margin-top:2px}
+        #cleanerDashboardShell>.card{padding:8px;margin-bottom:8px}
+        body.pms-view-cleaner header{padding:8px 10px}
+        body.pms-view-cleaner .header-inner{gap:6px}
+        body.pms-view-cleaner header h1{font-size:18px;line-height:1.1}
+        body.pms-view-cleaner header h1 + .small{display:none}
+        body.pms-view-cleaner .nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;width:100%}
+        body.pms-view-cleaner .nav button,body.pms-view-cleaner .nav .smallbtn{min-height:32px;padding:6px 8px;font-size:12px}
+        body.pms-view-cleaner #pmsTimezoneWrap{grid-column:1/-1;display:flex;align-items:center}
+        body.pms-view-cleaner #pmsTimezoneWrap>span,body.pms-view-cleaner #pmsLanguageWrap>span{font-size:12px}
+        body.pms-view-cleaner #pmsTimezoneSelect,body.pms-view-cleaner #pmsLanguageSelect{height:34px;font-size:12px}
+        body.pms-view-cleaner .pms-version-badge{justify-self:start;padding:4px 6px;font-size:9px}
+        body.pms-view-cleaner main{margin-top:8px}
+        body.pms-view-cleaner #cleanerTodayNotes .card{padding:8px 10px;margin-bottom:8px}
+        body.pms-view-cleaner #cleanerTodayNotes h2{font-size:16px;margin:0 0 6px}
+        body.pms-view-cleaner #cleanerTodayNotes .note-card{padding:7px 8px;margin:6px 0}
         .cleaning-list-card{padding:8px;background:#f8fafc}
         .cleaning-work-list{gap:10px}
         .cleaning-work-card{border-radius:8px}
@@ -1800,6 +1823,31 @@
         .task-confirm-item{padding:0;border:0;background:transparent}
         .photo-list a{min-height:36px}
         .sync-status,.badge{white-space:normal;text-align:center}
+        #cleaner .cleaning-list-card{padding:0;background:transparent;border:0;box-shadow:none}
+        #cleaner .cleaning-work-list{gap:8px}
+        #cleaner .cleaning-work-head{gap:6px;padding:8px 10px}
+        #cleaner .cleaning-work-name{font-size:15px;gap:5px}
+        #cleaner .cleaning-work-name .badge{font-size:11px;padding:3px 7px}
+        #cleaner .cleaning-work-title>.small{font-size:11px}
+        #cleaner .cleaning-work-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+        #cleaner .cleaning-work-meta .sync-status{font-size:11px;padding:3px 7px;width:auto}
+        #cleaner .cleaning-work-meta>div{font-size:13px}
+        #cleaner .cleaning-work-meta>div .sync-status{display:inline-flex}
+        #cleaner .cleaning-work-body{padding:8px 10px;gap:7px}
+        #cleaner .cleaning-work-note{font-size:12px;line-height:1.25;color:#64748b}
+        #cleaner .cleaning-task-rows{gap:7px}
+        #cleaner .cleaning-task-row{grid-template-columns:minmax(0,1fr)!important;align-items:stretch;padding:9px 10px;gap:7px}
+        #cleaner .cleaning-task-main{gap:5px}
+        #cleaner .cleaning-task-title{font-size:16px;line-height:1.25;gap:6px;flex-wrap:wrap}
+        #cleaner .cleaning-task-title-text{white-space:normal;overflow:visible;text-overflow:clip;flex:1 1 160px}
+        #cleaner .cleaning-task-title .sync-status{font-size:11px;padding:2px 6px;margin-left:auto}
+        #cleaner .cleaning-task-note{font-size:15px;line-height:1.45;white-space:normal;overflow:visible;text-overflow:clip;color:#334155}
+        #cleaner .cleaning-task-photo-panel{justify-self:stretch;width:100%}
+        #cleaner .cleaning-task-photo-panel>summary{width:100%;min-height:34px;padding:7px 10px}
+        #cleaner .cleaning-task-photo-panel[open]{grid-column:auto}
+        #cleaner .cleaning-task-confirm{justify-self:stretch;width:100%}
+        #cleaner .cleaning-task-confirm .mail-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+        #cleaner .cleaning-task-confirm .smallbtn{width:100%;min-height:36px}
       }
       @media(max-width:380px){
         .photo-cell .mail-actions{grid-template-columns:1fr}
@@ -3357,6 +3405,8 @@
   function renderOwnerImpl(){
     ensureBaseShell();
     ensureStyles();
+    document.body.classList.add('pms-view-owner');
+    document.body.classList.remove('pms-view-cleaner');
     if(!currentDataCount() && ui.loading){ensureDataGate('正在加载房源数据...'); return;}
     ensureOwnerPropertyModuleVisible();
     initSelectsImpl();
@@ -3522,6 +3572,8 @@
   function renderCleanerImpl(){
     ensureBaseShell();
     ensureStyles();
+    document.body.classList.add('pms-view-cleaner');
+    document.body.classList.remove('pms-view-owner');
     const rows = actualCleaningRowsImpl(addDay(today(),-90), addDay(today(),180), false).filter(r => cleanerCanSeeTarget(r.target_id,r.target_type));
     const todayRows = rows.filter(r => r.date === today()).sort((a,b) => targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
     const futureRows = rows.filter(r => r.date > today()).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN')).slice(0,120);
