@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-05-v74-owner-english-ui';
+  const VERSION = '2026-07-05-v75-owner-cleaning-english';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -67,6 +67,8 @@
       'owner.scope.title':'房间范围','owner.scope.sub':'先在上面勾房源，再在这里勾房间；点“保存默认”后，下次刷新或重新进入会直接按这些房间显示。','owner.scope.selected':'已选 {selected}/{total} 个房间','owner.scope.default':'默认 {count} 个','owner.scope.saveDefault':'保存默认','owner.scope.allRooms':'全部房间','owner.scope.only':'只看','owner.scope.empty':'当前房源没有房间。',
       'owner.metric.futureOrders':'未来订单','owner.metric.futureNights':'未来占用晚数','owner.metric.todayCleaning':'今日实际保洁','owner.metric.todayNotes':'今日备注',
       'owner.daily.title':'指定日期工作表','owner.daily.date':'日期：','owner.daily.today':'今天','owner.daily.next':'下一天','owner.daily.prev':'上一天',
+      'owner.daily.checkout':'退房','owner.daily.checkin':'入住','owner.daily.stay':'剩余在住','owner.daily.vacant':'空房','owner.daily.blocked':'不开放锁定','owner.daily.cleaningTasks':'保洁任务','owner.daily.checkoutLine':'退房：{checkout} ｜ 入住：{checkin}','owner.daily.stayLine':'还剩 {days} 天退房 ｜ 退房：{checkout}','owner.daily.orderLine':'订单：{checkin} → {checkout}','owner.daily.guest':'客人：{guest}','owner.daily.emptyNight':'当晚没有入住、在住或锁定记录。','owner.daily.noVacant':'暂无空房','owner.daily.none':'暂无','owner.daily.reason':'原因：{reason}','owner.daily.pendingTitle':'待房东确认','owner.daily.pendingSub':'这些是订单消失后的确认提醒，不是已经派给保洁的正式任务；确认需要保洁后才会进入保洁端。','owner.daily.cleaningTitle':'当天保洁任务','owner.daily.cleaningSub':'这里和保洁端使用同一套正式任务列表。','owner.daily.notesTitle':'当天备注','owner.daily.dateNote':'日期备注','owner.daily.noNotes':'暂无备注',
+      'cleaning.pendingConfirm':'待确认','cleaning.incompleteNoPay':'任务未完成，暂不结算','cleaning.donePayable':'已完成，可结算','cleaning.ownerConfirmCheckout':'房东确认退房保洁','cleaning.commonDaily':'公区每日保洁','cleaning.checkoutBasic':'退房基础保洁','cleaning.task':'保洁任务','cleaning.done':'已完成','cleaning.pending':'待完成','cleaning.notDue':'未到日期','cleaning.deferNextCheckout':'下次退房再做','cleaning.deferNext':'下次做','cleaning.photo':'照片','cleaning.photoN':'照片 {count}','cleaning.camera':'拍照','cleaning.uploadMany':'上传多张','cleaning.photoLink':'照片{count}','cleaning.notUploaded':'未上传','cleaning.expires7':'7天后自动删除','cleaning.followTasks':'按下方任务逐项完成。','cleaning.record':'保洁记录','cleaning.noItemConfirm':'无需逐项确认','cleaning.date':'日期：{date}','cleaning.noRecords':'暂无记录','cleaning.history':'历史记录','cleaning.progress':'{done}/{total} 已完成','cleaning.uploading':'上传中 {done}/{total}...','cleaning.uploaded':'已上传 {count} 张','cleaning.uploadFailedPartial':'已上传 {done}/{total} 张，失败：{message}','cleaning.uploadPhotoFailed':'上传照片失败：{message}',
       'owner.calendar.title':'未来房态总览','owner.calendar.sub':'默认未来 14 天，可切换 28 天，也可指定日期范围：','owner.calendar.range14':'未来14天','owner.calendar.range28':'未来28天','owner.calendar.vacancyOnly':'只看空房','owner.calendar.showAll':'显示全部房态','owner.calendar.vacancySummary':'只标空晚 · {visible}/{total} 个房间','owner.calendar.noVacancy':'当前日期范围没有空房','owner.calendar.noRooms':'当前房源没有房间','owner.calendar.roomDate':'房间 / 日期','owner.calendar.emptyNight':'空','owner.calendar.emptyNightTitle':'当晚空房','owner.calendar.note':'备注','owner.calendar.noteTitle':'有房东日期备注','owner.calendar.blocked':'不开放锁定','owner.calendar.stats':'{range}每个房间预订统计','owner.calendar.currentStats':'当前区间每个房间预订统计','owner.calendar.bookings':'{range}预订列表','owner.calendar.currentBookings':'当前区间预订列表','owner.calendar.platformAll':'全部平台','owner.calendar.direct':'微信直订',
       'owner.table.property':'房源','owner.table.room':'房间','owner.table.orders':'订单数','owner.table.orderNights':'订单晚数','owner.table.lockNights':'不开放锁定晚数','owner.table.availableNights':'可订晚数','owner.table.occupancy':'预订率','owner.table.cleaningFee':'单次保洁费','owner.table.noRooms':'当前筛选没有房间','owner.table.checkin':'入住/开始','owner.table.checkout':'退房/结束','owner.table.source':'来源','owner.table.guest':'客人','owner.table.status':'状态','owner.table.dateNotes':'日期备注','owner.table.noBookings':'当前日期范围没有预订'
     },
@@ -89,6 +91,8 @@
       'owner.scope.title':'Room scope','owner.scope.sub':'Select properties above, then select rooms here. After saving defaults, refreshes and new visits use these rooms automatically.','owner.scope.selected':'Selected {selected}/{total} rooms','owner.scope.default':'Default {count}','owner.scope.saveDefault':'Save default','owner.scope.allRooms':'All rooms','owner.scope.only':'Only','owner.scope.empty':'No rooms in the current property scope.',
       'owner.metric.futureOrders':'Future orders','owner.metric.futureNights':'Future occupied nights','owner.metric.todayCleaning':'Today cleaning','owner.metric.todayNotes':'Today notes',
       'owner.daily.title':'Work sheet','owner.daily.date':'Date:','owner.daily.today':'Today','owner.daily.next':'Next day','owner.daily.prev':'Previous day',
+      'owner.daily.checkout':'Check-outs','owner.daily.checkin':'Check-ins','owner.daily.stay':'Still occupied','owner.daily.vacant':'Vacant','owner.daily.blocked':'Blocked','owner.daily.cleaningTasks':'Cleaning tasks','owner.daily.checkoutLine':'Check-out: {checkout} | Check-in: {checkin}','owner.daily.stayLine':'{days} days until check-out | Check-out: {checkout}','owner.daily.orderLine':'Booking: {checkin} -> {checkout}','owner.daily.guest':'Guest: {guest}','owner.daily.emptyNight':'No check-in, stay, or block for this night.','owner.daily.noVacant':'No vacant rooms','owner.daily.none':'None','owner.daily.reason':'Reason: {reason}','owner.daily.pendingTitle':'Needs owner confirmation','owner.daily.pendingSub':'These are confirmation alerts after a booking disappeared. They are not official cleaner tasks until the owner confirms cleaning is needed.','owner.daily.cleaningTitle':'Today cleaning tasks','owner.daily.cleaningSub':'This uses the same official task list as the cleaner workspace.','owner.daily.notesTitle':'Today notes','owner.daily.dateNote':'Date note','owner.daily.noNotes':'No notes',
+      'cleaning.pendingConfirm':'Pending confirmation','cleaning.incompleteNoPay':'Tasks incomplete, not payable yet','cleaning.donePayable':'Completed, payable','cleaning.ownerConfirmCheckout':'Owner-confirmed turnover cleaning','cleaning.commonDaily':'Daily common-area cleaning','cleaning.checkoutBasic':'Turnover cleaning','cleaning.task':'Cleaning task','cleaning.done':'Done','cleaning.pending':'Pending','cleaning.notDue':'Not due','cleaning.deferNextCheckout':'Move to next checkout','cleaning.deferNext':'Next time','cleaning.photo':'Photos','cleaning.photoN':'Photos {count}','cleaning.camera':'Camera','cleaning.uploadMany':'Upload photos','cleaning.photoLink':'Photo {count}','cleaning.notUploaded':'Not uploaded','cleaning.expires7':'Auto-deletes after 7 days','cleaning.followTasks':'Complete each task below.','cleaning.record':'Cleaning record','cleaning.noItemConfirm':'No item confirmation required','cleaning.date':'Date: {date}','cleaning.noRecords':'No records','cleaning.history':'History','cleaning.progress':'{done}/{total} done','cleaning.uploading':'Uploading {done}/{total}...','cleaning.uploaded':'Uploaded {count} photos','cleaning.uploadFailedPartial':'Uploaded {done}/{total}; failed: {message}','cleaning.uploadPhotoFailed':'Photo upload failed: {message}',
       'owner.calendar.title':'Future calendar','owner.calendar.sub':'Default 14 days. Switch to 28 days or choose a custom range:','owner.calendar.range14':'Next 14 days','owner.calendar.range28':'Next 28 days','owner.calendar.vacancyOnly':'Vacant only','owner.calendar.showAll':'Show all status','owner.calendar.vacancySummary':'Vacant nights only · {visible}/{total} rooms','owner.calendar.noVacancy':'No vacant rooms in this date range','owner.calendar.noRooms':'No rooms in the current property scope','owner.calendar.roomDate':'Room / date','owner.calendar.emptyNight':'Open','owner.calendar.emptyNightTitle':'Open for the night','owner.calendar.note':'Note','owner.calendar.noteTitle':'Owner date note','owner.calendar.blocked':'Blocked','owner.calendar.stats':'{range} reservation stats by room','owner.calendar.currentStats':'Current range reservation stats by room','owner.calendar.bookings':'{range} reservation list','owner.calendar.currentBookings':'Current range reservation list','owner.calendar.platformAll':'All platforms','owner.calendar.direct':'Direct booking',
       'owner.table.property':'Property','owner.table.room':'Room','owner.table.orders':'Orders','owner.table.orderNights':'Booked nights','owner.table.lockNights':'Blocked nights','owner.table.availableNights':'Available nights','owner.table.occupancy':'Occupancy','owner.table.cleaningFee':'Cleaning fee','owner.table.noRooms':'No rooms match the current filter','owner.table.checkin':'Check-in / start','owner.table.checkout':'Check-out / end','owner.table.source':'Source','owner.table.guest':'Guest','owner.table.status':'Status','owner.table.dateNotes':'Date notes','owner.table.noBookings':'No reservations in this date range'
     },
@@ -111,6 +115,8 @@
       'owner.scope.title':'Alcance de habitaciones','owner.scope.sub':'Selecciona propiedades arriba y habitaciones aquí. Al guardar, se usarán por defecto.','owner.scope.selected':'Seleccionadas {selected}/{total} habitaciones','owner.scope.default':'Predeterminado {count}','owner.scope.saveDefault':'Guardar defecto','owner.scope.allRooms':'Todas las habitaciones','owner.scope.only':'Solo','owner.scope.empty':'No hay habitaciones en este alcance.',
       'owner.metric.futureOrders':'Pedidos futuros','owner.metric.futureNights':'Noches ocupadas','owner.metric.todayCleaning':'Limpieza hoy','owner.metric.todayNotes':'Notas hoy',
       'owner.daily.title':'Hoja diaria','owner.daily.date':'Fecha:','owner.daily.today':'Hoy','owner.daily.next':'Día siguiente','owner.daily.prev':'Día anterior',
+      'owner.daily.checkout':'Salidas','owner.daily.checkin':'Entradas','owner.daily.stay':'Ocupadas','owner.daily.vacant':'Libres','owner.daily.blocked':'Bloqueadas','owner.daily.cleaningTasks':'Tareas limpieza','owner.daily.checkoutLine':'Salida: {checkout} | Entrada: {checkin}','owner.daily.stayLine':'Faltan {days} días para salida | Salida: {checkout}','owner.daily.orderLine':'Reserva: {checkin} -> {checkout}','owner.daily.guest':'Huésped: {guest}','owner.daily.emptyNight':'Sin entrada, estancia ni bloqueo esta noche.','owner.daily.noVacant':'No hay libres','owner.daily.none':'Ninguno','owner.daily.reason':'Motivo: {reason}','owner.daily.pendingTitle':'Requiere confirmación','owner.daily.pendingSub':'Alertas por reservas desaparecidas. No son tareas oficiales hasta que el propietario confirme.','owner.daily.cleaningTitle':'Tareas de limpieza de hoy','owner.daily.cleaningSub':'Usa la misma lista oficial que ve limpieza.','owner.daily.notesTitle':'Notas de hoy','owner.daily.dateNote':'Nota de fecha','owner.daily.noNotes':'Sin notas',
+      'cleaning.pendingConfirm':'Pendiente','cleaning.incompleteNoPay':'Tareas incompletas, no pagable','cleaning.donePayable':'Completado, pagable','cleaning.ownerConfirmCheckout':'Limpieza de salida confirmada','cleaning.commonDaily':'Limpieza diaria de áreas comunes','cleaning.checkoutBasic':'Limpieza de salida','cleaning.task':'Tarea de limpieza','cleaning.done':'Hecho','cleaning.pending':'Pendiente','cleaning.notDue':'Aún no vence','cleaning.deferNextCheckout':'Mover a próxima salida','cleaning.deferNext':'Próxima vez','cleaning.photo':'Fotos','cleaning.photoN':'Fotos {count}','cleaning.camera':'Cámara','cleaning.uploadMany':'Subir fotos','cleaning.photoLink':'Foto {count}','cleaning.notUploaded':'Sin subir','cleaning.expires7':'Se borra en 7 días','cleaning.followTasks':'Completa cada tarea abajo.','cleaning.record':'Registro de limpieza','cleaning.noItemConfirm':'No requiere confirmación por ítem','cleaning.date':'Fecha: {date}','cleaning.noRecords':'Sin registros','cleaning.history':'Historial','cleaning.progress':'{done}/{total} hecho','cleaning.uploading':'Subiendo {done}/{total}...','cleaning.uploaded':'Subidas {count} fotos','cleaning.uploadFailedPartial':'Subidas {done}/{total}; error: {message}','cleaning.uploadPhotoFailed':'Error al subir foto: {message}',
       'owner.calendar.title':'Calendario futuro','owner.calendar.sub':'Predeterminado 14 días. Cambia a 28 días o elige rango:','owner.calendar.range14':'Próximos 14 días','owner.calendar.range28':'Próximos 28 días','owner.calendar.vacancyOnly':'Solo vacantes','owner.calendar.showAll':'Mostrar todo','owner.calendar.vacancySummary':'Solo noches libres · {visible}/{total} habitaciones','owner.calendar.noVacancy':'No hay vacantes en este rango','owner.calendar.noRooms':'No hay habitaciones en este alcance','owner.calendar.roomDate':'Habitación / fecha','owner.calendar.emptyNight':'Libre','owner.calendar.emptyNightTitle':'Libre esa noche','owner.calendar.note':'Nota','owner.calendar.noteTitle':'Nota del propietario','owner.calendar.blocked':'Bloqueado','owner.calendar.stats':'{range} estadísticas por habitación','owner.calendar.currentStats':'Estadísticas del rango por habitación','owner.calendar.bookings':'{range} lista de reservas','owner.calendar.currentBookings':'Lista de reservas del rango','owner.calendar.platformAll':'Todas las plataformas','owner.calendar.direct':'Reserva directa',
       'owner.table.property':'Propiedad','owner.table.room':'Habitación','owner.table.orders':'Pedidos','owner.table.orderNights':'Noches reservadas','owner.table.lockNights':'Noches bloqueadas','owner.table.availableNights':'Noches disponibles','owner.table.occupancy':'Ocupación','owner.table.cleaningFee':'Tarifa limpieza','owner.table.noRooms':'No hay habitaciones con este filtro','owner.table.checkin':'Entrada / inicio','owner.table.checkout':'Salida / fin','owner.table.source':'Fuente','owner.table.guest':'Huésped','owner.table.status':'Estado','owner.table.dateNotes':'Notas de fecha','owner.table.noBookings':'No hay reservas en este rango'
     }
@@ -141,6 +147,78 @@
       text = text.replace(new RegExp('\\{' + name + '\\}','g'), vars[name]);
     });
     return text;
+  }
+  const DATA_TEXT_TRANSLATIONS = {
+    'en-US': {
+      '系统退房自动生成':'System-generated checkout task',
+      '房东确认退房保洁':'Owner-confirmed turnover cleaning',
+      '订单消失待确认':'Booking disappeared, pending confirmation',
+      '订单消失后的退房保洁待确认':'Turnover cleaning after a disappeared booking, pending confirmation',
+      '公区每日保洁':'Daily common-area cleaning',
+      '退房基础保洁':'Turnover cleaning',
+      '周期任务':'Recurring task',
+      '深度保洁':'Deep cleaning',
+      '周期保洁任务':'Recurring cleaning task',
+      '备注':'Note',
+      '手动增加':'Manual add',
+      '每次退房基础保洁':'Standard turnover cleaning',
+      '厨卫深清和水垢检查':'Kitchen and bathroom deep clean / scale check',
+      '房间厨房深清和水垢检查':'Room kitchen deep clean / scale check',
+      '卫浴深清和水垢检查':'Bathroom deep clean / scale check',
+      '耗材库存和布草检查':'Supplies and linen check',
+      '窗户轨道/纱窗/窗台灰尘':'Window tracks / screens / sill dust',
+      '床底沙发边角和踢脚线':'Under beds, sofa edges, and baseboards',
+      '排水口/马桶异味维护':'Drain / toilet odor maintenance',
+      '防虫巡检和必要处理':'Pest inspection and needed treatment',
+      '空调滤网/通风口检查':'A/C filter and vent check',
+      '床垫/沙发/枕芯保护层检查':'Mattress / sofa / pillow protector check',
+      '窗帘百叶/灯具/高处灰尘':'Curtains, blinds, lights, and high dust',
+      '垃圾清空、床品毛巾更换、独立卫生间清洁、地面吸尘拖地、高频接触点擦拭、补齐耗材、拍照记录异常。':'Trash removal, linens and towels changed, private bathroom cleaned, floors vacuumed/mopped, high-touch surfaces wiped, supplies replenished, and exceptions photographed.',
+      '垃圾清空、床品毛巾更换、厨房台面和餐具检查、卫浴清洁、地面吸尘拖地、高频触摸点擦拭、补齐耗材、拍照记录异常。':'Trash removal, linens and towels changed, kitchen counters and dishes checked, bathroom cleaned, floors vacuumed/mopped, high-touch surfaces wiped, supplies replenished, and exceptions photographed.',
+      '检查厨房油污、水槽、淋浴玻璃、马桶边角、地漏和水垢；在当天保洁量少时补做。':'Check kitchen grease, sink, shower glass, toilet edges, floor drains, and scale. Do it on lighter cleaning days.',
+      '检查房间内厨房油污、水槽、台面、淋浴玻璃、马桶边角、地漏和水垢；在当天保洁量少时补做。':'Check in-room kitchen grease, sink, counter, shower glass, toilet edges, floor drains, and scale. Do it on lighter cleaning days.',
+      '检查房间内厨房油污、水槽、台面和小厨房区域水垢；在当天保洁量少时补做。':'Check in-room kitchen grease, sink, counter, and kitchenette scale. Do it on lighter cleaning days.',
+      '检查独立卫生间淋浴玻璃、马桶边角、地漏和水垢；在当天保洁量少时补做。':'Check private bathroom shower glass, toilet edges, floor drains, and scale. Do it on lighter cleaning days.',
+      '检查纸巾、垃圾袋、洗手液、洗衣液、备用毛巾和用品；记录缺货。':'Check paper goods, trash bags, hand soap, laundry detergent, spare towels, and supplies. Record shortages.',
+      '清理窗户轨道、窗台、纱窗表面灰尘；保洁量大时可顺延到下一次退房。':'Clean window tracks, sills, and screen dust. Can move to the next checkout when workload is heavy.',
+      '吸尘床底、沙发边角、踢脚线、门后和柜角。':'Vacuum under beds, sofa edges, baseboards, behind doors, and cabinet corners.',
+      '检查淋浴、洗手池、厨房水槽、马桶和地漏异味，按产品说明维护。':'Check odors from shower, sink, kitchen sink, toilet, and floor drains. Maintain according to product instructions.',
+      '检查淋浴、洗手池、马桶和地漏异味；只使用适合管道的产品，并按产品说明操作。':'Check odors from shower, sink, toilet, and floor drains. Use only pipe-safe products and follow labels.',
+      '检查食物残渣、垃圾、门窗缝、潮湿点和虫迹；优先清洁/封堵，确需用药时按标签说明处理。':'Check food residue, trash, door/window gaps, damp spots, and pest traces. Clean/seal first; use chemicals only as labeled when needed.',
+      '检查空调滤网、回风口、排风扇和出风口积灰；需要更换时记录给房东确认。':'Check A/C filters, return vents, exhaust fans, and outlet dust. Record items that need owner approval.',
+      '检查床垫保护套、枕芯、沙发垫、床架缝隙和可见污渍，必要时拍照反馈。':'Check mattress protectors, pillows, sofa cushions, bed-frame gaps, and visible stains. Photograph issues when needed.',
+      '清理窗帘、百叶、灯具、风扇、高处置物架和装饰物积灰。':'Dust curtains, blinds, lights, fans, high shelves, and decor.',
+      '其他公区每日清洁':'Other common-area daily cleaning',
+      '共享厨房每日清洁':'Shared kitchen daily cleaning',
+      '共享卫生间每日清洁':'Shared bathroom daily cleaning'
+    },
+    'es-ES': {
+      '系统退房自动生成':'Tarea automática de salida',
+      '房东确认退房保洁':'Limpieza de salida confirmada',
+      '公区每日保洁':'Limpieza diaria de áreas comunes',
+      '退房基础保洁':'Limpieza de salida',
+      '周期任务':'Tarea recurrente',
+      '深度保洁':'Limpieza profunda',
+      '每次退房基础保洁':'Limpieza básica de salida'
+    }
+  };
+  function displayDataText(value){
+    const text = String(value == null ? '' : value);
+    if(!text || currentLanguage() === 'zh-CN') return text;
+    const map = DATA_TEXT_TRANSLATIONS[currentLanguage()] || DATA_TEXT_TRANSLATIONS['en-US'] || {};
+    if(map[text]) return map[text];
+    let out = text;
+    Object.keys(map).sort((a,b) => b.length - a.length).forEach(src => {
+      if(src && out.includes(src)) out = out.split(src).join(map[src]);
+    });
+    if(currentLanguage() !== 'zh-CN'){
+      out = out.replace(/（(\d+) 个）/g, ' ($1)')
+        .replace(/（(\d+)个）/g, ' ($1)')
+        .replace(/：/g, ': ')
+        .replace(/；/g, '; ')
+        .replace(/，/g, ', ');
+    }
+    return out;
   }
   function languageOptions(selected){
     const current = normalizeLanguage(selected || currentLanguage());
@@ -546,10 +624,10 @@
   function commonAreaKindLabel(area){
     const c = commonAreaComponents(area);
     const parts = [];
-    if(c.has_kitchen) parts.push(`共享厨房 ${c.kitchen_count}`);
-    if(c.has_bathroom) parts.push(`共享卫生间 ${c.bathroom_count}`);
+    if(c.has_kitchen) parts.push(currentLanguage() === 'zh-CN' ? `共享厨房 ${c.kitchen_count}` : `Shared kitchen ${c.kitchen_count}`);
+    if(c.has_bathroom) parts.push(currentLanguage() === 'zh-CN' ? `共享卫生间 ${c.bathroom_count}` : `Shared bathroom ${c.bathroom_count}`);
     if(c.has_general) parts.push(`${c.general_label} ${c.general_count}`);
-    return parts.length ? parts.join(' / ') : '公区';
+    return parts.length ? parts.join(' / ') : (currentLanguage() === 'zh-CN' ? '公区' : 'Common area');
   }
   function commonAreaCount(area){
     const n = Math.max(1, Number((area && (area.unit_count || area.unitCount || area.count)) || 1));
@@ -563,10 +641,16 @@
   function commonAreaReason(area){
     const c = commonAreaComponents(area);
     const parts = [];
-    if(c.has_kitchen) parts.push(`共享厨房每日清洁（${c.kitchen_count} 个）：台面、水槽、灶台、垃圾、地面和公共耗材`);
-    if(c.has_bathroom) parts.push(`共享卫生间每日清洁（${c.bathroom_count} 个）：马桶、洗手台、镜面、淋浴区、地面、垃圾和耗材`);
-    if(c.has_general) parts.push(`${c.general_label}每日清洁（${c.general_count} 个）：公共地面、垃圾、台面和公共用品`);
-    return parts.join('；') + '。';
+    if(currentLanguage() === 'zh-CN'){
+      if(c.has_kitchen) parts.push(`共享厨房每日清洁（${c.kitchen_count} 个）：台面、水槽、灶台、垃圾、地面和公共耗材`);
+      if(c.has_bathroom) parts.push(`共享卫生间每日清洁（${c.bathroom_count} 个）：马桶、洗手台、镜面、淋浴区、地面、垃圾和耗材`);
+      if(c.has_general) parts.push(`${c.general_label}每日清洁（${c.general_count} 个）：公共地面、垃圾、台面和公共用品`);
+      return parts.join('；') + '。';
+    }
+    if(c.has_kitchen) parts.push(`Shared kitchen daily cleaning (${c.kitchen_count}): counters, sink, stove, trash, floors, and shared supplies`);
+    if(c.has_bathroom) parts.push(`Shared bathroom daily cleaning (${c.bathroom_count}): toilet, sink, mirror, shower area, floors, trash, and supplies`);
+    if(c.has_general) parts.push(`${c.general_label} daily cleaning (${c.general_count}): common floors, trash, counters, and shared items`);
+    return parts.join('; ') + '.';
   }
   function money(value){
     const n = Number(value || 0);
@@ -1734,9 +1818,20 @@
     const cls = p === 'Airbnb' ? 'blue' : p === 'Booking' ? 'green' : p === 'Vrbo' ? 'yellow' : p === 'Other' ? 'purple' : '';
     return `<span class="badge ${cls}">${esc(p)}</span>`;
   }
-  function objectBadge(type){return type === 'common' ? '<span class="badge orange">公区</span>' : '<span class="badge">房间</span>';}
-  function priorityBadge(value){return value === '重要' ? '<span class="badge red">重要</span>' : '<span class="badge blue">普通</span>';}
-  function changeBadge(value){return value === 'add' ? '<span class="badge green">额外增加</span>' : '<span class="badge red">取消保洁</span>';}
+  function objectBadge(type){
+    const label = type === 'common' ? (currentLanguage() === 'zh-CN' ? '公区' : (currentLanguage() === 'es-ES' ? 'Área' : 'Common area')) : t('common.room');
+    return `<span class="badge ${type === 'common' ? 'orange' : ''}">${esc(label)}</span>`;
+  }
+  function priorityBadge(value){
+    const important = value === '重要';
+    const label = important ? (currentLanguage() === 'zh-CN' ? '重要' : (currentLanguage() === 'es-ES' ? 'Importante' : 'Important')) : t('common.normal');
+    return `<span class="badge ${important ? 'red' : 'blue'}">${esc(label)}</span>`;
+  }
+  function changeBadge(value){
+    const add = value === 'add';
+    const label = add ? (currentLanguage() === 'zh-CN' ? '额外增加' : (currentLanguage() === 'es-ES' ? 'Agregar limpieza' : 'Extra cleaning')) : (currentLanguage() === 'zh-CN' ? '取消保洁' : (currentLanguage() === 'es-ES' ? 'Cancelar limpieza' : 'Cancel cleaning'));
+    return `<span class="badge ${add ? 'green' : 'red'}">${esc(label)}</span>`;
+  }
 
   function inventoryGroupId(room){
     return String((room && (room.inventory_group_id || room.inventoryGroupId)) || (room && room.id) || '');
@@ -1754,7 +1849,12 @@
     if(/reserved|reservation|confirmed|accepted|booked|预订|订单|入住/.test(text)) return false;
     return false;
   }
-  function lockReason(b){return String((b && (b.lock_reason || b.lockReason || b.status || b.summary || b.reason)) || '手动不开放锁定');}
+  function lockReason(b){
+    const text = String((b && (b.lock_reason || b.lockReason || b.status || b.summary || b.reason)) || '');
+    if(text) return displayDataText(text);
+    if(currentLanguage() === 'zh-CN') return '手动不开放锁定';
+    return currentLanguage() === 'es-ES' ? 'Bloqueo manual' : 'Manual block';
+  }
   function bookingStableKey(b){
     return [roomEntityId(b && b.room_id), b && b.checkin, b && b.checkout, isLockedBooking(b) ? 'lock' : 'booking'].map(x => String(x || '')).join('|');
   }
@@ -1997,9 +2097,9 @@
       date: row.date,
       target_id: row.target_id,
       target_type: row.target_type || 'room',
-      title: note.title || row.title || row.source || '保洁任务',
-      note: note.note || row.reason || '',
-      source: row.source || '',
+      title: displayDataText(note.title || row.title || row.source || t('cleaning.task')),
+      note: displayDataText(note.note || row.reason || ''),
+      source: displayDataText(row.source || ''),
       amount: Number(row.amount || 0),
       can_defer: note.can_defer !== false && row.can_defer !== false,
       note_id: row.note_id || '',
@@ -2125,17 +2225,17 @@
     return targetFee(row.target_id,row.target_type) + subtaskAmount;
   }
   function rowFeeText(row){
-    if(row.cancel_review_task && String(row.review_status || 'pending') !== 'clean_needed') return '<span class="sync-status warn">待确认</span>';
+    if(row.cancel_review_task && String(row.review_status || 'pending') !== 'clean_needed') return `<span class="sync-status warn">${esc(t('cleaning.pendingConfirm'))}</span>`;
     const amount = money(rowAmount(row));
     if(!cleaningConfirmRequired(row)) return amount;
     const items = cleaningRowItems(row);
-    if(items.length && !cleaningRowComplete(row)) return `${amount}<div class="sync-status warn">任务未完成，暂不结算</div>`;
-    if(items.length) return `${amount}<div class="sync-status ok">已完成，可结算</div>`;
+    if(items.length && !cleaningRowComplete(row)) return `${amount}<div class="sync-status warn">${esc(t('cleaning.incompleteNoPay'))}</div>`;
+    if(items.length) return `${amount}<div class="sync-status ok">${esc(t('cleaning.donePayable'))}</div>`;
     return amount;
   }
   function cleaningRowMainTask(row){
     const type = row.target_type || 'room';
-    const title = row.cancel_review_task ? '房东确认退房保洁' : (type === 'common' ? '公区每日保洁' : '退房基础保洁');
+    const title = row.cancel_review_task ? t('cleaning.ownerConfirmCheckout') : (type === 'common' ? t('cleaning.commonDaily') : t('cleaning.checkoutBasic'));
     const key = [row.date,type,row.target_id,row.type || '',row.review_note_id || row.note_id || '',title].map(x => String(x || '')).join('|');
     return {
       key,
@@ -2143,8 +2243,8 @@
       target_id: row.target_id,
       target_type: type,
       title,
-      note: row.reason || '',
-      source: row.source || '',
+      note: displayDataText(row.reason || ''),
+      source: displayDataText(row.source || ''),
       amount: 0,
       can_defer: false,
       required: true,
@@ -2268,19 +2368,19 @@
     const statusId = 'cleanPhotoStatus_' + safe(key);
     const photos = cleaningPhotosForRow(row,item);
     const canUpload = row.date <= today();
-    const upload = canUpload ? `<div class="mail-actions"><label class="smallbtn" for="${cameraId}">拍照</label><label class="smallbtn" for="${fileId}">上传多张</label></div><input id="${cameraId}" data-upload-source="camera" type="file" accept="image/*" capture="environment" multiple onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><input id="${fileId}" data-upload-source="file" type="file" accept="image/*" multiple onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><div id="${statusId}" class="photo-status"></div>` : '';
+    const upload = canUpload ? `<div class="mail-actions"><label class="smallbtn" for="${cameraId}">${esc(t('cleaning.camera'))}</label><label class="smallbtn" for="${fileId}">${esc(t('cleaning.uploadMany'))}</label></div><input id="${cameraId}" data-upload-source="camera" type="file" accept="image/*" capture="environment" multiple onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><input id="${fileId}" data-upload-source="file" type="file" accept="image/*" multiple onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><div id="${statusId}" class="photo-status"></div>` : '';
     const list = photos.length ? `<div class="photo-list">${photos.map((p,i) => {
       const href = String(p.url || '').startsWith('/') ? apiUrl(p.url) : String(p.url || '');
-      return `<a href="${esc(href)}" target="_blank" rel="noopener">照片${i+1}</a>`;
-    }).join('')}</div>` : '<span class="small">未上传</span>';
-    const expiry = photos.length ? `<div class="photo-expiry">7天后自动删除</div>` : '';
+      return `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(t('cleaning.photoLink', {count: i + 1}))}</a>`;
+    }).join('')}</div>` : `<span class="small">${esc(t('cleaning.notUploaded'))}</span>`;
+    const expiry = photos.length ? `<div class="photo-expiry">${esc(t('cleaning.expires7'))}</div>` : '';
     return `<div class="photo-cell">${upload}${list}${expiry}</div>`;
   }
   function cleaningPhotoColumn(row){
     if(!row || row.cancel_review_task) return cleaningPhotoControls(row);
     const items = cleaningRowItems(row);
     if(items.length <= 1) return cleaningPhotoControls(row, items[0]);
-    return `<div class="task-photo-list">${items.map(item => `<div class="task-photo-item"><div class="small"><b>${esc(item.title || '保洁任务')}</b></div>${cleaningPhotoControls(row,item)}</div>`).join('')}</div>`;
+    return `<div class="task-photo-list">${items.map(item => `<div class="task-photo-item"><div class="small"><b>${esc(item.title || t('cleaning.task'))}</b></div>${cleaningPhotoControls(row,item)}</div>`).join('')}</div>`;
   }
   function chooseCleaningPhoto(encodedKey,mode){
     const key = decodeURIComponent(encodedKey || '');
@@ -2338,7 +2438,7 @@
     let uploaded = 0;
     try{
       for(const file of files){
-        setStatus(`上传中 ${uploaded + 1}/${files.length}...`);
+        setStatus(t('cleaning.uploading', {done: uploaded + 1, total: files.length}));
         const dataUrl = await prepareCleaningPhoto(file);
         const res = await fetch(apiUrl('/api/cleaning-photo'), {
           method: 'POST',
@@ -2352,12 +2452,12 @@
         applyStateFromServerImpl(data.state || data);
         uploaded += 1;
       }
-      setStatus(`已上传 ${uploaded} 张`, 'ok');
+      setStatus(t('cleaning.uploaded', {count: uploaded}), 'ok');
       renderAll();
     }catch(e){
       const message = e && e.message ? e.message : String(e || '未知错误');
-      setStatus(`已上传 ${uploaded}/${files.length} 张，失败：` + message, 'error');
-      alert('上传照片失败：' + message);
+      setStatus(t('cleaning.uploadFailedPartial', {done: uploaded, total: files.length, message}), 'error');
+      alert(t('cleaning.uploadPhotoFailed', {message}));
     }finally{
       if(input) input.value = '';
       document.title = oldTitle;
@@ -2366,7 +2466,7 @@
   function cleaningConfirmControls(row){
     if(!row) return '';
     if(row.cancel_review_task) return cleaningReviewControls(row);
-    if(!cleaningConfirmRequired(row)) return '<span class="sync-status ok">历史记录</span>';
+    if(!cleaningConfirmRequired(row)) return `<span class="sync-status ok">${esc(t('cleaning.history'))}</span>`;
     const items = cleaningRowItems(row);
     if(!items.length) return '';
     const canComplete = row.date <= today();
@@ -2375,57 +2475,57 @@
       ui.confirmRows[key] = {row, item};
       const doneRow = subtaskConfirmation(key);
       if(doneRow){
-        return `<div class="task-confirm-item done"><span class="sync-status ok">已完成</span><div class="small">${esc(doneRow.completed_at || doneRow.created_at || '')}</div></div>`;
+        return `<div class="task-confirm-item done"><span class="sync-status ok">${esc(t('cleaning.done'))}</span><div class="small">${esc(doneRow.completed_at || doneRow.created_at || '')}</div></div>`;
       }
-      const completeBtn = canComplete ? `<button class="smallbtn primary" onclick="markCleaningSubtaskDone('${encodeURIComponent(key)}',this)">完成</button>` : '<span class="sync-status warn">未到日期</span>';
-      const deferBtn = item.can_defer ? `<button class="smallbtn" onclick="deferCleaningSubtask('${encodeURIComponent(key)}',this)">下次退房再做</button>` : '';
-      return `<div class="task-confirm-item"><div class="small">${esc(item.title || '保洁任务')}</div><div class="mail-actions">${completeBtn}${deferBtn}</div></div>`;
+      const completeBtn = canComplete ? `<button class="smallbtn primary" onclick="markCleaningSubtaskDone('${encodeURIComponent(key)}',this)">${esc(t('cleaning.done'))}</button>` : `<span class="sync-status warn">${esc(t('cleaning.notDue'))}</span>`;
+      const deferBtn = item.can_defer ? `<button class="smallbtn" onclick="deferCleaningSubtask('${encodeURIComponent(key)}',this)">${esc(t('cleaning.deferNextCheckout'))}</button>` : '';
+      return `<div class="task-confirm-item"><div class="small">${esc(item.title || t('cleaning.task'))}</div><div class="mail-actions">${completeBtn}${deferBtn}</div></div>`;
     }).join('')}</div>`;
   }
   function cleaningTaskConfirmControl(row,item){
     if(!row) return '';
     if(row.cancel_review_task) return cleaningReviewControls(row);
-    if(!cleaningConfirmRequired(row)) return '<span class="sync-status ok">历史记录</span>';
+    if(!cleaningConfirmRequired(row)) return `<span class="sync-status ok">${esc(t('cleaning.history'))}</span>`;
     const key = String((item && item.key) || '');
     ui.confirmRows[key] = {row, item};
     const doneRow = subtaskConfirmation(key);
-    if(doneRow) return `<div class="task-confirm-item done"><span class="sync-status ok">已完成</span><div class="small">${esc(doneRow.completed_at || doneRow.created_at || '')}</div></div>`;
+    if(doneRow) return `<div class="task-confirm-item done"><span class="sync-status ok">${esc(t('cleaning.done'))}</span><div class="small">${esc(doneRow.completed_at || doneRow.created_at || '')}</div></div>`;
     const canComplete = row.date <= today();
-    const completeBtn = canComplete ? `<button class="smallbtn primary task-done-btn" onclick="markCleaningSubtaskDone('${encodeURIComponent(key)}',this)">完成</button>` : '<span class="sync-status warn">未到日期</span>';
-    const deferBtn = item && item.can_defer ? `<button class="smallbtn task-defer-btn" onclick="deferCleaningSubtask('${encodeURIComponent(key)}',this)">下次做</button>` : '';
+    const completeBtn = canComplete ? `<button class="smallbtn primary task-done-btn" onclick="markCleaningSubtaskDone('${encodeURIComponent(key)}',this)">${esc(t('cleaning.done'))}</button>` : `<span class="sync-status warn">${esc(t('cleaning.notDue'))}</span>`;
+    const deferBtn = item && item.can_defer ? `<button class="smallbtn task-defer-btn" onclick="deferCleaningSubtask('${encodeURIComponent(key)}',this)">${esc(t('cleaning.deferNext'))}</button>` : '';
     return `<div class="mail-actions">${completeBtn}${deferBtn}</div>`;
   }
   function cleaningTaskRow(row,item,index,total){
     const done = subtaskDone(item.key);
     const cls = done ? 'done' : 'pending';
-    const status = done ? '<span class="sync-status ok">已完成</span>' : '<span class="sync-status warn">待完成</span>';
+    const status = done ? `<span class="sync-status ok">${esc(t('cleaning.done'))}</span>` : `<span class="sync-status warn">${esc(t('cleaning.pending'))}</span>`;
     const photoCount = cleaningPhotosForRow(row,item).length;
-    const photoLabel = photoCount ? `照片 ${photoCount}` : '照片';
-    return `<div class="cleaning-task-row ${cls}"><div class="cleaning-task-main"><div class="cleaning-task-title"><span class="cleaning-task-index">${index + 1}</span><span class="cleaning-task-title-text">${esc(item.title || '保洁任务')}</span>${status}</div>${item.note ? `<div class="cleaning-task-note">${esc(item.note)}</div>` : ''}</div><details class="cleaning-task-photo-panel"><summary>${esc(photoLabel)}</summary>${cleaningPhotoControls(row,item)}</details><div class="cleaning-task-actions cleaning-task-confirm">${cleaningTaskConfirmControl(row,item)}</div></div>`;
+    const photoLabel = photoCount ? t('cleaning.photoN', {count: photoCount}) : t('cleaning.photo');
+    return `<div class="cleaning-task-row ${cls}"><div class="cleaning-task-main"><div class="cleaning-task-title"><span class="cleaning-task-index">${index + 1}</span><span class="cleaning-task-title-text">${esc(item.title || t('cleaning.task'))}</span>${status}</div>${item.note ? `<div class="cleaning-task-note">${esc(item.note)}</div>` : ''}</div><details class="cleaning-task-photo-panel"><summary>${esc(photoLabel)}</summary>${cleaningPhotoControls(row,item)}</details><div class="cleaning-task-actions cleaning-task-confirm">${cleaningTaskConfirmControl(row,item)}</div></div>`;
   }
   function cleaningRowProgressBadge(row){
     if(row.cancel_review_task) return cleaningReviewControls(row);
-    if(!cleaningConfirmRequired(row)) return '<span class="sync-status ok">历史记录</span>';
+    if(!cleaningConfirmRequired(row)) return `<span class="sync-status ok">${esc(t('cleaning.history'))}</span>`;
     const items = cleaningRowItems(row);
     const done = items.filter(item => subtaskDone(item.key)).length;
     const cls = done === items.length ? 'ok' : 'warn';
-    return `<span class="sync-status ${cls}">${done}/${items.length} 已完成</span>`;
+    return `<span class="sync-status ${cls}">${esc(t('cleaning.progress', {done, total: items.length}))}</span>`;
   }
   function cleaningWorkCard(row,showProp,showSource){
     const type = row.target_type || 'room';
     const prop = showProp ? `<span class="badge blue">${esc(propName(targetPropId(row.target_id,type)))}</span>` : '';
-    const source = showSource && row.source ? `<span class="badge">${esc(row.source)}</span>` : '';
+    const source = showSource && row.source ? `<span class="badge">${esc(displayDataText(row.source))}</span>` : '';
     const title = esc(targetName(row.target_id,type));
-    const note = row.cancel_review_task ? esc(row.reason || '') : `${esc(row.reason || '')}${inlineNotes(row.date,row.target_id,type)}`;
+    const note = row.cancel_review_task ? esc(displayDataText(row.reason || '')) : `${esc(displayDataText(row.reason || ''))}${inlineNotes(row.date,row.target_id,type)}`;
     const items = (!row.cancel_review_task && cleaningConfirmRequired(row)) ? cleaningRowItems(row) : [];
     const body = row.cancel_review_task
       ? `<div class="cleaning-work-note">${note}</div><div>${cleaningReviewControls(row)}</div>`
-      : `<div class="cleaning-work-note">${note || '按下方任务逐项完成。'}</div>${items.length ? `<div class="cleaning-task-rows">${items.map((item,i) => cleaningTaskRow(row,item,i,items.length)).join('')}</div>` : `<div class="cleaning-task-rows"><div class="cleaning-task-row done"><div class="cleaning-task-main"><div class="cleaning-task-title"><span>${esc(row.reason || '保洁记录')}</span><span class="sync-status ok">无需逐项确认</span></div></div><div></div><div>${cleaningConfirmControls(row)}</div></div></div>`}`;
-    return `<div class="cleaning-work-card ${row.date === today() ? 'today' : ''} ${row.cancel_review_task ? 'review' : ''}"><div class="cleaning-work-head"><div class="cleaning-work-title"><div class="cleaning-work-name">${objectBadge(type)} <span>${title}</span>${prop}${source}</div><div class="small">日期：${esc(row.date)}</div></div><div class="cleaning-work-meta">${cleaningRowProgressBadge(row)}<div>${rowFeeText(row)}</div></div></div><div class="cleaning-work-body">${body}</div></div>`;
+      : `<div class="cleaning-work-note">${note || esc(t('cleaning.followTasks'))}</div>${items.length ? `<div class="cleaning-task-rows">${items.map((item,i) => cleaningTaskRow(row,item,i,items.length)).join('')}</div>` : `<div class="cleaning-task-rows"><div class="cleaning-task-row done"><div class="cleaning-task-main"><div class="cleaning-task-title"><span>${esc(displayDataText(row.reason || t('cleaning.record')))}</span><span class="sync-status ok">${esc(t('cleaning.noItemConfirm'))}</span></div></div><div></div><div>${cleaningConfirmControls(row)}</div></div></div>`}`;
+    return `<div class="cleaning-work-card ${row.date === today() ? 'today' : ''} ${row.cancel_review_task ? 'review' : ''}"><div class="cleaning-work-head"><div class="cleaning-work-title"><div class="cleaning-work-name">${objectBadge(type)} <span>${title}</span>${prop}${source}</div><div class="small">${esc(t('cleaning.date', {date: row.date}))}</div></div><div class="cleaning-work-meta">${cleaningRowProgressBadge(row)}<div>${rowFeeText(row)}</div></div></div><div class="cleaning-work-body">${body}</div></div>`;
   }
   function cleaningTableScoped(items, showSource=true){
     const rows = dedupeCleaningRowsImpl(items || []).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
-    if(!rows.length) return `<div class="card"><p class="small">暂无记录</p></div>`;
+    if(!rows.length) return `<div class="card"><p class="small">${esc(t('cleaning.noRecords'))}</p></div>`;
     const showProp = ownerPropIds().length !== 1;
     return `<div class="card cleaning-list-card"><div class="cleaning-work-list">${rows.map(row => cleaningWorkCard(row,showProp,showSource)).join('')}</div></div>`;
   }
@@ -2760,17 +2860,21 @@
     const cleanRows = scopedCleaningRows(d,d).filter(r => r.date === d);
     const notes = getNotes().filter(n => !n.recurring_task && !n.cancellation_review && n.date === d && targetMatches(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === d && roomMatches(n.room_id)).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
     const metrics = qs('dailyWorkMetrics');
-    if(metrics) metrics.innerHTML = `<div class="metric"><div class="small">退房</div><div class="num">${checkouts.length}</div></div><div class="metric"><div class="small">入住</div><div class="num">${checkins.length}</div></div><div class="metric"><div class="small">剩余在住</div><div class="num">${stays.length}</div></div><div class="metric"><div class="small">空房</div><div class="num">${empty.length}</div></div><div class="metric"><div class="small">不开放锁定</div><div class="num">${locks.length}</div></div><div class="metric"><div class="small">保洁任务</div><div class="num">${cleanRows.length}</div></div>`;
+    if(metrics) metrics.innerHTML = `<div class="metric"><div class="small">${esc(t('owner.daily.checkout'))}</div><div class="num">${checkouts.length}</div></div><div class="metric"><div class="small">${esc(t('owner.daily.checkin'))}</div><div class="num">${checkins.length}</div></div><div class="metric"><div class="small">${esc(t('owner.daily.stay'))}</div><div class="num">${stays.length}</div></div><div class="metric"><div class="small">${esc(t('owner.daily.vacant'))}</div><div class="num">${empty.length}</div></div><div class="metric"><div class="small">${esc(t('owner.daily.blocked'))}</div><div class="num">${locks.length}</div></div><div class="metric"><div class="small">${esc(t('owner.daily.cleaningTasks'))}</div><div class="num">${cleanRows.length}</div></div>`;
+    function countTitle(label,count){
+      return currentLanguage() === 'zh-CN' ? `${label}（${count}）` : `${label} (${count})`;
+    }
     function bookingCards(title, rows, cls){
-      return `<div class="work-card ${cls}"><h3>${title}（${rows.length}）</h3>${rows.length ? rows.map(b => {
+      return `<div class="work-card ${cls}"><h3>${esc(countTitle(title, rows.length))}</h3>${rows.length ? rows.map(b => {
         const left = Math.max(0, daysBetweenSafe(d,b.checkout));
-        const main = cls === 'checkout' ? `退房：${esc(b.checkout)} ｜ 入住：${esc(b.checkin)}` : `还剩 ${left} 天退房 ｜ 退房：${esc(b.checkout)}`;
-        return `<div class="note-card"><div class="note-title"><span class="badge">${esc(roomName(b.room_id))}</span> ${bookingSourceBadges(b)}</div><div>${main}</div><div class="small">订单：${esc(b.checkin)} → ${esc(b.checkout)}${b.guest?` ｜ 客人：${esc(b.guest)}`:''}</div>${inlineNotes(d,b.room_id,'room')}</div>`;
-      }).join('') : '<p class="small">暂无</p>'}</div>`;
+        const main = cls === 'checkout' ? t('owner.daily.checkoutLine', {checkout: esc(b.checkout), checkin: esc(b.checkin)}) : t('owner.daily.stayLine', {days: left, checkout: esc(b.checkout)});
+        const guest = b.guest ? (currentLanguage() === 'zh-CN' ? ` ｜ ${t('owner.daily.guest', {guest: esc(b.guest)})}` : ` | ${t('owner.daily.guest', {guest: esc(b.guest)})}`) : '';
+        return `<div class="note-card"><div class="note-title"><span class="badge">${esc(roomName(b.room_id))}</span> ${bookingSourceBadges(b)}</div><div>${main}</div><div class="small">${esc(t('owner.daily.orderLine', {checkin: b.checkin, checkout: b.checkout}))}${guest}</div>${inlineNotes(d,b.room_id,'room')}</div>`;
+      }).join('') : `<p class="small">${esc(t('owner.daily.none'))}</p>`}</div>`;
     }
     const content = qs('dailyWorkContent');
-    const pendingHtml = pendingReviewRows.length ? `<div class="card"><h2>待房东确认</h2><div class="small">这些是订单消失后的确认提醒，不是已经派给保洁的正式任务；确认需要保洁后才会进入保洁端。</div>${cleaningTableScoped(pendingReviewRows)}</div>` : '';
-    if(content) content.innerHTML = `<div class="work-grid">${bookingCards('退房',checkouts,'checkout')}${bookingCards('入住',checkins,'checkin')}${bookingCards('剩余在住',stays,'stay')}<div class="work-card empty"><h3>空房（${empty.length}）</h3>${empty.length ? empty.map(r => `<div class="note-card"><div class="note-title"><span class="badge green">${esc(roomName(r.id))}</span></div><div class="small">当晚没有入住、在住或锁定记录。</div>${inlineNotes(d,r.id,'room')}</div>`).join('') : '<p class="small">暂无空房</p>'}</div><div class="work-card locked"><h3>不开放锁定（${locks.length}）</h3>${locks.length ? locks.map(b => `<div class="note-card"><div class="note-title"><span class="badge orange">${esc(roomName(b.room_id))}</span> <span class="badge red">不开放锁定</span></div><div>${esc(b.checkin)} → ${esc(b.checkout)}</div><div class="small">原因：${esc(lockReason(b))}</div></div>`).join('') : '<p class="small">暂无</p>'}</div></div>${pendingHtml}<div class="card"><h2>当天保洁任务</h2><div class="small">这里和保洁端使用同一套正式任务列表。</div>${cleaningTableScoped(cleanRows)}</div><div class="card"><h2>当天备注</h2>${notes.length ? notes.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('') : '<p class="small">暂无备注</p>'}</div>`;
+    const pendingHtml = pendingReviewRows.length ? `<div class="card"><h2>${esc(t('owner.daily.pendingTitle'))}</h2><div class="small">${esc(t('owner.daily.pendingSub'))}</div>${cleaningTableScoped(pendingReviewRows)}</div>` : '';
+    if(content) content.innerHTML = `<div class="work-grid">${bookingCards(t('owner.daily.checkout'),checkouts,'checkout')}${bookingCards(t('owner.daily.checkin'),checkins,'checkin')}${bookingCards(t('owner.daily.stay'),stays,'stay')}<div class="work-card empty"><h3>${esc(countTitle(t('owner.daily.vacant'), empty.length))}</h3>${empty.length ? empty.map(r => `<div class="note-card"><div class="note-title"><span class="badge green">${esc(roomName(r.id))}</span></div><div class="small">${esc(t('owner.daily.emptyNight'))}</div>${inlineNotes(d,r.id,'room')}</div>`).join('') : `<p class="small">${esc(t('owner.daily.noVacant'))}</p>`}</div><div class="work-card locked"><h3>${esc(countTitle(t('owner.daily.blocked'), locks.length))}</h3>${locks.length ? locks.map(b => `<div class="note-card"><div class="note-title"><span class="badge orange">${esc(roomName(b.room_id))}</span> <span class="badge red">${esc(t('owner.daily.blocked'))}</span></div><div>${esc(b.checkin)} → ${esc(b.checkout)}</div><div class="small">${esc(t('owner.daily.reason', {reason: lockReason(b)}))}</div></div>`).join('') : `<p class="small">${esc(t('owner.daily.none'))}</p>`}</div></div>${pendingHtml}<div class="card"><h2>${esc(t('owner.daily.cleaningTitle'))}</h2><div class="small">${esc(t('owner.daily.cleaningSub'))}</div>${cleaningTableScoped(cleanRows)}</div><div class="card"><h2>${esc(t('owner.daily.notesTitle'))}</h2>${notes.length ? notes.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?esc(t('owner.daily.dateNote')):''}</div><div>${esc(n.note)}</div></div>`).join('') : `<p class="small">${esc(t('owner.daily.noNotes'))}</p>`}</div>`;
   }
 
   const OWNER_CLEANING_TABS = [
