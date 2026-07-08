@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-07-v81-cleaning-photo-thumbnails';
+  const VERSION = '2026-07-07-v82-photo-thumb-url';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -233,6 +233,7 @@
   function apiUrl(path){
     if(typeof withKey === 'function') return withKey(path);
     const key = new URLSearchParams(location.search).get('key') || '';
+    if(!key) return path;
     return path + (path.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(key);
   }
 
@@ -2443,7 +2444,7 @@
     const list = photos.length ? `<div class="photo-thumb-list">${photos.map((p,i) => {
       const href = String(p.url || '').startsWith('/') ? apiUrl(p.url) : String(p.url || '');
       const label = t('cleaning.photoLink', {count: i + 1});
-      return `<a class="photo-thumb" href="${esc(href)}" target="_blank" rel="noopener" aria-label="${esc(label)}"><img src="${esc(href)}" alt="${esc(label)}" loading="lazy" decoding="async"><span class="photo-thumb-label">${esc(i + 1)}</span></a>`;
+      return `<a class="photo-thumb" href="${esc(href)}" target="_blank" rel="noopener" aria-label="${esc(label)}"><img src="${esc(href)}" alt="${esc(label)}" decoding="async"><span class="photo-thumb-label">${esc(i + 1)}</span></a>`;
     }).join('')}</div>` : `<span class="small">${esc(t('cleaning.notUploaded'))}</span>`;
     const expiry = photos.length ? `<div class="photo-expiry">${esc(t('cleaning.expires7'))}</div>` : '';
     return `<div class="photo-cell">${upload}${list}${expiry}</div>`;
