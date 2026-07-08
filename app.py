@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_APP_VERSION = "2026-07-05-v76-cleaner-mobile-content"
+PMS_APP_VERSION = "2026-07-06-v77-mail-income-finance"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -2530,6 +2530,45 @@ def _pms_channel_event_excerpt(event_lines, limit=3000):
     return text[:limit]
 
 
+def _pms_extract_money_amount(*values):
+    text = "\n".join(str(value or "") for value in values)
+    if not text:
+        return 0
+    keyword_re = re.compile(
+        r"payout|payment|paid|earn|host payout|total payout|amount|total|款项|收款|发放|到手|房东收入|收入|金额|总计",
+        re.I,
+    )
+    amount_re = re.compile(r"(?:USD|US\$|\$|￥|¥)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)")
+    best = 0.0
+    best_score = -1
+    for match in amount_re.finditer(text):
+        raw = match.group(1).replace(",", "")
+        try:
+            amount = float(raw)
+        except Exception:
+            continue
+        if amount <= 0:
+            continue
+        before = text[match.start() - 1] if match.start() > 0 else ""
+        after = text[match.end()] if match.end() < len(text) else ""
+        if before in "-/" or after in "-/":
+            continue
+        start = max(0, match.start() - 80)
+        end = min(len(text), match.end() + 80)
+        context = text[start:end]
+        has_currency = bool(re.search(r"(?:USD|US\$|\$|￥|¥)", text[max(0, match.start() - 8):match.start() + 2], re.I))
+        has_keyword = bool(keyword_re.search(context))
+        if not has_currency and not has_keyword:
+            continue
+        if not has_currency and raw.isdigit() and 1900 <= amount <= 2100:
+            continue
+        score = (2 if has_keyword else 0) + (1 if has_currency else 0)
+        if score > best_score or (score == best_score and amount > best):
+            best = amount
+            best_score = score
+    return round(best, 2) if best else 0
+
+
 def _pms_channel_parse_ics(text, listing):
     events = []
     current = []
@@ -2562,6 +2601,7 @@ def _pms_channel_parse_ics(text, listing):
         summary = ical_clean_text(_pms_channel_field(event, "SUMMARY"))
         description = ical_clean_text(_pms_channel_field(event, "DESCRIPTION"))
         status = ical_clean_text(_pms_channel_field(event, "STATUS"))
+        amount = _pms_extract_money_amount(summary, description)
         uid = _pms_channel_text(_pms_channel_field(event, "UID"))
         if not uid:
             uid = hashlib.sha1(("|".join([listing_id or "", checkin, checkout, summary, description])).encode("utf-8")).hexdigest()
@@ -2593,6 +2633,8 @@ def _pms_channel_parse_ics(text, listing):
             "booking_type": "lock" if lock_reason else "booking",
             "is_locked": bool(lock_reason),
             "lock_reason": lock_reason or "",
+            "amount": amount,
+            "revenue_source": "ical" if amount else "",
             "summary": summary,
             "description": description[:600],
         })
@@ -4255,6 +4297,13 @@ def _pms_mail_extract_reservation(text):
     return match.group(0) if match else ""
 
 
+def _pms_mail_extract_amount(text, event_type=""):
+    event_type = str(event_type or "")
+    if event_type not in {"new_booking", "reservation_change", "payment"}:
+        return 0
+    return _pms_extract_money_amount(text)
+
+
 def _pms_mail_classify(subject, text):
     blob = f"{subject}\n{text}"
     if re.search(r"取消|cancel", blob, re.I):
@@ -4351,6 +4400,8 @@ def _pms_mail_event_from_raw(raw, property_id, state):
     reservation_code = _pms_mail_extract_reservation(combined)
     room_name = _pms_mail_extract_room(combined)
     event_type, severity, status = _pms_mail_classify(subject, combined)
+    raw_amount = _pms_mail_raw_value(raw, ["amount", "payout", "total", "price"], 100)
+    amount = _pms_extract_money_amount(raw_amount) if raw_amount else _pms_mail_extract_amount(combined, event_type)
     if event_type == "support" and re.search(r"\u5f00\u653e|unblock|opened|unblocked", combined, re.I):
         status = "unblocked"
     source_email = _pms_mail_raw_value(raw, ["source_email", "sourceEmail"], 220)
@@ -4393,6 +4444,8 @@ def _pms_mail_event_from_raw(raw, property_id, state):
         "summary": summary,
         "checkin": checkin,
         "checkout": checkout,
+        "amount": amount,
+        "amount_source": "mail" if amount else "",
         "status": status,
         "action_status": _pms_mail_action_status(event_type, status, combined),
         "raw_subject": subject,

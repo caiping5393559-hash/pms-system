@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-05-v76-cleaner-mobile-content';
+  const VERSION = '2026-07-06-v77-mail-income-finance';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -4229,8 +4229,14 @@
     const dir = String((row && (row.direction || row.type)) || '').toLowerCase();
     return dir === 'income' || dir === 'revenue' ? 'income' : 'expense';
   }
+  function financeAmountValue(value){
+    if(typeof value === 'number') return Math.abs(value || 0);
+    const text = String(value || '').replace(/,/g,'');
+    const match = text.match(/([0-9]+(?:\.[0-9]{1,2})?)/);
+    return match ? Math.abs(Number(match[1] || 0)) : 0;
+  }
   function financeSignedAmount(row){
-    const amount = Math.abs(Number((row && row.amount) || 0));
+    const amount = financeAmountValue(row && row.amount);
     return financeDirection(row) === 'income' ? amount : -amount;
   }
   function financeScopePropertyIds(){
@@ -4245,16 +4251,52 @@
     const el = qs('financePropFilter');
     return el ? el.value : '';
   }
+  function financeMailIncomeRecordsForMonth(month, propId){
+    const start = monthStart(month);
+    const end = monthEnd(month);
+    const scoped = financeScopePropertyIds();
+    const manualKeys = new Set(getExpenseRecords().filter(row => financeDirection(row) === 'income').map(row => String(row.mail_event_id || row.source_event_id || row.reservation_code || '').trim()).filter(Boolean));
+    return (ui.mail.mailEvents || []).filter(event => {
+      if(!event || !scoped.has(String(event.property_id || ''))) return false;
+      if(propId && String(event.property_id || '') !== String(propId)) return false;
+      const amount = financeAmountValue(event.amount);
+      if(!amount) return false;
+      const type = String(event.event_type || '').toLowerCase();
+      if(!['new_booking','reservation_change','payment'].includes(type)) return false;
+      const eventKeys = [event.id, event.reservation_code].map(value => String(value || '').trim()).filter(Boolean);
+      if(eventKeys.some(key => manualKeys.has(key))) return false;
+      const d = String(event.checkin || event.received_at || event.created_at || '').slice(0,10);
+      return d >= start && d <= end;
+    }).map(event => {
+      const type = String(event.event_type || '').toLowerCase();
+      return {
+        id: 'mail_income_' + (event.id || event.reservation_code || Math.random().toString(16).slice(2)),
+        property_id: event.property_id,
+        room_id: event.room_id || '',
+        date: String(event.checkin || event.received_at || event.created_at || '').slice(0,10),
+        direction: 'income',
+        category: type === 'payment' ? 'Airbnb款项' : 'Airbnb房费',
+        amount: financeAmountValue(event.amount),
+        vendor: event.guest || 'Airbnb',
+        note: [event.reservation_code ? ('订单 ' + event.reservation_code) : '', event.room_id ? roomName(event.room_id) : '', '邮件自动识别'].filter(Boolean).join(' / '),
+        virtual: true,
+        mail_event_id: event.id || '',
+        reservation_code: event.reservation_code || '',
+        created_at: event.received_at || event.created_at || '',
+      };
+    });
+  }
   function financeRecordsForMonth(month, propId){
     const start = monthStart(month);
     const end = monthEnd(month);
     const scoped = financeScopePropertyIds();
-    return getExpenseRecords().filter(row => {
+    const manual = getExpenseRecords().filter(row => {
       if(!row || !scoped.has(String(row.property_id || ''))) return false;
       if(propId && String(row.property_id || '') !== String(propId)) return false;
       const d = String(row.date || '').slice(0,10);
       return d >= start && d <= end;
-    }).sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    });
+    return manual.concat(financeMailIncomeRecordsForMonth(month, propId)).sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
   }
   function financeCleaningRowsForMonth(month, propId){
     const start = monthStart(month);
@@ -4283,7 +4325,8 @@
     const rowsHtml = records.length ? records.map(row => {
       const dir = financeDirection(row);
       const cls = dir === 'income' ? 'green' : 'yellow';
-      return `<tr><td>${esc(row.date || '')}</td><td>${esc(propName(row.property_id))}</td><td><span class="badge ${cls}">${dir === 'income' ? '收入' : '支出'}</span></td><td>${esc(row.category || '')}</td><td>${money(financeSignedAmount(row))}</td><td>${esc([row.vendor,row.note].filter(Boolean).join(' / '))}</td><td>${canEdit ? `<button class="smallbtn" onclick="deleteFinanceRecord('${esc(row.id)}',this)">删除</button>` : ''}</td></tr>`;
+      const autoBadge = row.virtual ? '<span class="badge blue">邮件自动</span> ' : '';
+      return `<tr><td>${esc(row.date || '')}</td><td>${esc(propName(row.property_id))}</td><td><span class="badge ${cls}">${dir === 'income' ? '收入' : '支出'}</span></td><td>${autoBadge}${esc(row.category || '')}</td><td>${money(financeSignedAmount(row))}</td><td>${esc([row.vendor,row.note].filter(Boolean).join(' / '))}</td><td>${canEdit && !row.virtual ? `<button class="smallbtn" onclick="deleteFinanceRecord('${esc(row.id)}',this)">删除</button>` : ''}</td></tr>`;
     }).join('') : '<tr><td colspan="7">暂无财务记录</td></tr>';
     const formHtml = canEdit ? `<div class="ops-panel"><h3>新增收支</h3><div class="ops-form"><label>日期<input id="financeDate" type="date" value="${today()}"></label><label>房源<select id="financeProp">${financePropertyOptions(propId || Array.from(financeScopePropertyIds())[0] || '', false)}</select></label><label>类型<select id="financeDirection"><option value="expense">支出</option><option value="income">收入</option></select></label><label>分类<input id="financeCategory" placeholder="房费 / 保洁 / 维修 / 耗材"></label><label>金额<input id="financeAmount" type="number" step="0.01" value="0"></label><label>对象<input id="financeVendor" placeholder="客人 / 商家 / 平台"></label><label style="grid-column:1/-1">备注<input id="financeNote" placeholder="订单号、发票、用途"></label><button class="smallbtn primary" onclick="addFinanceRecord(this)">新增记录</button></div></div>` : '';
     root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>财务管理</h2><div class="small">按月份和房源统计收入、支出、保洁成本和净额；和运营中心费用账本使用同一份数据。</div></div><div class="property-actions"><input id="financeMonth" type="month" value="${esc(currentMonth)}" onchange="renderFinanceManager()"><select id="financePropFilter" onchange="renderFinanceManager()">${financePropertyOptions(propId, true)}</select></div></div></div><div class="grid"><div class="metric"><div class="small">收入</div><div class="num">${money(income)}</div></div><div class="metric"><div class="small">支出</div><div class="num">${money(expenses)}</div></div><div class="metric"><div class="small">保洁成本</div><div class="num">${money(cleaningCost)}</div></div><div class="metric"><div class="small">净额</div><div class="num">${money(net)}</div></div></div>${formHtml}<div class="ops-panel"><div class="property-detail-head"><h3>收支明细</h3><span class="badge blue">${records.length} 条</span></div><table><tr><th>日期</th><th>房源</th><th>类型</th><th>分类</th><th>金额</th><th>备注</th><th></th></tr>${rowsHtml}</table></div><div class="ops-panel"><div class="property-detail-head"><h3>本月保洁成本明细</h3><span class="badge yellow">${cleaningRows.length} 条 / ${money(cleaningCost)}</span></div>${cleaningRows.length ? cleaningTableScoped(cleaningRows) : '<div class="ops-empty">本月暂无保洁成本。</div>'}</div>`;
