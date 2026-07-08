@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-07-v79-cleaner-mobile-compact';
+  const VERSION = '2026-07-07-v80-cleaning-remove-all-tasks';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -2185,6 +2185,13 @@
       return n.date && !n.recurring_task && !n.cancellation_review && (!start || n.date >= start) && (!end || n.date <= end) && (!applyOwnerScope || targetMatches(n.target_id,type)) && n.amount_present;
     }).map(n => ({date:n.date,target_id:n.target_id,target_type:n.target_type || 'room',source:'备注',type:'note_task',actual:true,reason:n.note || '',amount:Number(n.amount || 0),note_task:true,note_id:n.id || ''}));
   }
+  function manualRemoveMatchesRow(remove,row){
+    if(!remove || !row) return false;
+    const type = remove.target_type || 'room';
+    return String(row.date || '').slice(0,10) === String(remove.date || '').slice(0,10)
+      && String(row.target_id || '') === String(remove.target_id || '')
+      && (row.target_type || 'room') === type;
+  }
   function cancelReviewDates(note){
     if(!note) return [];
     if(note.owner_review_task_date) return [String(note.owner_review_task_date).slice(0,10)].filter(Boolean);
@@ -2251,11 +2258,13 @@
     const s = start || addDay(today(), -90);
     const e = end || addDay(today(), 180);
     const rows = systemCleaningRowsImpl().concat(commonAreaRowsImpl(s,e));
+    const manualRemoves = [];
     getManual().forEach(m => {
       const type = m.target_type || 'room';
       if(m.type === 'add'){
         rows.push({date:m.date,target_id:m.target_id,target_type:type,source:m.source || '手动增加',type:'manual_add',actual:true,reason:m.reason || '',amount:Number(m.amount || targetFee(m.target_id,type))});
       }else if(m.type === 'remove'){
+        manualRemoves.push({...m,target_type:type});
         rows.forEach(r => {
           if(r.date === m.date && String(r.target_id) === String(m.target_id) && (r.target_type || 'room') === type){
             r.actual = false;
@@ -2266,7 +2275,11 @@
     });
     const recurringRows = recurringTaskRows(s,e,applyOwnerScope);
     const mergedRows = attachRecurringRowsToCleanings(rows.filter(r => r.actual).concat(noteTaskRows(s,e,applyOwnerScope)), recurringRows);
-    return dedupeCleaningRowsImpl(mergedRows.concat(cancelReviewTaskRows(s,e,false,applyOwnerScope)));
+    const finalRows = mergedRows.concat(cancelReviewTaskRows(s,e,false,applyOwnerScope)).filter(row => {
+      if(row && row.type === 'manual_add') return true;
+      return !manualRemoves.some(remove => manualRemoveMatchesRow(remove,row));
+    });
+    return dedupeCleaningRowsImpl(finalRows);
   }
   function scopedCleaningRows(start,end){
     return actualCleaningRowsImpl(start,end).filter(r => targetMatches(r.target_id, r.target_type));
@@ -2570,11 +2583,14 @@
     const prop = showProp ? `<span class="badge blue">${esc(propName(targetPropId(row.target_id,type)))}</span>` : '';
     const source = showSource && row.source ? `<span class="badge">${esc(displayDataText(row.source))}</span>` : '';
     const title = esc(targetName(row.target_id,type));
-    const note = row.cancel_review_task ? esc(displayDataText(row.reason || '')) : `${esc(displayDataText(row.reason || ''))}${inlineNotes(row.date,row.target_id,type)}`;
     const items = (!row.cancel_review_task && cleaningConfirmRequired(row)) ? cleaningRowItems(row) : [];
+    const baseNote = esc(displayDataText(row.reason || ''));
+    const inline = inlineNotes(row.date,row.target_id,type);
+    const note = row.cancel_review_task ? baseNote : ((type === 'common' && row.type === 'system_common' && items.length) ? inline : `${baseNote}${inline}`);
+    const noteBlock = note ? `<div class="cleaning-work-note">${note}</div>` : '';
     const body = row.cancel_review_task
       ? `<div class="cleaning-work-note">${note}</div><div>${cleaningReviewControls(row)}</div>`
-      : `<div class="cleaning-work-note">${note || esc(t('cleaning.followTasks'))}</div>${items.length ? `<div class="cleaning-task-rows">${items.map((item,i) => cleaningTaskRow(row,item,i,items.length)).join('')}</div>` : `<div class="cleaning-task-rows"><div class="cleaning-task-row done"><div class="cleaning-task-main"><div class="cleaning-task-title"><span>${esc(displayDataText(row.reason || t('cleaning.record')))}</span><span class="sync-status ok">${esc(t('cleaning.noItemConfirm'))}</span></div></div><div></div><div>${cleaningConfirmControls(row)}</div></div></div>`}`;
+      : `${noteBlock}${items.length ? `<div class="cleaning-task-rows">${items.map((item,i) => cleaningTaskRow(row,item,i,items.length)).join('')}</div>` : `<div class="cleaning-task-rows"><div class="cleaning-task-row done"><div class="cleaning-task-main"><div class="cleaning-task-title"><span>${esc(displayDataText(row.reason || t('cleaning.record')))}</span><span class="sync-status ok">${esc(t('cleaning.noItemConfirm'))}</span></div></div><div></div><div>${cleaningConfirmControls(row)}</div></div></div>`}`;
     return `<div class="cleaning-work-card ${row.date === today() ? 'today' : ''} ${row.cancel_review_task ? 'review' : ''}"><div class="cleaning-work-head"><div class="cleaning-work-title"><div class="cleaning-work-name">${objectBadge(type)} <span>${title}</span>${prop}${source}</div><div class="small">${esc(t('cleaning.date', {date: row.date}))}</div></div><div class="cleaning-work-meta">${cleaningRowProgressBadge(row)}<div>${rowFeeText(row)}</div></div></div><div class="cleaning-work-body">${body}</div></div>`;
   }
   function cleaningTableScoped(items, showSource=true){
