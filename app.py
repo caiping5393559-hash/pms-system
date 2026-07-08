@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_APP_VERSION = "2026-07-07-v86-cleaning-items-ui"
+PMS_APP_VERSION = "2026-07-08-v87-cleaning-card-hierarchy"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
