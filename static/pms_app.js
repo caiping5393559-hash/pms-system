@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-07-v80-cleaning-remove-all-tasks';
+  const VERSION = '2026-07-07-v81-cleaning-photo-thumbnails';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -1686,8 +1686,11 @@
       .review-row{background:#fff7ed!important}
       .photo-cell{display:grid;gap:6px;min-width:150px}
       .photo-cell input[type=file]{position:absolute;opacity:0;width:1px;height:1px;overflow:hidden;pointer-events:none}
-      .photo-list{display:flex;gap:6px;flex-wrap:wrap}
-      .photo-list a{display:inline-flex;align-items:center;border:1px solid #bae6fd;background:#f0f9ff;color:#0369a1;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:900;text-decoration:none}
+      .photo-thumb-list{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+      .photo-thumb{position:relative;display:block;width:54px;height:54px;border:1px solid #bae6fd;border-radius:8px;overflow:hidden;background:#f8fafc;text-decoration:none;box-shadow:0 1px 2px rgba(15,23,42,.06)}
+      .photo-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+      .photo-thumb-label{position:absolute;right:3px;bottom:3px;min-width:16px;height:16px;border-radius:999px;background:rgba(15,23,42,.75);color:#fff;font-size:10px;font-weight:900;line-height:16px;text-align:center}
+      .photo-thumb:focus-visible{outline:2px solid #14b8a6;outline-offset:2px}
       .photo-expiry{font-size:11px;color:#64748b}
       .photo-status{font-size:12px;color:#64748b;font-weight:800;min-height:16px}
       .photo-status.ok{color:#047857}
@@ -1821,7 +1824,7 @@
         .photo-cell .mail-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
         .photo-cell .mail-actions .smallbtn{width:100%;min-height:38px;justify-content:center;padding:8px 10px}
         .task-confirm-item{padding:0;border:0;background:transparent}
-        .photo-list a{min-height:36px}
+        .photo-thumb{width:46px;height:46px}
         .sync-status,.badge{white-space:normal;text-align:center}
         #cleaner .cleaning-list-card{padding:0;background:transparent;border:0;box-shadow:none}
         #cleaner .cleaning-work-list{gap:8px}
@@ -1850,6 +1853,7 @@
         #cleaner .cleaning-task-confirm .mail-actions{display:grid;grid-template-columns:1fr;gap:4px}
         #cleaner .cleaning-task-confirm .smallbtn{width:100%;min-height:28px;padding:5px 6px;font-size:12px}
         #cleaner .cleaning-task-confirm .sync-status{min-height:28px;padding:4px 6px;font-size:10px}
+        #cleaner .photo-thumb{width:44px;height:44px}
       }
       @media(max-width:380px){
         .photo-cell .mail-actions{grid-template-columns:1fr}
@@ -2436,9 +2440,10 @@
     const photos = cleaningPhotosForRow(row,item);
     const canUpload = row.date <= today();
     const upload = canUpload ? `<div class="mail-actions"><label class="smallbtn" for="${cameraId}">${esc(t('cleaning.camera'))}</label><label class="smallbtn" for="${fileId}">${esc(t('cleaning.uploadMany'))}</label></div><input id="${cameraId}" data-upload-source="camera" type="file" accept="image/*" capture="environment" multiple onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><input id="${fileId}" data-upload-source="file" type="file" accept="image/*" multiple onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><div id="${statusId}" class="photo-status"></div>` : '';
-    const list = photos.length ? `<div class="photo-list">${photos.map((p,i) => {
+    const list = photos.length ? `<div class="photo-thumb-list">${photos.map((p,i) => {
       const href = String(p.url || '').startsWith('/') ? apiUrl(p.url) : String(p.url || '');
-      return `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(t('cleaning.photoLink', {count: i + 1}))}</a>`;
+      const label = t('cleaning.photoLink', {count: i + 1});
+      return `<a class="photo-thumb" href="${esc(href)}" target="_blank" rel="noopener" aria-label="${esc(label)}"><img src="${esc(href)}" alt="${esc(label)}" loading="lazy" decoding="async"><span class="photo-thumb-label">${esc(i + 1)}</span></a>`;
     }).join('')}</div>` : `<span class="small">${esc(t('cleaning.notUploaded'))}</span>`;
     const expiry = photos.length ? `<div class="photo-expiry">${esc(t('cleaning.expires7'))}</div>` : '';
     return `<div class="photo-cell">${upload}${list}${expiry}</div>`;
