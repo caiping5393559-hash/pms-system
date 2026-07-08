@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-07-v85-compact-cleaning-cards';
+  const VERSION = '2026-07-07-v86-cleaning-items-ui';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -53,7 +53,7 @@
       'pref.timezone':'时区','pref.language':'语言',
       'role.admin':'管理员','role.owner':'房东','role.cleaner':'保洁','role.unknown':'未识别',
       'header.owner.title':'{name} · 房东管理后台','header.owner.sub':'管理房源、房间、公区、iCal 同步和保洁绑定。',
-      'header.cleaner.title':'{name} · 保洁工作台','header.cleaner.sub':'查看绑定房源的今日保洁、未来保洁、历史保洁和备注。',
+      'header.cleaner.title':'{name} · 保洁工作台','header.cleaner.sub':'查看绑定房源的今日保洁、未来保洁、历史保洁和事项。',
       'header.cleaner.ownerTitle':'{name} · 保洁任务查看','header.cleaner.ownerSub':'房东查看当前房源范围内的保洁任务和历史记录。',
       'profile.title':'用户设置','profile.sub':'查看当前登录账号资料；可修改对外显示名、默认时区和语言。',
       'profile.displayName':'对外显示名','profile.timezone':'个人默认时区','profile.language':'界面语言','profile.username':'用户名','profile.email':'邮箱','profile.phone':'手机号','profile.wechat':'微信号','profile.cleanerCode':'保洁编号','profile.role':'账号类型','profile.save':'保存用户设置','profile.saving':'保存中...','profile.saved':'已保存','profile.saveFailed':'保存用户设置失败：','profile.required':'对外显示名不能为空。',
@@ -62,15 +62,15 @@
       'ops.properties':'房源','ops.openMaintenance':'待处理维护','ops.lowStock':'低库存耗材','ops.monthExpenses':'本月费用','ops.guestProfiles':'客人档案','ops.channelCount':'渠道数',
       'ops.noMaintenance':'暂无待处理维护。','ops.noLowStock':'暂无低库存提醒。','ops.noChannelErrors':'暂无渠道异常。','ops.maintenanceTitle':'维护工单','ops.maintenanceList':'维护列表','ops.inventoryTitle':'耗材库存','ops.inventoryList':'耗材列表','ops.expenseTitle':'费用账本','ops.expenseList':'费用记录','ops.guestTitle':'客人档案','ops.guestList':'客人列表','ops.channelHealthTitle':'渠道 / iCal 健康','ops.auditTitle':'操作日志',
       'common.property':'房源','common.room':'房间','common.category':'分类','common.priority':'优先级','common.dueDate':'到期日','common.title':'标题','common.note':'备注','common.add':'新增','common.delete':'删除','common.done':'完成','common.inProgress':'处理中','common.pending':'待处理','common.normal':'普通','common.urgent':'紧急','common.low':'低','common.date':'日期','common.amount':'金额','common.vendor':'商家','common.name':'姓名','common.phone':'电话','common.source':'来源','common.tags':'标签','common.time':'时间','common.actor':'人员','common.action':'动作','common.content':'内容','common.noRoom':'不指定房间','common.statusDone':'已完成','common.statusNormal':'正常','common.statusLowStock':'低库存','common.synced':'已同步','common.syncFailed':'同步失败','common.notSynced':'未同步',
-      'owner.tab.daily':'指定日期工作表','owner.tab.calendar':'未来预订','owner.tab.cleaning':'保洁/备注/调整','owner.tab.rooms':'房间/公区设置',
-      'owner.property.title':'房源管理','owner.property.sub':'勾选房源后，下面所有工作表、预订、保洁、备注和房间筛选都会按这个范围显示。','owner.property.selected':'已选 {selected}/{total} 个房源','owner.property.all':'全部房源','owner.property.add':'添加房源','owner.property.prefix':'房源:','owner.property.rooms':'{count} 个房间','owner.property.areas':'{count} 个公区','owner.property.cleaners':'{count} 个保洁绑定','owner.property.select':'选择','owner.property.edit':'修改房源资料','owner.property.openRooms':'进入房间管理','owner.property.only':'只看这个房源','owner.property.delete':'删除房源','owner.property.mail':'邮件提醒 {count}','owner.property.empty':'还没有房源。点“添加房源”开始配置。','owner.property.name':'房源名称','owner.property.city':'城市','owner.property.address':'地址','owner.property.timezone':'房源时区','owner.property.save':'保存房源资料','owner.property.cancel':'取消',
+      'owner.tab.daily':'指定日期工作表','owner.tab.calendar':'未来预订','owner.tab.cleaning':'保洁管理','owner.tab.rooms':'房间/公区设置',
+      'owner.property.title':'房源管理','owner.property.sub':'勾选房源后，下面所有工作表、预订、保洁、事项和房间筛选都会按这个范围显示。','owner.property.selected':'已选 {selected}/{total} 个房源','owner.property.all':'全部房源','owner.property.add':'添加房源','owner.property.prefix':'房源:','owner.property.rooms':'{count} 个房间','owner.property.areas':'{count} 个公区','owner.property.cleaners':'{count} 个保洁绑定','owner.property.select':'选择','owner.property.edit':'修改房源资料','owner.property.openRooms':'进入房间管理','owner.property.only':'只看这个房源','owner.property.delete':'删除房源','owner.property.mail':'邮件提醒 {count}','owner.property.empty':'还没有房源。点“添加房源”开始配置。','owner.property.name':'房源名称','owner.property.city':'城市','owner.property.address':'地址','owner.property.timezone':'房源时区','owner.property.save':'保存房源资料','owner.property.cancel':'取消',
       'owner.scope.title':'房间范围','owner.scope.sub':'先在上面勾房源，再在这里勾房间；点“保存默认”后，下次刷新或重新进入会直接按这些房间显示。','owner.scope.selected':'已选 {selected}/{total} 个房间','owner.scope.default':'默认 {count} 个','owner.scope.saveDefault':'保存默认','owner.scope.allRooms':'全部房间','owner.scope.only':'只看','owner.scope.empty':'当前房源没有房间。',
-      'owner.metric.futureOrders':'未来订单','owner.metric.futureNights':'未来占用晚数','owner.metric.todayCleaning':'今日实际保洁','owner.metric.todayNotes':'今日备注',
+      'owner.metric.futureOrders':'未来订单','owner.metric.futureNights':'未来占用晚数','owner.metric.todayCleaning':'今日实际保洁','owner.metric.todayNotes':'今日事项',
       'owner.daily.title':'指定日期工作表','owner.daily.date':'日期：','owner.daily.today':'今天','owner.daily.next':'下一天','owner.daily.prev':'上一天',
-      'owner.daily.checkout':'退房','owner.daily.checkin':'入住','owner.daily.stay':'剩余在住','owner.daily.vacant':'空房','owner.daily.blocked':'不开放锁定','owner.daily.cleaningTasks':'保洁任务','owner.daily.checkoutLine':'退房：{checkout} ｜ 入住：{checkin}','owner.daily.stayLine':'还剩 {days} 天退房 ｜ 退房：{checkout}','owner.daily.orderLine':'订单：{checkin} → {checkout}','owner.daily.guest':'客人：{guest}','owner.daily.emptyNight':'当晚没有入住、在住或锁定记录。','owner.daily.noVacant':'暂无空房','owner.daily.none':'暂无','owner.daily.reason':'原因：{reason}','owner.daily.pendingTitle':'待房东确认','owner.daily.pendingSub':'这些是订单消失后的确认提醒，不是已经派给保洁的正式任务；确认需要保洁后才会进入保洁端。','owner.daily.cleaningTitle':'当天保洁任务','owner.daily.cleaningSub':'这里和保洁端使用同一套正式任务列表。','owner.daily.notesTitle':'当天备注','owner.daily.dateNote':'日期备注','owner.daily.noNotes':'暂无备注',
+      'owner.daily.checkout':'退房','owner.daily.checkin':'入住','owner.daily.stay':'剩余在住','owner.daily.vacant':'空房','owner.daily.blocked':'不开放锁定','owner.daily.cleaningTasks':'保洁任务','owner.daily.checkoutLine':'退房：{checkout} ｜ 入住：{checkin}','owner.daily.stayLine':'还剩 {days} 天退房 ｜ 退房：{checkout}','owner.daily.orderLine':'订单：{checkin} → {checkout}','owner.daily.guest':'客人：{guest}','owner.daily.emptyNight':'当晚没有入住、在住或锁定记录。','owner.daily.noVacant':'暂无空房','owner.daily.none':'暂无','owner.daily.reason':'原因：{reason}','owner.daily.pendingTitle':'待房东确认','owner.daily.pendingSub':'这些是订单消失后的确认提醒，不是已经派给保洁的正式任务；确认需要保洁后才会进入保洁端。','owner.daily.cleaningTitle':'当天保洁任务','owner.daily.cleaningSub':'这里和保洁端使用同一套正式任务列表。','owner.daily.notesTitle':'当天事项','owner.daily.dateNote':'日期事项','owner.daily.noNotes':'暂无事项',
       'cleaning.pendingConfirm':'待确认','cleaning.incompleteNoPay':'任务未完成，暂不结算','cleaning.donePayable':'已完成，可结算','cleaning.ownerConfirmCheckout':'房东确认退房保洁','cleaning.commonDaily':'公区每日保洁','cleaning.checkoutBasic':'退房基础保洁','cleaning.task':'保洁任务','cleaning.done':'已完成','cleaning.pending':'待完成','cleaning.notDue':'未到日期','cleaning.deferNextCheckout':'下次退房再做','cleaning.deferNext':'下次做','cleaning.photo':'照片','cleaning.photoN':'照片 {count}','cleaning.camera':'拍照','cleaning.uploadMany':'上传多张','cleaning.photoLink':'照片{count}','cleaning.notUploaded':'未上传','cleaning.expires7':'7天后自动删除','cleaning.followTasks':'按下方任务逐项完成。','cleaning.record':'保洁记录','cleaning.noItemConfirm':'无需逐项确认','cleaning.date':'日期：{date}','cleaning.noRecords':'暂无记录','cleaning.history':'历史记录','cleaning.progress':'{done}/{total} 已完成','cleaning.uploading':'上传中 {done}/{total}...','cleaning.uploaded':'已上传 {count} 张','cleaning.uploadFailedPartial':'已上传 {done}/{total} 张，失败：{message}','cleaning.uploadPhotoFailed':'上传照片失败：{message}',
-      'owner.calendar.title':'未来房态总览','owner.calendar.sub':'默认未来 14 天，可切换 28 天，也可指定日期范围：','owner.calendar.range14':'未来14天','owner.calendar.range28':'未来28天','owner.calendar.vacancyOnly':'只看空房','owner.calendar.showAll':'显示全部房态','owner.calendar.vacancySummary':'只标空晚 · {visible}/{total} 个房间','owner.calendar.noVacancy':'当前日期范围没有空房','owner.calendar.noRooms':'当前房源没有房间','owner.calendar.roomDate':'房间 / 日期','owner.calendar.emptyNight':'空','owner.calendar.emptyNightTitle':'当晚空房','owner.calendar.note':'备注','owner.calendar.noteTitle':'有房东日期备注','owner.calendar.blocked':'不开放锁定','owner.calendar.stats':'{range}每个房间预订统计','owner.calendar.currentStats':'当前区间每个房间预订统计','owner.calendar.bookings':'{range}预订列表','owner.calendar.currentBookings':'当前区间预订列表','owner.calendar.platformAll':'全部平台','owner.calendar.direct':'微信直订',
-      'owner.table.property':'房源','owner.table.room':'房间','owner.table.orders':'订单数','owner.table.orderNights':'订单晚数','owner.table.lockNights':'不开放锁定晚数','owner.table.availableNights':'可订晚数','owner.table.occupancy':'预订率','owner.table.cleaningFee':'单次保洁费','owner.table.noRooms':'当前筛选没有房间','owner.table.checkin':'入住/开始','owner.table.checkout':'退房/结束','owner.table.source':'来源','owner.table.guest':'客人','owner.table.status':'状态','owner.table.dateNotes':'日期备注','owner.table.noBookings':'当前日期范围没有预订'
+      'owner.calendar.title':'未来房态总览','owner.calendar.sub':'默认未来 14 天，可切换 28 天，也可指定日期范围：','owner.calendar.range14':'未来14天','owner.calendar.range28':'未来28天','owner.calendar.vacancyOnly':'只看空房','owner.calendar.showAll':'显示全部房态','owner.calendar.vacancySummary':'只标空晚 · {visible}/{total} 个房间','owner.calendar.noVacancy':'当前日期范围没有空房','owner.calendar.noRooms':'当前房源没有房间','owner.calendar.roomDate':'房间 / 日期','owner.calendar.emptyNight':'空','owner.calendar.emptyNightTitle':'当晚空房','owner.calendar.note':'事项','owner.calendar.noteTitle':'有房东日期事项','owner.calendar.blocked':'不开放锁定','owner.calendar.stats':'{range}每个房间预订统计','owner.calendar.currentStats':'当前区间每个房间预订统计','owner.calendar.bookings':'{range}预订列表','owner.calendar.currentBookings':'当前区间预订列表','owner.calendar.platformAll':'全部平台','owner.calendar.direct':'微信直订',
+      'owner.table.property':'房源','owner.table.room':'房间','owner.table.orders':'订单数','owner.table.orderNights':'订单晚数','owner.table.lockNights':'不开放锁定晚数','owner.table.availableNights':'可订晚数','owner.table.occupancy':'预订率','owner.table.cleaningFee':'单次保洁费','owner.table.noRooms':'当前筛选没有房间','owner.table.checkin':'入住/开始','owner.table.checkout':'退房/结束','owner.table.source':'来源','owner.table.guest':'客人','owner.table.status':'状态','owner.table.dateNotes':'日期事项','owner.table.noBookings':'当前日期范围没有预订'
     },
     'en-US': {
       'nav.cleaner':'Cleaner','nav.owner':'Owner','nav.finance':'Finance','nav.access':'Subaccounts','nav.ops':'Operations','nav.profile':'User settings','nav.logout':'Log out',
@@ -413,7 +413,7 @@
 
   const OWNER_PERMISSION_DEFS = [
     ['calendar_view', '房态/订单查看'],
-    ['cleaning_manage', '保洁/备注/调整'],
+    ['cleaning_manage', '保洁管理'],
     ['settings_manage', '房间/iCal/房源设置'],
     ['finance_view', '查看财务'],
     ['finance_edit', '编辑财务'],
@@ -1718,6 +1718,15 @@
       .task-confirm-item,.task-photo-item{border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:8px;display:grid;gap:6px}
       .task-confirm-item.done{border-color:#86efac;background:#f0fdf4}
       .task-confirm-list .mail-actions,.task-photo-list .mail-actions{justify-content:flex-start}
+      .cleaning-subnav-card{display:grid;gap:10px}
+      .cleaning-subnav-card .property-detail-head{margin-bottom:0}
+      .cleaning-subnav-card h2{font-size:20px}
+      .cleaning-subtabs{margin:0;padding:0;gap:8px}
+      .filter-strip{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin-top:10px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px}
+      .filter-field{display:grid;gap:4px;min-width:150px}
+      .filter-field label{font-size:12px;font-weight:900;color:#64748b}
+      .filter-field input,.filter-field select{min-height:38px}
+      .filter-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
       .cleaning-list-card{padding:8px}
       .cleaning-work-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(620px,1fr));gap:8px;align-items:start}
       .cleaning-work-card{border:1px solid #d8e1ef;background:#fff;border-radius:8px;overflow:hidden}
@@ -1789,6 +1798,10 @@
         #calendarGrid .cell.locked .cell-platform{font-size:11px}
         .weekend-label{font-size:10px}
         #cleaner .card,#ownerCleaningShell .card{padding:10px}
+        .filter-strip{align-items:stretch;gap:8px;padding:8px}
+        .filter-field{min-width:0;flex:1 1 140px}
+        .filter-actions{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+        .filter-actions .smallbtn{min-width:0;padding-left:6px;padding-right:6px}
         #cleanerSummary .card{padding:8px 10px;margin-bottom:8px}
         #cleanerSummary h2{font-size:18px;margin:0}
         #cleanerSummary .small{font-size:12px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -2212,7 +2225,7 @@
     return getNotes().filter(n => {
       const type = n.target_type || 'room';
       return n.date && !n.recurring_task && !n.cancellation_review && (!start || n.date >= start) && (!end || n.date <= end) && (!applyOwnerScope || targetMatches(n.target_id,type)) && n.amount_present;
-    }).map(n => ({date:n.date,target_id:n.target_id,target_type:n.target_type || 'room',source:'备注',type:'note_task',actual:true,reason:n.note || '',amount:Number(n.amount || 0),note_task:true,note_id:n.id || ''}));
+    }).map(n => ({date:n.date,target_id:n.target_id,target_type:n.target_type || 'room',source:'事项',type:'note_task',actual:true,reason:n.note || '',amount:Number(n.amount || 0),note_task:true,note_id:n.id || ''}));
   }
   function manualRemoveMatchesRow(remove,row){
     if(!remove || !row) return false;
@@ -2428,7 +2441,7 @@
   function inlineNotes(date,targetId,targetType){
     const all = noteFor(date,targetId,targetType).filter(n => !n.cancellation_review).concat((targetType === 'room' ? roomDateNoteFor(date,targetId).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})) : []));
     if(!all.length) return '';
-    return all.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate ? '日期备注' : '备注'}</div><div>${esc(n.note)}</div></div>`).join('');
+    return all.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate ? '日期事项' : '事项'}</div><div>${esc(n.note)}</div></div>`).join('');
   }
   function reviewNoteForRow(row){
     if(row && row.review_note_id){
@@ -2993,9 +3006,9 @@
 
   const OWNER_CLEANING_TABS = [
     ['today', '保洁工作'],
-    ['finance', '费用统计'],
+    ['finance', '结算统计'],
     ['manual', '手动调整'],
-    ['notes', '备注对话']
+    ['notes', '保洁事项']
   ];
   function activeCleaningSubTab(){
     const ids = OWNER_CLEANING_TABS.map(x => x[0]);
@@ -3021,7 +3034,7 @@
     const rows = scopedCleaningRows(d,d).filter(r => r.date === d);
     const notes = getNotes().filter(n => !n.recurring_task && !n.cancellation_review && n.date === d && targetMatches(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === d && roomMatches(n.room_id)).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
     const pendingHtml = pendingReviewRows.length ? `<div class="card"><h2>待房东确认</h2><div class="small">这里不是已分配给保洁的任务；确认需要保洁后，才会进入下面正式保洁列表，也会同步给保洁端。</div>${cleaningTableScoped(pendingReviewRows)}</div>` : '';
-    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2 style="margin:0">保洁工作</h2><div class="small">正式保洁任务和保洁端使用同一套列表；待确认提醒单独显示。</div></div><div class="property-actions"><input id="ownerCleaningWorkDate" type="date" value="${esc(d)}" onchange="setCleaningWorkDate(this.value)"><button class="smallbtn" onclick="setCleaningWorkDate('')">今天</button></div></div></div>${pendingHtml}${cleaningTableScoped(rows)}<div class="card"><h2>当天备注</h2>${notes.length ? notes.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('') : '<p class="small">暂无备注</p>'}</div>`;
+    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2 style="margin:0">保洁工作</h2><div class="small">正式保洁任务和保洁端使用同一套列表；待确认提醒单独显示。</div></div><div class="property-actions"><input id="ownerCleaningWorkDate" type="date" value="${esc(d)}" onchange="setCleaningWorkDate(this.value)"><button class="smallbtn" onclick="setCleaningWorkDate('')">今天</button></div></div></div>${pendingHtml}${cleaningTableScoped(rows)}<div class="card"><h2>当天事项</h2>${notes.length ? notes.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期事项':''}</div><div>${esc(n.note)}</div></div>`).join('') : '<p class="small">暂无事项</p>'}</div>`;
   }
   function renderManualChangeSubTabImpl(){
     const root = qs('ownerCleaningSubContent');
@@ -3034,9 +3047,26 @@
   function renderCleaningFinanceSubTabImpl(){
     const root = qs('ownerCleaningSubContent');
     if(!root) return;
-    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>保洁费用统计</h2><div class="small">按日期排序，再按房间排序；历史和将来分开显示。</div></div><div class="property-actions"><input id="cleanStart" type="date" onchange="renderCleaningFinance()"><input id="cleanEnd" type="date" onchange="renderCleaningFinance()"></div></div><div id="cleaningFinance"></div></div>`;
+    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>保洁结算统计</h2><div class="small">按日期排序，再按房间排序；历史和将来分开显示。</div></div></div><div class="filter-strip"><div class="filter-field"><label>开始日期</label><input id="cleanStart" type="date" onchange="renderCleaningFinance()"></div><div class="filter-field"><label>结束日期</label><input id="cleanEnd" type="date" onchange="renderCleaningFinance()"></div><div class="filter-actions"><button class="smallbtn" onclick="setCleaningFinanceRange('last30')">最近30天</button><button class="smallbtn" onclick="setCleaningFinanceRange('month')">本月</button><button class="smallbtn" onclick="setCleaningFinanceRange('next30')">未来30天</button></div></div><div id="cleaningFinance"></div></div>`;
     const cs = qs('cleanStart'); if(cs && !cs.value) cs.value = addDay(today(), -30);
     const ce = qs('cleanEnd'); if(ce && !ce.value) ce.value = addDay(today(), 30);
+    renderCleaningFinanceImpl();
+  }
+  function setCleaningFinanceRangeImpl(mode){
+    const cs = qs('cleanStart'), ce = qs('cleanEnd');
+    if(!cs || !ce) return;
+    if(mode === 'month'){
+      const start = `${monthKey(today())}-01`;
+      const nextMonthStart = `${monthKey(addDay(start, 32))}-01`;
+      cs.value = start;
+      ce.value = addDay(nextMonthStart, -1);
+    }else if(mode === 'next30'){
+      cs.value = today();
+      ce.value = addDay(today(), 30);
+    }else{
+      cs.value = addDay(today(), -30);
+      ce.value = today();
+    }
     renderCleaningFinanceImpl();
   }
   function renderOwnerNotesSubTabImpl(){
@@ -3056,7 +3086,7 @@
     const root = qs('ownerCleaningShell');
     if(!root) return;
     const active = activeCleaningSubTab();
-    root.innerHTML = `<div class="card cleaning-subnav-card"><div class="property-detail-head"><div><h2 style="margin:0">保洁/备注/调整</h2><div class="small">先选下面一个模块，页面只显示当前模块内容。</div></div></div>${renderCleaningSubTabs(active)}</div><div id="ownerCleaningSubContent"></div>`;
+    root.innerHTML = `<div class="card cleaning-subnav-card"><div class="property-detail-head"><div><h2 style="margin:0">保洁管理</h2><div class="small">保洁任务、结算、手动调整和保洁事项分开处理。</div></div></div>${renderCleaningSubTabs(active)}</div><div id="ownerCleaningSubContent"></div>`;
     renderCleaningSubContentImpl(active);
   }
   function addManualChangeImpl(){
@@ -3259,7 +3289,7 @@
   function renderOwnerNotesShell(){
     const root = qs('ownerNotesShell');
     if(!root) return;
-    root.innerHTML = `<div class="card"><h2>保洁备注</h2><div class="formgrid"><div><label>日期</label><input id="noteDate" type="date"></div><div><label>对象</label><select id="noteTarget"></select></div><div><label>优先级</label><select id="notePriority"><option>普通</option><option>重要</option></select></div><div><label>调整金额</label><input id="noteAmount" type="number" step="0.01" placeholder="可不填"></div></div><label style="margin-top:12px">备注内容</label><textarea id="noteText" placeholder="写给保洁看的事项"></textarea><br><br><button class="smallbtn primary" onclick="addCleaningNote()">保存保洁备注</button></div><div class="card"><h2>指定房间日期备注</h2><div class="formgrid"><div><label>日期</label><input id="roomNoteDate" type="date"></div><div><label>房间</label><select id="roomNoteRoom"></select></div><div><label>优先级</label><select id="roomNotePriority"><option>普通</option><option>重要</option></select></div></div><label style="margin-top:12px">备注内容</label><textarea id="roomNoteText" placeholder="例如：纪念日布置、婴儿床、提前放红酒"></textarea><br><br><button class="smallbtn primary" onclick="addRoomDateNote()">添加房间日期备注</button></div><div class="card"><div class="toolbar"><h2 style="margin:0">备注记录</h2><input id="noteFilterDate" type="date" onchange="renderOwnerNotes()"><select id="noteFilterTargetType" onchange="renderOwnerNotes()"><option value="">全部</option><option value="room">房间</option><option value="common">公区</option><option value="roomDate">房间日期备注</option></select></div><div id="ownerNotesList"></div></div>`;
+    root.innerHTML = `<div class="card"><h2>保洁事项</h2><div class="formgrid"><div><label>日期</label><input id="noteDate" type="date"></div><div><label>对象</label><select id="noteTarget"></select></div><div><label>优先级</label><select id="notePriority"><option>普通</option><option>重要</option></select></div><div><label>调整金额</label><input id="noteAmount" type="number" step="0.01" placeholder="可不填"></div></div><label style="margin-top:12px">事项内容</label><textarea id="noteText" placeholder="写给保洁看的事项"></textarea><br><br><button class="smallbtn primary" onclick="addCleaningNote()">保存事项</button></div><div class="card"><h2>指定房间日期事项</h2><div class="formgrid"><div><label>日期</label><input id="roomNoteDate" type="date"></div><div><label>房间</label><select id="roomNoteRoom"></select></div><div><label>优先级</label><select id="roomNotePriority"><option>普通</option><option>重要</option></select></div></div><label style="margin-top:12px">事项内容</label><textarea id="roomNoteText" placeholder="例如：纪念日布置、婴儿床、提前放红酒"></textarea><br><br><button class="smallbtn primary" onclick="addRoomDateNote()">添加日期事项</button></div><div class="card"><h2>事项记录</h2><div class="filter-strip"><div class="filter-field"><label>日期</label><input id="noteFilterDate" type="date" onchange="renderOwnerNotes()"></div><div class="filter-field"><label>对象类型</label><select id="noteFilterTargetType" onchange="renderOwnerNotes()"><option value="">全部事项</option><option value="room">房间事项</option><option value="common">公区事项</option><option value="roomDate">房间日期事项</option></select></div></div><div id="ownerNotesList"></div></div>`;
     root.insertAdjacentHTML('afterbegin', '<div id="recurringTaskManager"></div>');
     ['noteDate','roomNoteDate'].forEach(id => { const el = qs(id); if(el && !el.value) el.value = today(); });
     initSelectsImpl();
@@ -3269,7 +3299,7 @@
     const target = parseTarget(qs('noteTarget') && qs('noteTarget').value);
     const text = (qs('noteText') && qs('noteText').value || '').trim();
     if(!target.id) return alert('请选择对象');
-    if(!text) return alert('请先填写备注内容');
+    if(!text) return alert('请先填写事项内容');
     const amountText = String(qs('noteAmount') && qs('noteAmount').value || '').trim();
     getNotes().unshift({id:'note_'+Date.now(),date:(qs('noteDate') && qs('noteDate').value) || today(),target_id:target.id,target_type:target.type,note:text,priority:(qs('notePriority') && qs('notePriority').value) || '普通',amount:amountText === '' ? 0 : Number(amountText),amount_present:amountText !== '',created_by:userName('房东'),created_at:nowIso()});
     if(qs('noteText')) qs('noteText').value = '';
@@ -3280,7 +3310,7 @@
     const text = (qs('roomNoteText') && qs('roomNoteText').value || '').trim();
     const roomId = qs('roomNoteRoom') && qs('roomNoteRoom').value;
     if(!roomId) return alert('请选择房间');
-    if(!text) return alert('请先填写备注内容');
+    if(!text) return alert('请先填写事项内容');
     getRoomNotes().unshift({id:'roomnote_'+Date.now(),date:(qs('roomNoteDate') && qs('roomNoteDate').value) || today(),room_id:roomId,note:text,priority:(qs('roomNotePriority') && qs('roomNotePriority').value) || '普通',created_by:userName('房东'),created_at:nowIso()});
     if(qs('roomNoteText')) qs('roomNoteText').value = '';
     persistAll().then(renderAll).catch(e => alert('保存失败：' + e.message));
@@ -3297,7 +3327,7 @@
     if(ft === 'roomDate') rows = rows.filter(n => n.kind === 'roomDate');
     rows.sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
     const el = qs('ownerNotesList');
-    if(el) el.innerHTML = rows.length ? `<table><tr><th>日期</th><th>对象</th><th>类型</th><th>备注</th><th>金额</th><th>操作人</th></tr>${rows.map(n => `<tr><td>${esc(n.date)}</td><td>${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))}</td><td>${n.kind === 'roomDate' ? '<span class="badge purple">房间日期备注</span>' : priorityBadge(n.priority)}</td><td>${esc(n.note)}</td><td>${n.amount_present ? signedMoney(n.amount) : ''}</td><td>${esc(n.created_by || '')}</td></tr>`).join('')}</table>` : '<p class="small">暂无备注</p>';
+    if(el) el.innerHTML = rows.length ? `<table><tr><th>日期</th><th>对象</th><th>类型</th><th>事项</th><th>金额</th><th>操作人</th></tr>${rows.map(n => `<tr><td>${esc(n.date)}</td><td>${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))}</td><td>${n.kind === 'roomDate' ? '<span class="badge purple">房间日期事项</span>' : priorityBadge(n.priority)}</td><td>${esc(n.note)}</td><td>${n.amount_present ? signedMoney(n.amount) : ''}</td><td>${esc(n.created_by || '')}</td></tr>`).join('')}</table>` : '<p class="small">暂无事项</p>';
   }
 
   function channelRows(roomId){
@@ -3633,7 +3663,7 @@
   function renderCleanerNotesToday(){
     const rows = getNotes().filter(n => !n.recurring_task && n.date === today() && cleanerCanSeeTarget(n.target_id,n.target_type || 'room')).concat(getRoomNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.room_id,'room')).map(n => ({...n,target_id:n.room_id,target_type:'room',roomDate:true})));
     if(!rows.length) return '';
-    return `<div class="card"><h2>今日特别备注</h2>${rows.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('')}</div>`;
+    return `<div class="card"><h2>今日特别事项</h2>${rows.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期事项':''}</div><div>${esc(n.note)}</div></div>`).join('')}</div>`;
   }
   function activeCleanerTab(){
     const ids = ['cleanerToday','cleanerFuture','cleanerManual','cleanerHistory','cleanerProfile'];
@@ -3683,7 +3713,7 @@
     ensureCleanerContainers();
     const todayRows = cleanerRowsForRange(today(), today()).filter(r => r.date === today()).sort((a,b) => targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
     const summary = qs('cleanerSummary'); if(summary) summary.innerHTML = cleanerSummaryHtml();
-    const metrics = qs('cleanerMetrics'); if(metrics) metrics.innerHTML = `<div class="metric"><div class="small">${isActualCleaner()?'已绑定房源':'可查看房源'}</div><div class="num">${cleanerBoundProperties().length}</div></div><div class="metric"><div class="small">可查看房间</div><div class="num">${getRooms().filter(r => cleanerCanSeeTarget(r.id,'room')).length}</div></div><div class="metric"><div class="small">今日保洁</div><div class="num">${todayRows.length}</div></div><div class="metric"><div class="small">今日备注</div><div class="num">${getNotes().filter(n => !n.recurring_task && n.date === today() && cleanerCanSeeTarget(n.target_id,n.target_type || 'room')).length + getRoomNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.room_id,'room')).length}</div></div>`;
+    const metrics = qs('cleanerMetrics'); if(metrics) metrics.innerHTML = `<div class="metric"><div class="small">${isActualCleaner()?'已绑定房源':'可查看房源'}</div><div class="num">${cleanerBoundProperties().length}</div></div><div class="metric"><div class="small">可查看房间</div><div class="num">${getRooms().filter(r => cleanerCanSeeTarget(r.id,'room')).length}</div></div><div class="metric"><div class="small">今日保洁</div><div class="num">${todayRows.length}</div></div><div class="metric"><div class="small">今日事项</div><div class="num">${getNotes().filter(n => !n.recurring_task && n.date === today() && cleanerCanSeeTarget(n.target_id,n.target_type || 'room')).length + getRoomNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.room_id,'room')).length}</div></div>`;
     const notes = qs('cleanerTodayNotes'); if(notes) notes.innerHTML = renderCleanerNotesToday();
     renderCleanerTabContentImpl(activeCleanerTab(), {todayRows});
     setHeader('cleaner');
@@ -4726,6 +4756,7 @@
     renderManualRecords: renderManualRecordsImpl,
     renderManualRecordsHTML: renderManualRecordsHTMLImpl,
     renderCleaningFinance: renderCleaningFinanceImpl,
+    setCleaningFinanceRange: setCleaningFinanceRangeImpl,
     renderOwnerNotes: renderOwnerNotesImpl,
     openPropertyMailInRooms,
     openPropertyMailTab,
@@ -4848,6 +4879,7 @@
     ['renderSixMonthStats', renderSixMonthStatsImpl],
     ['renderOwnerBookings', renderOwnerBookingsImpl],
     ['renderRoomSettings', renderRoomSettingsImpl],
+    ['setCleaningFinanceRange', setCleaningFinanceRangeImpl],
     ['renderOpsCenter', renderOpsCenterImpl],
     ['showOpsTab', showOpsTab],
     ['addMaintenanceTicket', addMaintenanceTicket],
