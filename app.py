@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_APP_VERSION = "2026-07-06-v77-mail-income-finance"
+PMS_APP_VERSION = "2026-07-06-v78-peer-cleaner-access"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -332,12 +332,6 @@ def _pms_core_filter_state_for_user(state, user):
     first_property = next(iter(property_ids), "")
     common_areas = [area for area in state.get("commonAreas", []) if isinstance(area, dict) and (area.get("property_id") or first_property) in property_ids]
     common_area_ids = {area.get("id") for area in common_areas}
-    cleaner_codes = {
-        normalize_cleaner_code(item.get("cleaner_code"))
-        for item in state.get("propertyCleaners", [])
-        if isinstance(item, dict) and item.get("property_id") in property_ids
-    }
-
     visible = dict(state)
     visible["groups"] = [group for group in state.get("groups", []) if isinstance(group, dict) and group.get("id") in group_ids]
     visible["properties"] = properties
@@ -406,7 +400,6 @@ def _pms_core_filter_state_for_user(state, user):
         and (
             item.get("id") == (user or {}).get("id")
             or (can_manage_users and item.get("role") == "owner" and user_group_ids(item) & group_ids)
-            or (item.get("role") == "cleaner" and normalize_cleaner_code(item.get("cleaner_code")) in cleaner_codes)
         )
     ]
     visible["current_user"] = public_user(user)
@@ -838,11 +831,6 @@ def _pms_core_save_state_from_payload(payload, actor=None):
         if "users" in payload:
             if not actor_has_permission(actor, "users_manage"):
                 raise RuntimeError("user permission required")
-            cleaner_codes = {
-                normalize_cleaner_code(item.get("cleaner_code"))
-                for item in current.get("propertyCleaners", [])
-                if isinstance(item, dict) and item.get("property_id") in property_ids
-            }
             incoming_by_id = {
                 str(item.get("id")): item
                 for item in payload.get("users", [])
@@ -855,8 +843,6 @@ def _pms_core_save_state_from_payload(payload, actor=None):
                 if row.get("id") == actor.get("id"):
                     return True
                 if row.get("role") == "owner" and user_group_ids(row) & user_group_ids(actor):
-                    return True
-                if row.get("role") == "cleaner" and normalize_cleaner_code(row.get("cleaner_code")) in cleaner_codes:
                     return True
                 return False
 

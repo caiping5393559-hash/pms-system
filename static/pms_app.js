@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-06-v77-mail-income-finance';
+  const VERSION = '2026-07-06-v78-peer-cleaner-access';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -49,7 +49,7 @@
   ];
   const I18N = {
     'zh-CN': {
-      'nav.cleaner':'保洁页面','nav.owner':'房东管理','nav.finance':'财务管理','nav.access':'权限管理','nav.ops':'运营中心','nav.profile':'用户设置','nav.logout':'退出登录',
+      'nav.cleaner':'保洁页面','nav.owner':'房东管理','nav.finance':'财务管理','nav.access':'子账号权限','nav.ops':'运营中心','nav.profile':'用户设置','nav.logout':'退出登录',
       'pref.timezone':'时区','pref.language':'语言',
       'role.admin':'管理员','role.owner':'房东','role.cleaner':'保洁','role.unknown':'未识别',
       'header.owner.title':'{name} · 房东管理后台','header.owner.sub':'管理房源、房间、公区、iCal 同步和保洁绑定。',
@@ -73,7 +73,7 @@
       'owner.table.property':'房源','owner.table.room':'房间','owner.table.orders':'订单数','owner.table.orderNights':'订单晚数','owner.table.lockNights':'不开放锁定晚数','owner.table.availableNights':'可订晚数','owner.table.occupancy':'预订率','owner.table.cleaningFee':'单次保洁费','owner.table.noRooms':'当前筛选没有房间','owner.table.checkin':'入住/开始','owner.table.checkout':'退房/结束','owner.table.source':'来源','owner.table.guest':'客人','owner.table.status':'状态','owner.table.dateNotes':'日期备注','owner.table.noBookings':'当前日期范围没有预订'
     },
     'en-US': {
-      'nav.cleaner':'Cleaner','nav.owner':'Owner','nav.finance':'Finance','nav.access':'Access','nav.ops':'Operations','nav.profile':'User settings','nav.logout':'Log out',
+      'nav.cleaner':'Cleaner','nav.owner':'Owner','nav.finance':'Finance','nav.access':'Subaccounts','nav.ops':'Operations','nav.profile':'User settings','nav.logout':'Log out',
       'pref.timezone':'Time zone','pref.language':'Language',
       'role.admin':'Admin','role.owner':'Owner','role.cleaner':'Cleaner','role.unknown':'Unknown',
       'header.owner.title':'{name} · Owner dashboard','header.owner.sub':'Manage properties, rooms, common areas, iCal sync, and cleaner bindings.',
@@ -97,7 +97,7 @@
       'owner.table.property':'Property','owner.table.room':'Room','owner.table.orders':'Orders','owner.table.orderNights':'Booked nights','owner.table.lockNights':'Blocked nights','owner.table.availableNights':'Available nights','owner.table.occupancy':'Occupancy','owner.table.cleaningFee':'Cleaning fee','owner.table.noRooms':'No rooms match the current filter','owner.table.checkin':'Check-in / start','owner.table.checkout':'Check-out / end','owner.table.source':'Source','owner.table.guest':'Guest','owner.table.status':'Status','owner.table.dateNotes':'Date notes','owner.table.noBookings':'No reservations in this date range'
     },
     'es-ES': {
-      'nav.cleaner':'Limpieza','nav.owner':'Propietario','nav.finance':'Finanzas','nav.access':'Permisos','nav.ops':'Operaciones','nav.profile':'Usuario','nav.logout':'Salir',
+      'nav.cleaner':'Limpieza','nav.owner':'Propietario','nav.finance':'Finanzas','nav.access':'Subcuentas','nav.ops':'Operaciones','nav.profile':'Usuario','nav.logout':'Salir',
       'pref.timezone':'Zona horaria','pref.language':'Idioma',
       'role.admin':'Administrador','role.owner':'Propietario','role.cleaner':'Limpieza','role.unknown':'Desconocido',
       'header.owner.title':'{name} · Panel del propietario','header.owner.sub':'Gestiona propiedades, habitaciones, áreas comunes, iCal y limpieza.',
@@ -4372,25 +4372,31 @@
   }
   function managedUsers(){
     const current = getCurrentUser() || {};
-    return getUsers().filter(user => user && user.id && String(user.id) !== String(current.id || '') && ['owner','cleaner','admin'].includes(String(user.role || '').toLowerCase()));
+    const currentRole = String(current.role || '').toLowerCase();
+    return getUsers().filter(user => {
+      if(!user || !user.id || String(user.id) === String(current.id || '')) return false;
+      const userRole = String(user.role || '').toLowerCase();
+      if(userRole === 'cleaner') return false;
+      if(currentRole === 'admin') return userRole === 'owner' || userRole === 'admin';
+      return userRole === currentRole;
+    });
   }
   function renderAccessManagerImpl(){
     const root = qs('ownerAccessShell');
     if(!root) return;
     if(!canPermission('users_manage')){
-      root.innerHTML = '<div class="card"><h2>权限管理</h2><p class="small">当前账号没有子账号权限。</p></div>';
+      root.innerHTML = '<div class="card"><h2>子账号权限</h2><p class="small">当前账号没有子账号权限。</p></div>';
       return;
     }
     const props = propList().filter(p => financeScopePropertyIds().has(String(p.id)));
     const rows = managedUsers();
     const cards = rows.length ? rows.map(user => {
       const roleText = roleLabel(user.role);
-      const isOwnerUser = String(user.role || '').toLowerCase() === 'owner';
       const permissionHtml = OWNER_PERMISSION_DEFS.map(([key,label]) => `<label class="access-check"><input type="checkbox" data-permission="${esc(key)}" ${permissionChecked(user,key) ? 'checked' : ''}> ${esc(label)}</label>`).join('');
-      const propHtml = isOwnerUser ? props.map(prop => `<label class="access-check"><input type="checkbox" data-property="${esc(prop.id)}" ${accessPropertyChecked(user,prop.id) ? 'checked' : ''}> ${esc(prop.name || prop.id)}</label>`).join('') : '<div class="small">保洁账号按房源里的保洁绑定控制，不在这里单独选房源。</div>';
+      const propHtml = props.map(prop => `<label class="access-check"><input type="checkbox" data-property="${esc(prop.id)}" ${accessPropertyChecked(user,prop.id) ? 'checked' : ''}> ${esc(prop.name || prop.id)}</label>`).join('');
       return `<div class="ops-row access-user-card" data-user-id="${esc(user.id)}"><div class="property-detail-head"><div><div class="ops-title">${esc(user.name || user.username || user.cleaner_code || user.id)}</div><div class="small">${esc(roleText)} · ${esc(user.username || user.cleaner_code || user.id)}</div></div><button class="smallbtn primary" onclick="saveUserAccess('${esc(user.id)}',this)">保存权限</button></div><div class="access-section"><h4>可看房源</h4><div class="access-grid">${propHtml}</div></div><div class="access-section"><h4>功能权限</h4><div class="access-grid">${permissionHtml}</div></div></div>`;
-    }).join('') : '<div class="ops-empty">暂无可管理的子账号。房东子账号需要先注册或加入同一房东组；保洁账号需要先绑定到房源。</div>';
-    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>权限管理</h2><div class="small">控制子账号能看哪些房源、能不能看财务、编辑财务、管理房间/iCal、操作运营中心和管理其他子账号。</div></div><span class="badge blue">${rows.length} 个账号</span></div></div><div class="ops-list">${cards}</div>`;
+    }).join('') : '<div class="ops-empty">暂无可管理的子账号。房东子账号属于房东账号体系；保洁账号是平级账号，只通过房源里的“保洁绑定”建立工作关系。</div>';
+    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>子账号权限</h2><div class="small">这里只管理当前账号体系下的子账号。保洁账号不属于房东子账号；请在“房间/公区设置”的保洁绑定里用保洁编号绑定或解绑。</div></div><span class="badge blue">${rows.length} 个子账号</span></div></div><div class="ops-list">${cards}</div>`;
   }
   async function saveUserAccess(userId,btn){
     if(!canPermission('users_manage')) return alert('当前账号没有子账号权限。');
@@ -4405,7 +4411,7 @@
     });
     const allowedProps = Array.from(card.querySelectorAll('input[data-property]:checked')).map(input => input.getAttribute('data-property')).filter(Boolean);
     user.permissions = permissions;
-    if(String(user.role || '').toLowerCase() === 'owner') user.allowed_property_ids = allowedProps;
+    if(String(user.role || '').toLowerCase() !== 'cleaner') user.allowed_property_ids = allowedProps;
     setUsers(users);
     appendAudit('更新子账号权限', user.name || user.username || user.id, selectedOpsPropertyId());
     const old = btn && btn.textContent;
