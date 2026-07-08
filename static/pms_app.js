@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-07-v82-photo-thumb-url';
+  const VERSION = '2026-07-07-v84-cleaner-ramp-filter';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -746,11 +746,26 @@
   function defaultDeepTaskStartDate(){
     return addDay(CLEANING_TASK_LAUNCH_DATE, CLEANING_TASK_RAMP_DAYS);
   }
+  function defaultDeepTaskTemplateId(value){
+    const text = String(value || '').trim();
+    if(!text) return '';
+    return DEFAULT_ROOM_TASK_PRESET_IDS.find(id => {
+      if(id === 'checkout_turnover_standard') return false;
+      return text === id || text.endsWith('_' + id) || text.includes('_' + id + '|') || text.includes('|' + id + '|') || text.endsWith('|' + id);
+    }) || '';
+  }
+  function defaultDeepTaskInRamp(date){
+    const normalized = normalizeDateInputValue(date);
+    return !!normalized && normalized >= CLEANING_TASK_LAUNCH_DATE && normalized < defaultDeepTaskStartDate();
+  }
   function defaultPresetStartDate(isBase){
     return isBase ? today() : defaultDeepTaskStartDate();
   }
   function isDefaultDeepRoomTask(note){
-    return !!(note && note.recurring_task && note.default_room_task && String(note.template_id || '') !== 'checkout_turnover_standard');
+    return !!(note && note.recurring_task && note.default_room_task && defaultDeepTaskTemplateId(note.template_id || note.default_task_key || note.id));
+  }
+  function holdDefaultDeepRoomTask(note,date){
+    return isDefaultDeepRoomTask(note) && defaultDeepTaskInRamp(date);
   }
   function effectiveRecurringStartDate(note, first){
     const normalized = normalizeDateInputValue(first) || today();
@@ -2125,6 +2140,7 @@
       const type = note.target_type || 'room';
       if(applyOwnerScope && !targetMatches(note.target_id,type)) return;
       recurringDatesForNote(note,start,end,applyOwnerScope).forEach(date => {
+        if(holdDefaultDeepRoomTask(note,date)) return;
         rows.push({
           id: 'recurring_task_' + safe(note.id || '') + '_' + safe(date),
           date,
@@ -2162,6 +2178,9 @@
       amount: Number(row.amount || 0),
       can_defer: note.can_defer !== false && row.can_defer !== false,
       note_id: row.note_id || '',
+      template_id: note.template_id || row.template_id || '',
+      default_task_key: note.default_task_key || row.default_task_key || '',
+      default_room_task: !!(note.default_room_task || row.default_room_task),
       required: true
     };
   }
@@ -2291,7 +2310,7 @@
   }
   function rowAmount(row){
     if(row.cancel_review_task && String(row.review_status || 'pending') !== 'clean_needed') return 0;
-    const subtaskAmount = (Array.isArray(row.subtasks) ? row.subtasks : []).reduce((sum,item) => sum + Number(item.amount || 0), 0);
+    const subtaskAmount = cleaningRowItems(row).filter(item => !item.main_task).reduce((sum,item) => sum + Number(item.amount || 0), 0);
     if(row.recurring_task) return Number(row.amount || 0);
     if(row.type === 'manual_add' || row.note_task) return Number(row.amount || targetFee(row.target_id,row.target_type));
     return targetFee(row.target_id,row.target_type) + subtaskAmount;
@@ -2323,9 +2342,23 @@
       main_task: true
     };
   }
+  function isHeldDefaultDeepSubtask(row,item){
+    if(!defaultDeepTaskInRamp((item && item.date) || (row && row.date))) return false;
+    const ref = [
+      item && item.template_id,
+      item && item.templateId,
+      item && item.default_task_key,
+      item && item.defaultTaskKey,
+      item && item.note_id,
+      item && item.noteId,
+      item && item.id,
+      item && item.key
+    ].join('|');
+    return !!defaultDeepTaskTemplateId(ref);
+  }
   function cleaningRowItems(row){
     if(!row || !row.date || !row.target_id) return [];
-    const subtasks = (Array.isArray(row.subtasks) ? row.subtasks : []).filter(item => item && item.key);
+    const subtasks = (Array.isArray(row.subtasks) ? row.subtasks : []).filter(item => item && item.key && !isHeldDefaultDeepSubtask(row,item));
     return sortCleaningRowItems(row, subtasks.length ? subtasks : [cleaningRowMainTask(row)]);
   }
   function cleaningItemImportance(item,index){
@@ -2353,7 +2386,7 @@
   }
   function cleaningConfirmRequired(row){
     if(!row || !row.date) return false;
-    if(Array.isArray(row.subtasks) && row.subtasks.length) return true;
+    if(cleaningRowItems(row).some(item => !item.main_task)) return true;
     return String(row.date) >= CLEANING_CONFIRM_REQUIRED_FROM;
   }
   function subtaskConfirmation(key){
@@ -3597,29 +3630,57 @@
     if(!rows.length) return '';
     return `<div class="card"><h2>今日特别备注</h2>${rows.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期备注':''}</div><div>${esc(n.note)}</div></div>`).join('')}</div>`;
   }
+  function activeCleanerTab(){
+    const ids = ['cleanerToday','cleanerFuture','cleanerManual','cleanerHistory','cleanerProfile'];
+    const active = ids.find(id => qs(id) && qs(id).classList.contains('active'));
+    if(active === 'cleanerProfile' && !isActualCleaner()) return 'cleanerToday';
+    return active || 'cleanerToday';
+  }
+  function cleanerRowsForRange(start,end){
+    return actualCleaningRowsImpl(start,end,false).filter(r => cleanerCanSeeTarget(r.target_id,r.target_type));
+  }
+  function renderCleanerTabContentImpl(tabId, options={}){
+    const active = tabId || activeCleanerTab();
+    if(active === 'cleanerProfile'){
+      renderUserProfileImpl();
+      return;
+    }
+    if(active === 'cleanerToday'){
+      const rows = options.todayRows || cleanerRowsForRange(today(), today()).filter(r => r.date === today()).sort((a,b) => targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
+      const box = qs('cleanerToday'); if(box) box.innerHTML = cleaningTableScoped(rows);
+      return;
+    }
+    if(active === 'cleanerFuture'){
+      const rows = cleanerRowsForRange(addDay(today(),1), addDay(today(),180)).filter(r => r.date > today()).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN')).slice(0,120);
+      const box = qs('cleanerFuture'); if(box) box.innerHTML = cleaningTableScoped(rows);
+      return;
+    }
+    if(active === 'cleanerManual'){
+      const box = qs('cleanerManual'); if(box) box.innerHTML = renderManualRecordsHTMLImpl(getManual().filter(m => cleanerCanSeeTarget(m.target_id,m.target_type || 'room')),false);
+      return;
+    }
+    if(active === 'cleanerHistory'){
+      const historyRows = cleanerRowsForRange(addDay(today(),-90), addDay(today(),-1)).filter(r => r.date < today()).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
+      const groups = {};
+      historyRows.forEach(r => (groups[monthKey(r.date)] ||= []).push(r));
+      const box = qs('cleanerHistory');
+      if(box) box.innerHTML = `<div class="card"><h2>历史保洁 | 按月统计</h2><div class="small">默认折叠，点月份展开。公区每日保洁也计入历史记录。</div></div>` + (Object.keys(groups).sort().reverse().map((month,index) => {
+        const total = groups[month].reduce((s,r) => s + rowAmount(r), 0);
+        return `<div class="month-block ${index===0?'open':''}"><div class="month-head" onclick="this.parentElement.classList.toggle('open')"><span>${esc(month)} 保洁 ${groups[month].length} 次</span><span>费用：${money(total)}</span></div><div class="month-body">${cleaningTableScoped(groups[month])}</div></div>`;
+      }).join('') || '<div class="card"><p class="small">暂无历史记录</p></div>');
+    }
+  }
   function renderCleanerImpl(){
     ensureBaseShell();
     ensureStyles();
     document.body.classList.add('pms-view-cleaner');
     document.body.classList.remove('pms-view-owner');
-    const rows = actualCleaningRowsImpl(addDay(today(),-90), addDay(today(),180), false).filter(r => cleanerCanSeeTarget(r.target_id,r.target_type));
-    const todayRows = rows.filter(r => r.date === today()).sort((a,b) => targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
-    const futureRows = rows.filter(r => r.date > today()).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN')).slice(0,120);
-    const historyRows = rows.filter(r => r.date < today()).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
+    ensureCleanerContainers();
+    const todayRows = cleanerRowsForRange(today(), today()).filter(r => r.date === today()).sort((a,b) => targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
     const summary = qs('cleanerSummary'); if(summary) summary.innerHTML = cleanerSummaryHtml();
-    const metrics = qs('cleanerMetrics'); if(metrics) metrics.innerHTML = `<div class="metric"><div class="small">${isActualCleaner()?'已绑定房源':'可查看房源'}</div><div class="num">${cleanerBoundProperties().length}</div></div><div class="metric"><div class="small">可查看房间</div><div class="num">${getRooms().filter(r => cleanerCanSeeTarget(r.id,'room')).length}</div></div><div class="metric"><div class="small">今日保洁</div><div class="num">${todayRows.length}</div></div><div class="metric"><div class="small">今日备注</div><div class="num">${getNotes().filter(n => !n.recurring_task && n.date === today() && cleanerCanSeeTarget(n.target_id,n.target_type || 'room')).length + getRoomNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.room_id,'room')).length}</div></div><div class="metric"><div class="small">未来保洁</div><div class="num">${futureRows.length}</div></div>`;
+    const metrics = qs('cleanerMetrics'); if(metrics) metrics.innerHTML = `<div class="metric"><div class="small">${isActualCleaner()?'已绑定房源':'可查看房源'}</div><div class="num">${cleanerBoundProperties().length}</div></div><div class="metric"><div class="small">可查看房间</div><div class="num">${getRooms().filter(r => cleanerCanSeeTarget(r.id,'room')).length}</div></div><div class="metric"><div class="small">今日保洁</div><div class="num">${todayRows.length}</div></div><div class="metric"><div class="small">今日备注</div><div class="num">${getNotes().filter(n => !n.recurring_task && n.date === today() && cleanerCanSeeTarget(n.target_id,n.target_type || 'room')).length + getRoomNotes().filter(n => n.date === today() && cleanerCanSeeTarget(n.room_id,'room')).length}</div></div>`;
     const notes = qs('cleanerTodayNotes'); if(notes) notes.innerHTML = renderCleanerNotesToday();
-    const todayBox = qs('cleanerToday'); if(todayBox) todayBox.innerHTML = cleaningTableScoped(todayRows);
-    const futureBox = qs('cleanerFuture'); if(futureBox) futureBox.innerHTML = cleaningTableScoped(futureRows);
-    const manualBox = qs('cleanerManual'); if(manualBox) manualBox.innerHTML = renderManualRecordsHTMLImpl(getManual().filter(m => cleanerCanSeeTarget(m.target_id,m.target_type || 'room')),false);
-    const groups = {};
-    historyRows.forEach(r => (groups[monthKey(r.date)] ||= []).push(r));
-    const historyBox = qs('cleanerHistory');
-    if(historyBox) historyBox.innerHTML = `<div class="card"><h2>历史保洁 | 按月统计</h2><div class="small">默认折叠，点月份展开。公区每日保洁也计入历史记录。</div></div>` + (Object.keys(groups).sort().reverse().map((month,index) => {
-      const total = groups[month].reduce((s,r) => s + rowAmount(r), 0);
-      return `<div class="month-block ${index===0?'open':''}"><div class="month-head" onclick="this.parentElement.classList.toggle('open')"><span>${esc(month)} 保洁 ${groups[month].length} 次</span><span>费用：${money(total)}</span></div><div class="month-body">${cleaningTableScoped(groups[month])}</div></div>`;
-    }).join('') || '<div class="card"><p class="small">暂无历史记录</p></div>');
-    renderUserProfileImpl();
+    renderCleanerTabContentImpl(activeCleanerTab(), {todayRows});
     setHeader('cleaner');
     ensureLogoutButton();
     ensureVersionBadge();
@@ -3701,6 +3762,7 @@
       btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
     }
+    if(id && String(id).startsWith('cleaner')) renderCleanerTabContentImpl(id);
     if(id === 'cleanerProfile' || id === 'ownerProfile') renderUserProfileImpl();
   }
   function applyRoleModeImpl(){
@@ -3725,7 +3787,6 @@
     ensureStyles();
     if(isActualCleaner() || (cleanerPath() && !isOwnerLike())) renderCleanerImpl();
     else {
-      renderCleanerImpl();
       renderOwnerImpl();
       const cleaner = qs('cleaner');
       if(cleaner && !cleaner.classList.contains('active')) cleaner.style.display = 'none';
