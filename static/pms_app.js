@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-06-v78-peer-cleaner-access';
+  const VERSION = '2026-07-07-v79-cleaner-mobile-compact';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -1825,29 +1825,31 @@
         .sync-status,.badge{white-space:normal;text-align:center}
         #cleaner .cleaning-list-card{padding:0;background:transparent;border:0;box-shadow:none}
         #cleaner .cleaning-work-list{gap:8px}
-        #cleaner .cleaning-work-head{gap:6px;padding:8px 10px}
-        #cleaner .cleaning-work-name{font-size:15px;gap:5px}
-        #cleaner .cleaning-work-name .badge{font-size:11px;padding:3px 7px}
+        #cleaner .cleaning-work-head{gap:5px;padding:6px 8px}
+        #cleaner .cleaning-work-name{font-size:14px;gap:4px}
+        #cleaner .cleaning-work-name .badge{font-size:10px;padding:2px 6px}
         #cleaner .cleaning-work-title>.small{font-size:11px}
-        #cleaner .cleaning-work-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-        #cleaner .cleaning-work-meta .sync-status{font-size:11px;padding:3px 7px;width:auto}
-        #cleaner .cleaning-work-meta>div{font-size:13px}
+        #cleaner .cleaning-work-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+        #cleaner .cleaning-work-meta .sync-status{font-size:10px;padding:2px 6px;width:auto}
+        #cleaner .cleaning-work-meta>div{font-size:12px}
         #cleaner .cleaning-work-meta>div .sync-status{display:inline-flex}
-        #cleaner .cleaning-work-body{padding:8px 10px;gap:7px}
-        #cleaner .cleaning-work-note{font-size:12px;line-height:1.25;color:#64748b}
-        #cleaner .cleaning-task-rows{gap:7px}
-        #cleaner .cleaning-task-row{grid-template-columns:minmax(0,1fr)!important;align-items:stretch;padding:9px 10px;gap:7px}
-        #cleaner .cleaning-task-main{gap:5px}
-        #cleaner .cleaning-task-title{font-size:16px;line-height:1.25;gap:6px;flex-wrap:wrap}
-        #cleaner .cleaning-task-title-text{white-space:normal;overflow:visible;text-overflow:clip;flex:1 1 160px}
-        #cleaner .cleaning-task-title .sync-status{font-size:11px;padding:2px 6px;margin-left:auto}
-        #cleaner .cleaning-task-note{font-size:15px;line-height:1.45;white-space:normal;overflow:visible;text-overflow:clip;color:#334155}
-        #cleaner .cleaning-task-photo-panel{justify-self:stretch;width:100%}
-        #cleaner .cleaning-task-photo-panel>summary{width:100%;min-height:34px;padding:7px 10px}
-        #cleaner .cleaning-task-photo-panel[open]{grid-column:auto}
-        #cleaner .cleaning-task-confirm{justify-self:stretch;width:100%}
-        #cleaner .cleaning-task-confirm .mail-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}
-        #cleaner .cleaning-task-confirm .smallbtn{width:100%;min-height:36px}
+        #cleaner .cleaning-work-body{padding:6px 8px;gap:5px}
+        #cleaner .cleaning-work-note{font-size:11px;line-height:1.2;color:#64748b}
+        #cleaner .cleaning-task-rows{gap:5px}
+        #cleaner .cleaning-task-row{grid-template-columns:minmax(0,1fr) 72px 72px!important;align-items:start;padding:6px 7px;gap:5px}
+        #cleaner .cleaning-task-main{gap:3px}
+        #cleaner .cleaning-task-title{font-size:14px;line-height:1.18;gap:4px;flex-wrap:wrap}
+        #cleaner .cleaning-task-index{width:18px;height:18px;font-size:10px}
+        #cleaner .cleaning-task-title-text{white-space:normal;overflow:visible;text-overflow:clip;flex:1 1 110px}
+        #cleaner .cleaning-task-title .sync-status{font-size:10px;padding:1px 5px;margin-left:auto}
+        #cleaner .cleaning-task-note{font-size:13px;line-height:1.3;white-space:normal;overflow:visible;text-overflow:clip;color:#334155}
+        #cleaner .cleaning-task-photo-panel{justify-self:stretch;width:72px}
+        #cleaner .cleaning-task-photo-panel>summary{width:100%;min-height:28px;padding:5px 6px;font-size:12px}
+        #cleaner .cleaning-task-photo-panel[open]{grid-column:1/-1;width:100%}
+        #cleaner .cleaning-task-confirm{justify-self:stretch;width:72px}
+        #cleaner .cleaning-task-confirm .mail-actions{display:grid;grid-template-columns:1fr;gap:4px}
+        #cleaner .cleaning-task-confirm .smallbtn{width:100%;min-height:28px;padding:5px 6px;font-size:12px}
+        #cleaner .cleaning-task-confirm .sync-status{min-height:28px;padding:4px 6px;font-size:10px}
       }
       @media(max-width:380px){
         .photo-cell .mail-actions{grid-template-columns:1fr}
@@ -1856,6 +1858,10 @@
         .cleaning-task-confirm .mail-actions{justify-content:stretch}
         .cleaning-task-confirm .smallbtn{flex:1}
         .cleaning-work-name{font-size:15px}
+        #cleaner .cleaning-task-row{grid-template-columns:minmax(0,1fr) 68px!important}
+        #cleaner .cleaning-task-confirm{grid-column:2;grid-row:2;width:68px}
+        #cleaner .cleaning-task-photo-panel{width:68px}
+        #cleaner .cleaning-task-note{font-size:12px;line-height:1.28}
       }
     `;
     document.head.appendChild(style);
