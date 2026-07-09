@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-08-v88-memory-stable-state';
+  const VERSION = '2026-07-08-v89-fast-photo-upload';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -265,6 +265,12 @@
   function setConfirmations(value){try{cleaningTaskConfirmations = value;}catch(e){} window.cleaningTaskConfirmations = value;}
   function getPhotos(){try{return Array.isArray(cleaningTaskPhotos) ? cleaningTaskPhotos : [];}catch(e){return window.cleaningTaskPhotos || [];}}
   function setPhotos(value){try{cleaningTaskPhotos = value;}catch(e){} window.cleaningTaskPhotos = value;}
+  function upsertCleaningPhoto(photo){
+    if(!photo || !photo.id) return;
+    const rows = getPhotos().filter(p => p && String(p.id || '') !== String(photo.id || ''));
+    rows.push(photo);
+    setPhotos(rows);
+  }
   function getMaintenanceTickets(){try{return Array.isArray(maintenanceTickets) ? maintenanceTickets : [];}catch(e){return window.maintenanceTickets || [];}}
   function setMaintenanceTickets(value){try{maintenanceTickets = value;}catch(e){} window.maintenanceTickets = value;}
   function getInventoryItems(){try{return Array.isArray(inventoryItems) ? inventoryItems : [];}catch(e){return window.inventoryItems || [];}}
@@ -2500,7 +2506,7 @@
     const list = photos.length ? `<div class="photo-thumb-list">${photos.map((p,i) => {
       const href = String(p.url || '').startsWith('/') ? apiUrl(p.url) : String(p.url || '');
       const label = t('cleaning.photoLink', {count: i + 1});
-      return `<a class="photo-thumb" href="${esc(href)}" target="_blank" rel="noopener" aria-label="${esc(label)}"><img src="${esc(href)}" alt="${esc(label)}" decoding="async"><span class="photo-thumb-label">${esc(i + 1)}</span></a>`;
+      return `<a class="photo-thumb" href="${esc(href)}" target="_blank" rel="noopener" aria-label="${esc(label)}"><img src="${esc(href)}" alt="${esc(label)}" loading="lazy" decoding="async" fetchpriority="low"><span class="photo-thumb-label">${esc(i + 1)}</span></a>`;
     }).join('')}</div>` : `<span class="small">${esc(t('cleaning.notUploaded'))}</span>`;
     const expiry = photos.length ? `<div class="photo-expiry">${esc(t('cleaning.expires7'))}</div>` : '';
     return `<div class="photo-cell">${upload}${list}${expiry}</div>`;
@@ -2535,18 +2541,28 @@
   async function prepareCleaningPhoto(file){
     const dataUrl = await fileToDataUrl(file);
     const type = String(file.type || '').toLowerCase();
-    if(!/^image\/(jpeg|jpg|png|webp)$/.test(type)) return dataUrl;
+    if(type && !type.startsWith('image/')) return dataUrl;
     try{
       const img = await imageFromDataUrl(dataUrl);
-      const maxSide = 1600;
+      const maxSide = 1280;
       const scale = Math.min(1, maxSide / Math.max(img.width || maxSide, img.height || maxSide));
-      if(scale >= 1 && file.size < 900000) return dataUrl;
+      if(scale >= 1 && file.size < 450000) return dataUrl;
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round((img.width || maxSide) * scale));
       canvas.height = Math.max(1, Math.round((img.height || maxSide) * scale));
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      return canvas.toDataURL('image/jpeg', 0.78);
+      let output = canvas.toDataURL('image/jpeg', 0.72);
+      if(output.length > 900000){
+        const retryScale = Math.min(1, 1024 / Math.max(canvas.width || 1024, canvas.height || 1024));
+        const small = document.createElement('canvas');
+        small.width = Math.max(1, Math.round(canvas.width * retryScale));
+        small.height = Math.max(1, Math.round(canvas.height * retryScale));
+        const smallCtx = small.getContext('2d');
+        smallCtx.drawImage(canvas, 0, 0, small.width, small.height);
+        output = small.toDataURL('image/jpeg', 0.68);
+      }
+      return output;
     }catch(e){
       return dataUrl;
     }
@@ -2578,7 +2594,8 @@
         let data = {};
         try{data = raw ? JSON.parse(raw) : {};}catch(e){}
         if(!res.ok || data.ok === false) throw new Error(data.error || raw.slice(0, 200) || ('上传失败 HTTP ' + res.status));
-        applyStateFromServerImpl(data.state || data);
+        if(data.photo) upsertCleaningPhoto(data.photo);
+        else applyStateFromServerImpl(data.state || data);
         uploaded += 1;
       }
       setStatus(t('cleaning.uploaded', {count: uploaded}), 'ok');

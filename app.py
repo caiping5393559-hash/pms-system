@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_APP_VERSION = "2026-07-08-v88-memory-stable-state"
+PMS_APP_VERSION = "2026-07-08-v89-fast-photo-upload"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -2093,7 +2093,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 payload = json.loads(raw.decode("utf-8") or "{}")
                 saved, photo = upload_cleaning_task_photo(payload, actor=user)
-                json_response(self, {"ok": True, "photo": photo, "state": pms_state_response_for_user(saved, user)})
+                json_response(self, {"ok": True, "photo": _pms_photo_public(photo)})
                 return
             if path == "/api/state":
                 user = require_user(self, ("admin", "owner"))
