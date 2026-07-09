@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-08-v91-settlement-default-done-fix';
+  const VERSION = '2026-07-09-v92-cleaner-day-compact';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -1775,8 +1775,14 @@
       .filter-field label{font-size:12px;font-weight:900;color:#64748b}
       .filter-field input,.filter-field select{min-height:38px}
       .filter-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+      .cleaning-day-list{display:grid;gap:10px}
+      .cleaning-day{border:1px solid var(--line);background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+      .cleaning-day-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 12px;background:#f8fafc;border-bottom:1px solid var(--line)}
+      .cleaning-day-head h3{margin:0;font-size:18px;line-height:1.15}
+      .cleaning-day-total{font-size:20px;font-weight:900;color:#0f766e;white-space:nowrap}
       .cleaning-list-card{padding:8px}
       .cleaning-work-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(620px,1fr));gap:10px;align-items:start}
+      .cleaning-work-list.compact-tasks{grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:8px}
       .cleaning-work-card{border:1px solid #d8e1ef;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
       .cleaning-work-card.today{border-color:#fbbf24;background:#fffbeb;box-shadow:0 0 0 1px rgba(251,191,36,.18)}
       .cleaning-work-card.review{border-color:#fb923c;background:#fff7ed}
@@ -1793,8 +1799,13 @@
       .cleaning-work-card.today .cleaning-work-body:before{background:#f59e0b}
       .cleaning-work-card.review .cleaning-work-body:before{background:#fb923c}
       .cleaning-work-note{color:#64748b;line-height:1.3;font-size:13px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+      .cleaning-work-photo-panel{display:grid;gap:4px}
+      .cleaning-work-photo-panel>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:max-content;border:1px solid #cbd5e1;background:#fff;color:#0f172a;border-radius:999px;min-height:30px;padding:5px 14px;font-size:13px;font-weight:900;line-height:1}
+      .cleaning-work-photo-panel>summary::-webkit-details-marker{display:none}
+      .cleaning-work-photo-panel[open]{border:1px dashed #cbd5e1;background:#f8fafc;border-radius:8px;padding:7px}
       .cleaning-task-rows{display:grid;gap:5px}
       .cleaning-task-row{display:grid;grid-template-columns:minmax(260px,1fr) minmax(90px,.18fr) minmax(110px,.22fr);gap:8px;align-items:center;border:1px solid #d8e1ef;border-left:4px solid #94a3b8;background:#fff;border-radius:8px;padding:6px 8px}
+      .cleaning-task-row.compact{grid-template-columns:minmax(0,1fr) minmax(92px,.18fr);border-left-width:3px;border-radius:6px;padding:4px 6px;gap:6px}
       .cleaning-task-row.done{border-color:#86efac;background:#f0fdf4}
       .cleaning-task-row.pending{border-color:#fbbf24;border-left-color:#f59e0b;background:#fffaf0}
       .cleaning-task-main{display:grid;gap:2px;min-width:0}
@@ -1879,7 +1890,12 @@
         body.pms-view-cleaner #cleanerTodayNotes h2{font-size:16px;margin:0 0 6px}
         body.pms-view-cleaner #cleanerTodayNotes .note-card{padding:7px 8px;margin:6px 0}
         .cleaning-list-card{padding:8px;background:#f8fafc}
+        .cleaning-day-list{gap:8px}
+        .cleaning-day-head{padding:8px 10px}
+        .cleaning-day-head h3{font-size:16px}
+        .cleaning-day-total{font-size:17px}
         .cleaning-work-list{gap:10px}
+        .cleaning-work-list.compact-tasks{grid-template-columns:1fr}
         .cleaning-work-card{border-radius:8px}
         .cleaning-work-head{display:grid;grid-template-columns:1fr;gap:8px;padding:10px}
         .cleaning-work-title{gap:4px}
@@ -1927,12 +1943,14 @@
         #cleaner .cleaning-work-note{font-size:11px;line-height:1.2;color:#64748b}
         #cleaner .cleaning-task-rows{gap:5px}
         #cleaner .cleaning-task-row{grid-template-columns:minmax(0,1fr) 72px 72px!important;align-items:start;padding:6px 7px;gap:5px}
+        #cleaner .cleaning-task-row.compact{grid-template-columns:minmax(0,1fr) 68px!important;align-items:center;padding:4px 6px;gap:5px}
         #cleaner .cleaning-task-main{gap:3px}
         #cleaner .cleaning-task-title{font-size:14px;line-height:1.18;gap:4px;flex-wrap:wrap}
         #cleaner .cleaning-task-index{width:18px;height:18px;font-size:10px}
         #cleaner .cleaning-task-title-text{white-space:normal;overflow:visible;text-overflow:clip;flex:1 1 110px}
         #cleaner .cleaning-task-title .sync-status{font-size:10px;padding:1px 5px;margin-left:auto}
         #cleaner .cleaning-task-note{font-size:13px;line-height:1.3;white-space:normal;overflow:visible;text-overflow:clip;color:#334155}
+        #cleaner .cleaning-task-row.compact .cleaning-task-note{font-size:11px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#64748b}
         #cleaner .cleaning-task-photo-panel{justify-self:stretch;width:72px}
         #cleaner .cleaning-task-photo-panel>summary{width:100%;min-height:28px;padding:5px 6px;font-size:12px}
         #cleaner .cleaning-task-photo-panel[open]{grid-column:1/-1;width:100%}
@@ -1950,6 +1968,7 @@
         .cleaning-task-confirm .smallbtn{flex:1}
         .cleaning-work-name{font-size:15px}
         #cleaner .cleaning-task-row{grid-template-columns:minmax(0,1fr) 68px!important}
+        #cleaner .cleaning-task-row.compact{grid-template-columns:minmax(0,1fr) 64px!important}
         #cleaner .cleaning-task-confirm{grid-column:2;grid-row:2;width:68px}
         #cleaner .cleaning-task-photo-panel{width:68px}
         #cleaner .cleaning-task-note{font-size:12px;line-height:1.28}
@@ -2530,7 +2549,12 @@
     const key = cleaningPhotoTaskKey(row,item);
     return getPhotos().filter(p => p && String(p.task_key || p.taskKey || '') === key);
   }
-  function cleaningPhotoControls(row,item=null){
+  function cleaningPhotosForWork(row,items=[]){
+    const keys = new Set([cleaningPhotoTaskKey(row,null)]);
+    (items || []).forEach(item => keys.add(cleaningPhotoTaskKey(row,item)));
+    return getPhotos().filter(p => p && keys.has(String(p.task_key || p.taskKey || '')));
+  }
+  function cleaningPhotoControls(row,item=null,options={}){
     if(!row || !row.date || !row.target_id) return '';
     const key = cleaningPhotoTaskKey(row,item);
     ui.photoRows[key] = {
@@ -2544,7 +2568,7 @@
     const cameraId = 'cleanPhotoCamera_' + safe(key);
     const fileId = 'cleanPhotoFile_' + safe(key);
     const statusId = 'cleanPhotoStatus_' + safe(key);
-    const photos = cleaningPhotosForRow(row,item);
+    const photos = Array.isArray(options.photos) ? options.photos : cleaningPhotosForRow(row,item);
     const canUpload = row.date <= today();
     const upload = canUpload ? `<div class="mail-actions"><label class="smallbtn" for="${cameraId}">${esc(t('cleaning.camera'))}</label><label class="smallbtn" for="${fileId}">${esc(t('cleaning.uploadMany'))}</label></div><input id="${cameraId}" data-upload-source="camera" type="file" accept="image/*" capture="environment" multiple onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><input id="${fileId}" data-upload-source="file" type="file" accept="image/*" multiple onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><div id="${statusId}" class="photo-status"></div>` : '';
     const list = photos.length ? `<div class="photo-thumb-list">${photos.map((p,i) => {
@@ -2560,6 +2584,11 @@
     const items = cleaningRowItems(row);
     if(items.length <= 1) return cleaningPhotoControls(row, items[0]);
     return `<div class="task-photo-list">${items.map(item => `<div class="task-photo-item"><div class="small"><b>${esc(item.title || t('cleaning.task'))}</b></div>${cleaningPhotoControls(row,item)}</div>`).join('')}</div>`;
+  }
+  function cleaningWorkPhotoPanel(row,items){
+    const photos = cleaningPhotosForWork(row,items);
+    const label = photos.length ? t('cleaning.photoN', {count: photos.length}) : t('cleaning.photo');
+    return `<details class="cleaning-work-photo-panel"><summary>${esc(label)}</summary>${cleaningPhotoControls(row,null,{photos})}</details>`;
   }
   function chooseCleaningPhoto(encodedKey,mode){
     const key = decodeURIComponent(encodedKey || '');
@@ -2685,13 +2714,15 @@
     const deferBtn = item && item.can_defer ? `<button class="smallbtn task-defer-btn" onclick="deferCleaningSubtask('${encodeURIComponent(key)}',this)">${esc(t('cleaning.deferNext'))}</button>` : '';
     return `<div class="mail-actions">${completeBtn}${deferBtn}</div>`;
   }
-  function cleaningTaskRow(row,item,index,total){
+  function cleaningTaskRow(row,item,index,total,options={}){
     const done = subtaskDone(item.key);
     const cls = done ? 'done' : 'pending';
     const status = done ? `<span class="sync-status ok">${esc(t('cleaning.done'))}</span>` : `<span class="sync-status warn">${esc(t('cleaning.pending'))}</span>`;
     const photoCount = cleaningPhotosForRow(row,item).length;
     const photoLabel = photoCount ? t('cleaning.photoN', {count: photoCount}) : t('cleaning.photo');
-    return `<div class="cleaning-task-row ${cls}"><div class="cleaning-task-main"><div class="cleaning-task-title"><span class="cleaning-task-index">${index + 1}</span><span class="cleaning-task-title-text">${esc(item.title || t('cleaning.task'))}</span>${status}</div>${item.note ? `<div class="cleaning-task-note">${esc(item.note)}</div>` : ''}</div><details class="cleaning-task-photo-panel"><summary>${esc(photoLabel)}</summary>${cleaningPhotoControls(row,item)}</details><div class="cleaning-task-actions cleaning-task-confirm">${cleaningTaskConfirmControl(row,item)}</div></div>`;
+    const compact = options.compact === true;
+    const photo = compact ? '' : `<details class="cleaning-task-photo-panel"><summary>${esc(photoLabel)}</summary>${cleaningPhotoControls(row,item)}</details>`;
+    return `<div class="cleaning-task-row ${compact ? 'compact' : ''} ${cls}"><div class="cleaning-task-main"><div class="cleaning-task-title"><span class="cleaning-task-index">${index + 1}</span><span class="cleaning-task-title-text">${esc(item.title || t('cleaning.task'))}</span>${status}</div>${item.note ? `<div class="cleaning-task-note">${esc(item.note)}</div>` : ''}</div>${photo}<div class="cleaning-task-actions cleaning-task-confirm">${cleaningTaskConfirmControl(row,item)}</div></div>`;
   }
   function cleaningRowProgressBadge(row){
     if(row.cancel_review_task) return cleaningReviewControls(row);
@@ -2701,7 +2732,7 @@
     const cls = done === items.length ? 'ok' : 'warn';
     return `<span class="sync-status ${cls}">${esc(t('cleaning.progress', {done, total: items.length}))}</span>`;
   }
-  function cleaningWorkCard(row,showProp,showSource){
+  function cleaningWorkCard(row,showProp,showSource,options={}){
     const type = row.target_type || 'room';
     const prop = showProp ? `<span class="badge blue">${esc(propName(targetPropId(row.target_id,type)))}</span>` : '';
     const source = showSource && row.source ? `<span class="badge">${esc(displayDataText(row.source))}</span>` : '';
@@ -2713,14 +2744,35 @@
     const noteBlock = note ? `<div class="cleaning-work-note">${note}</div>` : '';
     const body = row.cancel_review_task
       ? `<div class="cleaning-work-note">${note}</div><div>${cleaningReviewControls(row)}</div>`
-      : `${noteBlock}${items.length ? `<div class="cleaning-task-rows">${items.map((item,i) => cleaningTaskRow(row,item,i,items.length)).join('')}</div>` : `<div class="cleaning-task-rows"><div class="cleaning-task-row done"><div class="cleaning-task-main"><div class="cleaning-task-title"><span>${esc(displayDataText(row.reason || t('cleaning.record')))}</span><span class="sync-status ok">${esc(t('cleaning.noItemConfirm'))}</span></div></div><div></div><div>${cleaningConfirmControls(row)}</div></div></div>`}`;
+      : `${noteBlock}${items.length ? `${options.compactTasks ? cleaningWorkPhotoPanel(row,items) : ''}<div class="cleaning-task-rows">${items.map((item,i) => cleaningTaskRow(row,item,i,items.length,{compact: options.compactTasks === true})).join('')}</div>` : `<div class="cleaning-task-rows"><div class="cleaning-task-row done"><div class="cleaning-task-main"><div class="cleaning-task-title"><span>${esc(displayDataText(row.reason || t('cleaning.record')))}</span><span class="sync-status ok">${esc(t('cleaning.noItemConfirm'))}</span></div></div><div></div><div>${cleaningConfirmControls(row)}</div></div></div>`}`;
     return `<div class="cleaning-work-card ${row.date === today() ? 'today' : ''} ${row.cancel_review_task ? 'review' : ''}"><div class="cleaning-work-head"><div class="cleaning-work-title"><div class="cleaning-work-name">${objectBadge(type)} <span>${title}</span>${prop}${source}</div><div class="small">${esc(t('cleaning.date', {date: row.date}))}</div></div><div class="cleaning-work-meta">${cleaningRowProgressBadge(row)}<div>${rowFeeText(row)}</div></div></div><div class="cleaning-work-body">${body}</div></div>`;
   }
-  function cleaningTableScoped(items, showSource=true){
+  function cleaningTableScoped(items, showSource=true, options={}){
     const rows = dedupeCleaningRowsImpl(items || []).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
-    if(!rows.length) return `<div class="card"><p class="small">${esc(t('cleaning.noRecords'))}</p></div>`;
+    const empty = `<p class="small">${esc(t('cleaning.noRecords'))}</p>`;
+    if(!rows.length) return options.wrapCard === false ? `<div class="empty-panel">${empty}</div>` : `<div class="card">${empty}</div>`;
     const showProp = ownerPropIds().length !== 1;
-    return `<div class="card cleaning-list-card"><div class="cleaning-work-list">${rows.map(row => cleaningWorkCard(row,showProp,showSource)).join('')}</div></div>`;
+    const list = `<div class="cleaning-work-list ${options.compactTasks ? 'compact-tasks' : ''}">${rows.map(row => cleaningWorkCard(row,showProp,showSource,options)).join('')}</div>`;
+    return options.wrapCard === false ? list : `<div class="card cleaning-list-card">${list}</div>`;
+  }
+  function cleaningRowsByDayHtml(items,options={}){
+    const rows = dedupeCleaningRowsImpl(items || []);
+    if(!rows.length) return `<div class="card"><p class="small">${esc(t('cleaning.noRecords'))}</p></div>`;
+    const groups = new Map();
+    rows.forEach(row => {
+      const date = String(row.date || '');
+      if(!groups.has(date)) groups.set(date, []);
+      groups.get(date).push(row);
+    });
+    const desc = options.order === 'desc';
+    const entries = Array.from(groups.entries()).sort((a,b) => desc ? String(b[0]).localeCompare(String(a[0])) : String(a[0]).localeCompare(String(b[0])));
+    return `<div class="cleaning-day-list">${entries.map(([date,list]) => {
+      list.sort((a,b) => targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
+      const roomCount = new Set(list.filter(r => (r.target_type || 'room') === 'room').map(r => String(r.target_id || ''))).size;
+      const commonCount = list.filter(r => r.target_type === 'common').length;
+      const total = list.reduce((sum,row) => sum + rowAmount(row), 0);
+      return `<div class="cleaning-day"><div class="cleaning-day-head"><div><h3>${esc(date)}</h3><div class="small">房间 ${roomCount} 个 · 公区 ${commonCount} 个 · 共 ${list.length} 条</div></div><div class="cleaning-day-total">${money(total)}</div></div>${cleaningTableScoped(list, options.showSource !== false, {wrapCard:false, compactTasks:true})}</div>`;
+    }).join('')}</div>`;
   }
 
   function ensureOwnerPropertyHost(){
@@ -3760,12 +3812,12 @@
     }
     if(active === 'cleanerToday'){
       const rows = options.todayRows || cleanerRowsForRange(today(), today()).filter(r => r.date === today()).sort((a,b) => targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
-      const box = qs('cleanerToday'); if(box) box.innerHTML = cleaningTableScoped(rows);
+      const box = qs('cleanerToday'); if(box) box.innerHTML = cleaningTableScoped(rows, true, {compactTasks:true});
       return;
     }
     if(active === 'cleanerFuture'){
       const rows = cleanerRowsForRange(addDay(today(),1), addDay(today(),180)).filter(r => r.date > today()).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN')).slice(0,120);
-      const box = qs('cleanerFuture'); if(box) box.innerHTML = cleaningTableScoped(rows);
+      const box = qs('cleanerFuture'); if(box) box.innerHTML = cleaningRowsByDayHtml(rows, {order:'asc'});
       return;
     }
     if(active === 'cleanerManual'){
@@ -3774,13 +3826,8 @@
     }
     if(active === 'cleanerHistory'){
       const historyRows = cleanerRowsForRange(addDay(today(),-90), addDay(today(),-1)).filter(r => r.date < today()).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
-      const groups = {};
-      historyRows.forEach(r => (groups[monthKey(r.date)] ||= []).push(r));
       const box = qs('cleanerHistory');
-      if(box) box.innerHTML = `<div class="card"><h2>历史保洁 | 按月统计</h2><div class="small">默认折叠，点月份展开。公区每日保洁也计入历史记录。</div></div>` + (Object.keys(groups).sort().reverse().map((month,index) => {
-        const total = groups[month].reduce((s,r) => s + rowAmount(r), 0);
-        return `<div class="month-block ${index===0?'open':''}"><div class="month-head" onclick="this.parentElement.classList.toggle('open')"><span>${esc(month)} 保洁 ${groups[month].length} 次</span><span>费用：${money(total)}</span></div><div class="month-body">${cleaningTableScoped(groups[month])}</div></div>`;
-      }).join('') || '<div class="card"><p class="small">暂无历史记录</p></div>');
+      if(box) box.innerHTML = `<div class="card"><h2>历史保洁 | 按天统计</h2><div class="small">先按日期倒序显示；每天先看房间数、公区数和金额，再展开当天明细。</div></div>${cleaningRowsByDayHtml(historyRows, {order:'desc'})}`;
     }
   }
   function renderCleanerImpl(){
