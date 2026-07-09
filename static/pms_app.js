@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-09-v93-preserve-ical-links';
+  const VERSION = '2026-07-09-v94-ical-missing-status';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -3523,7 +3523,8 @@
   }
   function renderChannel(room,ch){
     const urlIssue = cleanChannelUrls({...ch}, false);
-    const status = urlIssue.moved ? `<span class="sync-status warn">${esc(urlIssue.message)}</span>` : (!urlIssue.ok ? `<span class="sync-status warn">${esc(urlIssue.message)}</span>` : (ch.sync_error ? `<span class="sync-status error">同步失败：${esc(ch.sync_error)}</span>` : (ch.last_sync ? `<span class="sync-status ok">同步：${esc(ch.last_sync)} · ${Number(ch.synced_booking_count || 0)} 条</span>` : '<span class="sync-status warn">未同步</span>')));
+    const hasImportIcal = !!String(ch.ical_url || '').trim();
+    const status = urlIssue.moved ? `<span class="sync-status warn">${esc(urlIssue.message)}</span>` : (!urlIssue.ok ? `<span class="sync-status warn">${esc(urlIssue.message)}</span>` : (!hasImportIcal && ch.last_sync ? `<span class="sync-status warn">缺 iCal：只保留旧同步 ${esc(ch.last_sync)} · ${Number(ch.synced_booking_count || 0)} 条</span>` : (!hasImportIcal ? '<span class="sync-status warn">未填写平台导出 iCal</span>' : (ch.sync_error ? `<span class="sync-status error">同步失败：${esc(ch.sync_error)}</span>` : (ch.last_sync ? `<span class="sync-status ok">同步：${esc(ch.last_sync)} · ${Number(ch.synced_booking_count || 0)} 条</span>` : '<span class="sync-status warn">已填 iCal，未同步</span>')))));
     const feedUrl = feedUrlForChannel(room,ch);
     return `<div class="channel-card"><div class="channel-grid"><div><label>平台</label><select id="${channelInputId(ch.id,'platform')}"><option ${ch.platform==='Airbnb'?'selected':''}>Airbnb</option><option ${ch.platform==='Booking'?'selected':''}>Booking</option><option ${ch.platform==='Vrbo'?'selected':''}>Vrbo</option><option ${ch.platform==='Other'?'selected':''}>Other</option></select></div><div><label>平台导出 iCal</label><input id="${channelInputId(ch.id,'ical')}" value="${esc(ch.ical_url || '')}" placeholder="粘贴平台导出的 .ics/iCal，不是房源页面"></div><div><label>公开房源链接</label><input id="${channelInputId(ch.id,'listing')}" value="${esc(ch.listing_url || '')}" placeholder="粘贴客人可见的公开房源页面"></div><div><label>备注</label><input id="${channelInputId(ch.id,'note')}" value="${esc(ch.channel_note || '')}" placeholder="账号/房源备注"></div><div class="property-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-row"><div>${status}</div><button class="smallbtn" onclick="copyText('${esc(feedUrl)}')">复制防超卖 iCal</button></div><div class="feed-line">${esc(feedUrl)}</div></div>`;
   }
@@ -3578,6 +3579,8 @@
     const platform = ch.platform || '渠道';
     if(issue.moved) return {kind:'warn', text:`${platform} 房源链接填错位置`};
     if(!issue.ok) return {kind:'error', text:`${platform} iCal 错误`};
+    if(!String(ch.ical_url || '').trim() && ch.last_sync) return {kind:'warn', text:`${platform} 缺 iCal，旧同步 ${Number(ch.synced_booking_count || 0)} 条`};
+    if(!String(ch.ical_url || '').trim()) return {kind:'warn', text:`${platform} 缺 iCal`};
     if(ch.sync_error) return {kind:'error', text:`${platform} 同步失败`};
     if(ch.last_sync) return {kind:'ok', text:`${platform} 已同步 ${Number(ch.synced_booking_count || 0)} 条`};
     if(ch.ical_url) return {kind:'warn', text:`${platform} 已填未同步`};
