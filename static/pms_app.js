@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-08-v89-fast-photo-upload';
+  const VERSION = '2026-07-08-v90-daily-settlement-fast-confirm';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -1119,6 +1119,43 @@
       if(btn){btn.disabled = false; btn.textContent = old || '保存';}
     }
   }
+
+  function confirmationMergeKey(row){
+    const r = row || {};
+    return [r.date || '', r.target_type || r.targetType || 'room', r.target_id || r.targetId || '', r.task_key || r.taskKey || ''].map(x => String(x || '')).join('|');
+  }
+  function mergeConfirmations(rows){
+    const current = getConfirmations().slice();
+    (rows || []).forEach(row => {
+      if(!row || typeof row !== 'object') return;
+      const mergeKey = confirmationMergeKey(row);
+      const taskKey = String(row.task_key || row.taskKey || '');
+      const idx = current.findIndex(item => confirmationMergeKey(item) === mergeKey || (taskKey && String(item.task_key || item.taskKey || '') === taskKey));
+      if(idx >= 0) current[idx] = {...current[idx], ...row};
+      else current.push(row);
+    });
+    setConfirmations(current);
+  }
+  async function persistCleaningConfirmations(rows, btn){
+    const old = btn && btn.textContent;
+    if(btn){btn.disabled = true; btn.textContent = t('profile.saving');}
+    try{
+      const res = await fetch(apiUrl('/api/cleaning-confirmations'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({cleaningTaskConfirmations: rows || []})
+      });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || data.ok === false) throw new Error(data.error || ('保存失败 HTTP ' + res.status));
+      if(Array.isArray(data.cleaningTaskConfirmations)) mergeConfirmations(data.cleaningTaskConfirmations);
+      return data;
+    }catch(err){
+      alert('保存失败：' + (err && err.message ? err.message : err));
+      throw err;
+    }finally{
+      if(btn){btn.disabled = false; btn.textContent = old || t('cleaning.done');}
+    }
+  }
   function scheduleSaveImpl(){
     try{clearTimeout(saveTimer);}catch(e){}
     try{saveTimer = setTimeout(() => persistAll().catch(err => console.warn(err)), 500);}catch(e){
@@ -1673,6 +1710,11 @@
       .work-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important}
       .work-card h3{white-space:normal!important}
       .finance-section{margin-top:12px}.finance-section h3{margin:0;padding:10px 12px;background:#f8fafc;border:1px solid var(--line);border-radius:8px 8px 0 0}
+      .finance-day-list{display:grid;gap:12px;margin-top:12px}
+      .finance-day{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+      .finance-day-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 12px;background:#f8fafc;border-bottom:1px solid var(--line);flex-wrap:wrap}
+      .finance-day-head h3{margin:0;font-size:18px}
+      .finance-day-total{font-size:22px;font-weight:900;color:#0f766e;white-space:nowrap}
       .mail-panel{border:1px solid #bae6fd;background:#f8fcff;border-radius:8px;padding:12px;display:grid;gap:10px}
       .ops-shell{display:grid;gap:14px}
       .ops-tabs{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -3069,7 +3111,7 @@
   function renderCleaningFinanceSubTabImpl(){
     const root = qs('ownerCleaningSubContent');
     if(!root) return;
-    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>保洁结算统计</h2><div class="small">按日期排序，再按房间排序；历史和将来分开显示。</div></div></div><div class="filter-strip"><div class="filter-field"><label>开始日期</label><input id="cleanStart" type="date" onchange="renderCleaningFinance()"></div><div class="filter-field"><label>结束日期</label><input id="cleanEnd" type="date" onchange="renderCleaningFinance()"></div><div class="filter-actions"><button class="smallbtn" onclick="setCleaningFinanceRange('last30')">最近30天</button><button class="smallbtn" onclick="setCleaningFinanceRange('month')">本月</button><button class="smallbtn" onclick="setCleaningFinanceRange('next30')">未来30天</button></div></div><div id="cleaningFinance"></div></div>`;
+    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>保洁结算统计</h2><div class="small">按日期倒序汇总；先看每天的房间数、公区数和金额，再看当天明细。</div></div></div><div class="filter-strip"><div class="filter-field"><label>开始日期</label><input id="cleanStart" type="date" onchange="renderCleaningFinance()"></div><div class="filter-field"><label>结束日期</label><input id="cleanEnd" type="date" onchange="renderCleaningFinance()"></div><div class="filter-actions"><button class="smallbtn" onclick="setCleaningFinanceRange('last30')">最近30天</button><button class="smallbtn" onclick="setCleaningFinanceRange('month')">本月</button><button class="smallbtn" onclick="setCleaningFinanceRange('next30')">未来30天</button></div></div><div id="cleaningFinance"></div></div>`;
     const cs = qs('cleanStart'); if(cs && !cs.value) cs.value = addDay(today(), -30);
     const ce = qs('cleanEnd'); if(ce && !ce.value) ce.value = addDay(today(), 30);
     renderCleaningFinanceImpl();
@@ -3143,16 +3185,28 @@
     if(ce && !ce.value) ce.value = addDay(today(), 30);
     const start = (cs && cs.value) || addDay(today(), -30);
     const end = (ce && ce.value) || addDay(today(), 30);
-    const rows = scopedCleaningRows(start,end).filter(r => r.date >= start && r.date <= end).sort((a,b) => String(a.date).localeCompare(String(b.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
-    const history = rows.filter(r => r.date < today());
-    const future = rows.filter(r => r.date >= today());
+    const rows = scopedCleaningRows(start,end).filter(r => r.date >= start && r.date <= end).sort((a,b) => String(b.date).localeCompare(String(a.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
     const total = rows.reduce((s,r) => s + rowAmount(r), 0);
-    const roomTotal = rows.filter(r => (r.target_type || 'room') === 'room').reduce((s,r) => s + rowAmount(r), 0);
-    const commonTotal = rows.filter(r => r.target_type === 'common').reduce((s,r) => s + rowAmount(r), 0);
+    const roomRows = rows.filter(r => (r.target_type || 'room') === 'room');
+    const commonRows = rows.filter(r => r.target_type === 'common');
+    const roomCount = new Set(roomRows.map(r => String(r.target_id || ''))).size;
     const el = qs('cleaningFinance');
     if(!el) return;
-    const section = (title, list) => `<div class="finance-section"><h3>${title}（${list.length}）</h3>${cleaningTableScoped(list)}</div>`;
-    el.innerHTML = `<div class="grid"><div class="metric"><div class="small">保洁次数</div><div class="num">${rows.length}</div></div><div class="metric"><div class="small">房间费用</div><div class="num">${money(roomTotal)}</div></div><div class="metric"><div class="small">公区费用</div><div class="num">${money(commonTotal)}</div></div><div class="metric"><div class="small">合计费用</div><div class="num">${money(total)}</div></div></div>${section('历史保洁',history)}${section('将来保洁',future)}`;
+    const byDate = new Map();
+    rows.forEach(row => {
+      const date = String(row.date || '');
+      if(!byDate.has(date)) byDate.set(date, []);
+      byDate.get(date).push(row);
+    });
+    const dayHtml = Array.from(byDate.entries()).sort((a,b) => String(b[0]).localeCompare(String(a[0]))).map(([date, list]) => {
+      list.sort((a,b) => targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
+      const dayRooms = list.filter(r => (r.target_type || 'room') === 'room');
+      const dayCommons = list.filter(r => r.target_type === 'common');
+      const dayRoomCount = new Set(dayRooms.map(r => String(r.target_id || ''))).size;
+      const dayTotal = list.reduce((s,r) => s + rowAmount(r), 0);
+      return `<div class="finance-day"><div class="finance-day-head"><div><h3>${esc(date)}</h3><div class="small">房间 ${dayRoomCount} 个，房间保洁 ${dayRooms.length} 次，公区 ${dayCommons.length} 次，共 ${list.length} 条</div></div><div class="finance-day-total">${money(dayTotal)}</div></div>${cleaningTableScoped(list)}</div>`;
+    }).join('') || '<div class="ops-empty">暂无结算记录</div>';
+    el.innerHTML = `<div class="grid"><div class="metric"><div class="small">保洁任务</div><div class="num">${rows.length}</div></div><div class="metric"><div class="small">涉及房间</div><div class="num">${roomCount}</div></div><div class="metric"><div class="small">公区任务</div><div class="num">${commonRows.length}</div></div><div class="metric"><div class="small">合计费用</div><div class="num">${money(total)}</div></div></div><div class="finance-day-list">${dayHtml}</div>`;
   }
 
   function recurringPresetById(id){
@@ -4304,14 +4358,17 @@
       rows.push(row);
     }
     row.status = 'done';
+    row.completed = true;
     row.completed_at = now;
     row.completed_by = userName('保洁');
+    row.confirmed_at = now;
+    row.confirmed_by = userName('保洁');
     row.date = item.date || (payload.row && payload.row.date) || today();
     row.target_id = item.target_id || (payload.row && payload.row.target_id) || '';
     row.target_type = item.target_type || (payload.row && payload.row.target_type) || 'room';
     row.title = item.title || '';
     row.note_id = item.note_id || '';
-    await persistAll(btn);
+    await persistCleaningConfirmations([row], btn);
     renderAll();
   }
 

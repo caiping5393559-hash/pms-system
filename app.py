@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_APP_VERSION = "2026-07-08-v89-fast-photo-upload"
+PMS_APP_VERSION = "2026-07-08-v90-daily-settlement-fast-confirm"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -2094,6 +2094,14 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(raw.decode("utf-8") or "{}")
                 saved, photo = upload_cleaning_task_photo(payload, actor=user)
                 json_response(self, {"ok": True, "photo": _pms_photo_public(photo)})
+                return
+            if path == "/api/cleaning-confirmations":
+                user = require_user(self, ("admin", "owner", "cleaner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved, rows = save_cleaning_task_confirmations(payload, actor=user)
+                json_response(self, {"ok": True, "cleaningTaskConfirmations": rows, "saved_at": now_utc_iso()})
                 return
             if path == "/api/state":
                 user = require_user(self, ("admin", "owner"))
@@ -4870,9 +4878,11 @@ def _pms_cleaning_confirm_clean(row):
         target_type = "room"
     target_id = _pms_cleaning_confirm_text(raw.get("target_id") or raw.get("targetId"), 120)
     task_key = _pms_cleaning_confirm_text(raw.get("task_key") or raw.get("taskKey") or "|".join([date, target_type, target_id]), 500)
-    completed = _pms_cleaning_confirm_bool(raw.get("completed")) or _pms_cleaning_confirm_text(raw.get("status"), 40) in {"已完成", "完成"}
+    completed = _pms_cleaning_confirm_bool(raw.get("completed")) or _pms_cleaning_confirm_bool(raw.get("status"))
     now = datetime.utcnow().isoformat(timespec="seconds")
     stable = hashlib.sha1(task_key.encode("utf-8")).hexdigest()[:24]
+    completed_at = _pms_cleaning_confirm_text(raw.get("completed_at") or raw.get("completedAt") or raw.get("confirmed_at") or raw.get("confirmedAt"), 40)
+    completed_by = _pms_cleaning_confirm_text(raw.get("completed_by") or raw.get("completedBy") or raw.get("confirmed_by") or raw.get("confirmedBy"), 120)
     return {
         "id": _pms_cleaning_confirm_text(raw.get("id"), 80) or "cleanconf_" + stable,
         "date": date,
@@ -4886,8 +4896,10 @@ def _pms_cleaning_confirm_clean(row):
         "completed": completed,
         "status": "已完成" if completed else _pms_cleaning_confirm_text(raw.get("status"), 40) or "未完成",
         "feedback": _pms_cleaning_confirm_text(raw.get("feedback"), 2000),
-        "confirmed_by": _pms_cleaning_confirm_text(raw.get("confirmed_by") or raw.get("confirmedBy"), 120),
-        "confirmed_at": _pms_cleaning_confirm_text(raw.get("confirmed_at") or raw.get("confirmedAt"), 40) if completed else "",
+        "completed_by": completed_by,
+        "completed_at": completed_at if completed else "",
+        "confirmed_by": completed_by,
+        "confirmed_at": completed_at if completed else "",
         "updated_at": now,
     }
 
@@ -4925,21 +4937,21 @@ def _pms_cleaning_confirm_filter_state_for_user(state, actor):
 
 
 _pms_cleaning_confirm_base_save_state_from_payload = _pms_mail_events_save_state_from_payload
-def _pms_cleaning_confirm_save_state_from_payload(payload, actor=None):
-    working = dict(payload or {})
-    incoming_confirmations = working.pop("cleaningTaskConfirmations", None)
-    if incoming_confirmations is None:
-        return _pms_cleaning_confirm_base_save_state_from_payload(working, actor)
-    saved = _pms_cleaning_confirm_base_save_state_from_payload(working, actor) if working else normalize_state(load_state())
-    current = normalize_state(load_state())
+def save_cleaning_task_confirmations(payload, actor=None):
+    current = normalize_state(load_main_state())
+    incoming = (payload or {}).get("cleaningTaskConfirmations") if isinstance(payload, dict) else payload
+    if isinstance(incoming, dict):
+        incoming = [incoming]
+    if not isinstance(incoming, list):
+        raise RuntimeError("cleaningTaskConfirmations required")
     room_ids, common_ids = _pms_cleaning_confirm_allowed_targets(current, actor)
-    existing = [
-        item for item in current.get("cleaningTaskConfirmations", [])
-        if isinstance(item, dict) and not _pms_cleaning_confirm_target_allowed(item, room_ids, common_ids)
-    ]
-    by_key = {_pms_cleaning_confirm_key(item): item for item in existing}
-    rows = incoming_confirmations if isinstance(incoming_confirmations, list) else []
-    for raw in rows:
+    by_key = {
+        _pms_cleaning_confirm_key(item): item
+        for item in current.get("cleaningTaskConfirmations", [])
+        if isinstance(item, dict)
+    }
+    changed = []
+    for raw in incoming:
         if not isinstance(raw, dict):
             continue
         clean = _pms_cleaning_confirm_clean(raw)
@@ -4950,8 +4962,21 @@ def _pms_cleaning_confirm_save_state_from_payload(payload, actor=None):
             by_key.pop(key, None)
             continue
         by_key[key] = clean
+        changed.append(clean)
     current["cleaningTaskConfirmations"] = list(by_key.values())[-2000:]
-    return save_state(current)
+    saved = save_main_state_only(current)
+    return saved, changed
+
+
+def _pms_cleaning_confirm_save_state_from_payload(payload, actor=None):
+    working = dict(payload or {})
+    incoming_confirmations = working.pop("cleaningTaskConfirmations", None)
+    if incoming_confirmations is None:
+        return _pms_cleaning_confirm_base_save_state_from_payload(working, actor)
+    if working:
+        _pms_cleaning_confirm_base_save_state_from_payload(working, actor)
+    saved, _ = save_cleaning_task_confirmations({"cleaningTaskConfirmations": incoming_confirmations}, actor=actor)
+    return saved
 
 
 _pms_cleaning_photo_v1 = True
