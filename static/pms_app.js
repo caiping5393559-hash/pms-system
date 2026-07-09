@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-09-v94-ical-missing-status';
+  const VERSION = '2026-07-09-v95-fast-channel-save';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -4246,8 +4246,44 @@
     const row = readChannelForm(id);
     const check = cleanChannelUrls(row, true);
     if(!check.ok) return alert(check.message);
-    await persistAll(btn);
-    renderAll();
+    const old = btn && btn.textContent;
+    if(btn){
+      btn.disabled = true;
+      btn.textContent = t('profile.saving');
+    }
+    try{
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 12000) : null;
+      let res;
+      try{
+        res = await fetch(apiUrl('/api/channel-listing'), {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          signal: controller ? controller.signal : undefined,
+          body: JSON.stringify(row)
+        });
+      }finally{
+        if(timeoutId) clearTimeout(timeoutId);
+      }
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || data.ok === false) throw new Error(data.error || ('保存失败 HTTP ' + res.status));
+      if(data.channelListing){
+        const saved = data.channelListing;
+        const next = getChannels().filter(ch => String(ch.id) !== String(saved.id));
+        next.push(saved);
+        setChannels(next);
+      }
+      rememberGoodState();
+      renderRoomSettingsImpl();
+    }catch(err){
+      alert('保存失败：' + (err && err.message ? err.message : err));
+      throw err;
+    }finally{
+      if(btn){
+        btn.disabled = false;
+        btn.textContent = old || '保存';
+      }
+    }
     if(check.moved) alert('已保存：房源页面链接已放到“公开房源链接”，iCal 输入框已清空。订单同步还需要粘贴平台导出的 .ics/iCal。');
   }
   async function deleteChannelListing(id,btn){

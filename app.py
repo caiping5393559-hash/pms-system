@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_APP_VERSION = "2026-07-09-v94-ical-missing-status"
+PMS_APP_VERSION = "2026-07-09-v95-fast-channel-save"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -2115,6 +2115,14 @@ class Handler(BaseHTTPRequestHandler):
                     pass
                 json_response(self, {"ok": True, "saved_at": now_utc_iso()})
                 return
+            if path == "/api/channel-listing":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                _, listing = save_channel_listing(payload, actor=user)
+                json_response(self, {"ok": True, "channelListing": listing, "saved_at": now_utc_iso()})
+                return
             if path == "/api/cleaners/register":
                 payload = json.loads(raw.decode("utf-8") or "{}")
                 _, cleaner = register_cleaner(payload)
@@ -3400,6 +3408,37 @@ def _pms_channel_merge_sync_payload(state, incoming_channels, allowed_room_ids):
         item for item in state.get("channelListings", [])
         if not (isinstance(item, dict) and item.get("id") in incoming_ids)
     ] + incoming
+
+
+def save_channel_listing(payload, actor=None):
+    if not isinstance(payload, dict):
+        raise RuntimeError("channel listing payload must be an object")
+    current = normalize_state(load_main_state())
+    allowed_property_ids = _pms_channel_allowed_property_ids(actor, current)
+    allowed_room_ids = {
+        room.get("id")
+        for room in current.get("rooms", [])
+        if isinstance(room, dict) and room.get("id") and room.get("property_id") in allowed_property_ids
+    }
+    clean = _pms_channel_clean_listing(payload, current)
+    if clean.get("room_id") not in allowed_room_ids:
+        raise RuntimeError("room permission required")
+    existing_by_id = {item.get("id"): item for item in current.get("channelListings", []) if isinstance(item, dict)}
+    existing = existing_by_id.get(clean.get("id"))
+    if existing:
+        clean = _pms_channel_preserve_existing_listing_fields(clean, existing)
+    clean["updated_at"] = now_utc_iso()
+    current["channelListings"] = [
+        item for item in current.get("channelListings", [])
+        if not (isinstance(item, dict) and item.get("id") == clean.get("id"))
+    ] + [clean]
+    current = _pms_channel_refresh_feed_cache(current, clean.get("updated_at"))
+    saved = save_main_state_only(current)
+    try:
+        _pms_ui_state_cache_clear()
+    except Exception:
+        pass
+    return saved, clean
 
 
 def _pms_channel_backfill_legacy_room_icals(state, allowed_room_ids):
