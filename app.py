@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_APP_VERSION = "2026-07-08-v87-cleaning-card-hierarchy"
+PMS_APP_VERSION = "2026-07-08-v88-memory-stable-state"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -1262,6 +1262,27 @@ def load_main_state():
     if callable(base_loader):
         return normalize_state(base_loader())
     return normalize_state(load_state())
+
+
+def save_main_state_only(state):
+    compact_state = dict(normalize_state(state))
+    for key in tuple(globals().get("_PMS_EXTERNAL_STATE_KEYS", ())):
+        compact_state.pop(key, None)
+    base_saver = globals().get("_pms_external_base_save_state")
+    if callable(base_saver):
+        return normalize_state(base_saver(compact_state))
+    return normalize_state(save_state(compact_state))
+
+
+def load_main_state_with_external_rows(*keys):
+    state = normalize_state(load_main_state())
+    reader = globals().get("_pms_external_read")
+    if firebase_credentials_configured() and callable(reader):
+        for key in keys:
+            rows = reader(key)
+            if rows is not None:
+                state[key] = rows
+    return normalize_state(state)
 
 
 def save_state_from_payload_light(payload, actor=None):
@@ -4127,7 +4148,7 @@ def _pms_mail_events_filter_state_for_user(state, actor):
 
 
 def save_mail_events(payload, actor=None):
-    state = normalize_state(load_state())
+    state = load_main_state_with_external_rows("mailEvents")
     rows = payload.get("mailEvents") if isinstance(payload, dict) else payload
     if isinstance(rows, dict):
         rows = [rows]
@@ -4152,6 +4173,16 @@ def save_mail_events(payload, actor=None):
         by_id[clean["id"]] = clean
         saved_rows.append(clean)
     state["mailEvents"] = sorted(by_id.values(), key=lambda x: x.get("received_at") or x.get("created_at") or "", reverse=True)[:1000]
+    if firebase_credentials_configured():
+        writer = globals().get("_pms_external_write")
+        hasher = globals().get("_pms_external_rows_hash")
+        if callable(writer):
+            writer("mailEvents", state["mailEvents"])
+        if callable(hasher):
+            globals().setdefault("_PMS_EXTERNAL_LAST_HASH", {})["mailEvents"] = hasher(state["mailEvents"])
+        saved = save_main_state_only(state)
+        saved["mailEvents"] = state["mailEvents"]
+        return normalize_state(saved), saved_rows
     return save_state(state), saved_rows
 
 
@@ -4161,7 +4192,7 @@ def _pms_mail_events_save_state_from_payload(payload, actor=None):
     incoming_mail_events = working.pop("mailEvents", None)
     if incoming_mail_events is None:
         return _pms_mail_events_base_save_state_from_payload(working, actor)
-    saved = _pms_mail_events_base_save_state_from_payload(working, actor) if working else normalize_state(load_state())
+    saved = _pms_mail_events_base_save_state_from_payload(working, actor) if working else normalize_state(load_main_state())
     final_state, _rows = save_mail_events(incoming_mail_events, actor)
     return final_state
 
@@ -4441,7 +4472,7 @@ def _pms_mail_event_from_raw(raw, property_id, state):
 
 
 def parse_mail_events(payload, actor=None):
-    state = normalize_state(load_state())
+    state = normalize_state(load_main_state())
     property_id = _pms_mail_event_text((payload or {}).get("property_id") or (payload or {}).get("propertyId"), 120)
     allowed_property_ids = _pms_mail_event_property_ids(state) if (actor and actor.get("role") == "admin") else actor_property_ids(actor, state)
     if not property_id and len(allowed_property_ids) == 1:
@@ -4659,7 +4690,7 @@ def sync_gmail_mail_events(payload, actor=None):
     payload = payload if isinstance(payload, dict) else {}
     if not _pms_gmail_enabled():
         if _pms_gmail_setting("PMS_MAIL_BRIDGE_TOKEN"):
-            state = normalize_state(load_state())
+            state = load_main_state_with_external_rows("mailEvents")
             property_id = _pms_mail_event_text(payload.get("property_id") or payload.get("propertyId"), 120)
             targets = _pms_mail_property_targets(state, actor, property_id)
             allowed = {pid for pid, _source in targets}
@@ -4673,7 +4704,7 @@ def sync_gmail_mail_events(payload, actor=None):
             ] or [{"property_id": property_id, "emails": 0, "events": 0, "bridge_enabled": True}]
             return state, rows, details
         raise RuntimeError("后台 Gmail OAuth 未配置，暂时只能用页面的“导入/解析邮件”手动导入")
-    state = normalize_state(load_state())
+    state = load_main_state_with_external_rows("mailEvents")
     property_id = _pms_mail_event_text(payload.get("property_id") or payload.get("propertyId"), 120)
     days = max(1, min(int(payload.get("days") or 3), 30))
     max_results = max(1, min(int(payload.get("max_results") or payload.get("maxResults") or 20), 50))
@@ -4723,7 +4754,7 @@ def _pms_mail_property_name(state, property_id):
 
 def inspect_mail_sync_diagnostics(payload, actor=None):
     payload = payload if isinstance(payload, dict) else {}
-    state = normalize_state(load_state())
+    state = normalize_state(load_main_state())
     property_id = _pms_mail_event_text(payload.get("property_id") or payload.get("propertyId"), 120)
     check_token = str(payload.get("check_token") or payload.get("checkToken") or "").strip().lower() in {"1", "true", "yes", "on"}
     targets = _pms_mail_property_targets(state, actor, property_id)
@@ -4744,7 +4775,7 @@ def inspect_mail_sync_diagnostics(payload, actor=None):
         "has_refresh_token": _pms_mail_diagnostic_bool_env("GMAIL_REFRESH_TOKEN"),
         "has_inbox_email": _pms_mail_diagnostic_bool_env("GMAIL_INBOX_EMAIL") or _pms_mail_diagnostic_bool_env("PMS_GMAIL_INBOX"),
         "auto_sync_enabled": str(os.environ.get("PMS_MAIL_AUTO_SYNC_ENABLED", "1")).strip().lower() in ("1", "true", "yes", "on"),
-        "auto_sync_interval_seconds": int(os.environ.get("PMS_MAIL_SYNC_INTERVAL_SECONDS", "7200") or "7200"),
+        "auto_sync_interval_seconds": int(os.environ.get("PMS_MAIL_SYNC_INTERVAL_SECONDS", "28800") or "28800"),
         "sync_days": int(os.environ.get("PMS_MAIL_SYNC_DAYS", "3") or "3"),
         "sync_max_results": int(os.environ.get("PMS_MAIL_SYNC_MAX_RESULTS", "25") or "25"),
         "property_id": property_id,
@@ -4988,6 +5019,27 @@ def _pms_photo_clean(row):
     return {key: value for key, value in cleaned.items() if value not in ("", None, 0)}
 
 
+def _pms_photo_public(row):
+    clean = _pms_photo_clean(row)
+    public_keys = (
+        "id",
+        "date",
+        "target_id",
+        "target_type",
+        "task_key",
+        "file_name",
+        "content_type",
+        "upload_source",
+        "size",
+        "url",
+        "uploaded_by",
+        "uploaded_by_name",
+        "uploaded_at",
+        "expires_at",
+    )
+    return {key: clean[key] for key in public_keys if key in clean}
+
+
 _pms_photo_base_default_state = _pms_cleaning_confirm_default_state
 def _pms_photo_default_state():
     state = _pms_photo_base_default_state()
@@ -5038,7 +5090,7 @@ def _pms_photo_filter_state_for_user(state, actor):
     room_ids, common_ids = _pms_photo_allowed_targets(normalized, actor)
     now = _pms_photo_now()
     filtered["cleaningTaskPhotos"] = [
-        row for row in normalized.get("cleaningTaskPhotos", [])
+        _pms_photo_public(row) for row in normalized.get("cleaningTaskPhotos", [])
         if _pms_photo_target_allowed(row, room_ids, common_ids) and not _pms_photo_is_expired(row, now)
     ]
     return filtered
@@ -5203,7 +5255,7 @@ def _pms_photo_decode_payload(payload):
 def upload_cleaning_task_photo(payload, actor=None):
     if not isinstance(payload, dict):
         raise RuntimeError("payload must be an object")
-    state = _pms_photo_cleanup_state(load_state(), delete_objects=True)
+    state = _pms_photo_cleanup_state(load_main_state(), delete_objects=True)
     room_ids, common_ids = _pms_photo_allowed_targets(state, actor)
     target_type = _pms_photo_text(payload.get("target_type") or payload.get("targetType") or "room", 20)
     target_id = _pms_photo_text(payload.get("target_id") or payload.get("targetId"), 120)
@@ -5258,12 +5310,12 @@ def upload_cleaning_task_photo(payload, actor=None):
     photos = [item for item in state.get("cleaningTaskPhotos", []) if isinstance(item, dict)]
     photos.append(row)
     state["cleaningTaskPhotos"] = photos[-2000:]
-    saved = save_state(state)
+    saved = save_main_state_only(state)
     return saved, row
 
 
 def serve_cleaning_task_photo(photo_id, actor=None):
-    state = _pms_photo_cleanup_state(load_state(), delete_objects=True)
+    state = _pms_photo_cleanup_state(load_main_state(), delete_objects=True)
     room_ids, common_ids = _pms_photo_allowed_targets(state, actor)
     row = next((item for item in state.get("cleaningTaskPhotos", []) if isinstance(item, dict) and item.get("id") == photo_id), None)
     if not row or _pms_photo_is_expired(row) or not _pms_photo_target_allowed(row, room_ids, common_ids):
@@ -5936,13 +5988,13 @@ def _pms_external_save_state(state):
 
 
 def pms_storage_diagnostics():
-    state = normalize_state(load_state())
+    state = normalize_state(load_main_state())
     details = {"main_state_keys": sorted(state.keys()), "external": {}}
     if firebase_credentials_configured():
         for key in _PMS_EXTERNAL_STATE_KEYS:
             index = _pms_external_index(key) or {}
             details["external"][key] = {
-                "rows": len(state.get(key, [])),
+                "rows": int(index.get("row_count", 0) or 0),
                 "shards": index.get("shard_count", 0),
                 "updated_at": index.get("updated_at", ""),
             }
@@ -6228,11 +6280,12 @@ def _pms_start_mail_auto_sync():
     enabled = str(os.environ.get("PMS_MAIL_AUTO_SYNC_ENABLED", "1")).strip().lower() in ("1", "true", "yes", "on")
     if not enabled:
         return
-    interval = int(os.environ.get("PMS_MAIL_SYNC_INTERVAL_SECONDS", "7200"))
+    interval = int(os.environ.get("PMS_MAIL_SYNC_INTERVAL_SECONDS", "28800"))
     if interval <= 0:
         return
+    initial_delay = int(os.environ.get("PMS_MAIL_SYNC_INITIAL_DELAY_SECONDS", str(interval)) or str(interval))
     def worker():
-        time.sleep(min(120, interval))
+        time.sleep(max(60, min(initial_delay, interval)))
         while True:
             _pms_run_scheduled_mail_sync()
             time.sleep(interval)

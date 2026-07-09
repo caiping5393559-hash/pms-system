@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-08-v87-cleaning-card-hierarchy';
+  const VERSION = '2026-07-08-v88-memory-stable-state';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
