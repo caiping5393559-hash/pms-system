@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-08-v90-daily-settlement-fast-confirm';
+  const VERSION = '2026-07-08-v91-settlement-default-done-fix';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -2465,7 +2465,9 @@
     for(let i=getConfirmations().length - 1;i>=0;i--){
       const row = getConfirmations()[i] || {};
       const rowKey = String(row.task_key || row.taskKey || '');
-      if(rowKey === target && String(row.status || 'done') === 'done') return row;
+      const status = String(row.status || '').trim().toLowerCase();
+      const done = row.completed === true || ['done','completed','已完成','完成'].includes(status);
+      if(rowKey === target && done) return row;
     }
     return null;
   }
@@ -3113,7 +3115,7 @@
     if(!root) return;
     root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>保洁结算统计</h2><div class="small">按日期倒序汇总；先看每天的房间数、公区数和金额，再看当天明细。</div></div></div><div class="filter-strip"><div class="filter-field"><label>开始日期</label><input id="cleanStart" type="date" onchange="renderCleaningFinance()"></div><div class="filter-field"><label>结束日期</label><input id="cleanEnd" type="date" onchange="renderCleaningFinance()"></div><div class="filter-actions"><button class="smallbtn" onclick="setCleaningFinanceRange('last30')">最近30天</button><button class="smallbtn" onclick="setCleaningFinanceRange('month')">本月</button><button class="smallbtn" onclick="setCleaningFinanceRange('next30')">未来30天</button></div></div><div id="cleaningFinance"></div></div>`;
     const cs = qs('cleanStart'); if(cs && !cs.value) cs.value = addDay(today(), -30);
-    const ce = qs('cleanEnd'); if(ce && !ce.value) ce.value = addDay(today(), 30);
+    const ce = qs('cleanEnd'); if(ce && !ce.value) ce.value = today();
     renderCleaningFinanceImpl();
   }
   function setCleaningFinanceRangeImpl(mode){
@@ -3182,9 +3184,9 @@
   function renderCleaningFinanceImpl(){
     const cs = qs('cleanStart'), ce = qs('cleanEnd');
     if(cs && !cs.value) cs.value = addDay(today(), -30);
-    if(ce && !ce.value) ce.value = addDay(today(), 30);
+    if(ce && !ce.value) ce.value = today();
     const start = (cs && cs.value) || addDay(today(), -30);
-    const end = (ce && ce.value) || addDay(today(), 30);
+    const end = (ce && ce.value) || today();
     const rows = scopedCleaningRows(start,end).filter(r => r.date >= start && r.date <= end).sort((a,b) => String(b.date).localeCompare(String(a.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
     const total = rows.reduce((s,r) => s + rowAmount(r), 0);
     const roomRows = rows.filter(r => (r.target_type || 'room') === 'room');
