@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_APP_VERSION = "2026-07-09-v92-cleaner-day-compact"
+PMS_APP_VERSION = "2026-07-09-v93-preserve-ical-links"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -2366,6 +2366,26 @@ def _pms_channel_clean_listing(item, state=None):
     }
 
 
+def _pms_channel_preserve_existing_listing_fields(clean, existing):
+    if not isinstance(clean, dict) or not isinstance(existing, dict):
+        return clean
+    # Blank form fields must not erase a working platform-export iCal.
+    # Use delete/clear actions for intentional removal.
+    for field in ("ical_url", "listing_url"):
+        if not _pms_channel_text(clean.get(field)) and _pms_channel_text(existing.get(field)):
+            clean[field] = existing.get(field)
+    for field in ("last_sync", "sync_error", "sync_warning", "availability_status"):
+        if not _pms_channel_text(clean.get(field)) and _pms_channel_text(existing.get(field)):
+            clean[field] = existing.get(field)
+    try:
+        if not int(clean.get("synced_booking_count") or 0) and int(existing.get("synced_booking_count") or 0):
+            clean["synced_booking_count"] = int(existing.get("synced_booking_count") or 0)
+    except Exception:
+        pass
+    clean["created_at"] = existing.get("created_at") or clean.get("created_at")
+    return clean
+
+
 def _pms_channel_migrate_legacy_listings(state):
     listings = [_pms_channel_clean_listing(item, state) for item in state.get("channelListings", []) if isinstance(item, dict)]
     by_id = {item.get("id"): item for item in listings}
@@ -3261,8 +3281,9 @@ def _pms_channel_save_state_from_payload(payload, actor=None):
     if (not actor or actor.get("role") == "admin") and not channel_mutation:
         current = normalize_state(load_state())
         room_ids = _pms_channel_room_ids(current)
+        existing_by_id = {item.get("id"): item for item in current.get("channelListings", []) if isinstance(item, dict)}
         working["channelListings"] = [
-            _pms_channel_clean_listing(item, current)
+            _pms_channel_preserve_existing_listing_fields(_pms_channel_clean_listing(item, current), existing_by_id.get(_pms_channel_text(item.get("id"))))
             for item in incoming_channels
             if isinstance(item, dict) and _pms_channel_text(item.get("room_id") or item.get("roomId")) in room_ids
         ]
@@ -3307,7 +3328,7 @@ def _pms_channel_save_state_from_payload(payload, actor=None):
             raise RuntimeError("room permission required")
         existing = by_id.get(clean.get("id"))
         if existing:
-            clean["created_at"] = existing.get("created_at") or clean.get("created_at")
+            clean = _pms_channel_preserve_existing_listing_fields(clean, existing)
         incoming.append(clean)
         incoming_ids.add(clean.get("id"))
     current["channelListings"] = [
@@ -3370,7 +3391,7 @@ def _pms_channel_merge_sync_payload(state, incoming_channels, allowed_room_ids):
             raise RuntimeError("room permission required")
         existing = by_id.get(clean.get("id"))
         if existing:
-            clean["created_at"] = existing.get("created_at") or clean.get("created_at")
+            clean = _pms_channel_preserve_existing_listing_fields(clean, existing)
         incoming.append(clean)
         incoming_ids.add(clean.get("id"))
     if not incoming:
@@ -6269,10 +6290,10 @@ def _pms_run_scheduled_ical_sync():
         _pms_ical_sync_lock.release()
 
 def _pms_start_ical_auto_sync():
-    enabled = str(os.environ.get("PMS_ICAL_AUTO_SYNC_ENABLED", "0")).strip().lower() in ("1", "true", "yes", "on")
+    enabled = str(os.environ.get("PMS_ICAL_AUTO_SYNC_ENABLED", "1")).strip().lower() in ("1", "true", "yes", "on")
     if not enabled:
         return
-    interval = int(os.environ.get("PMS_ICAL_SYNC_INTERVAL_SECONDS", "3600"))
+    interval = int(os.environ.get("PMS_ICAL_SYNC_INTERVAL_SECONDS", "900"))
     if interval <= 0:
         return
     def worker():

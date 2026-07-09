@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-09-v92-cleaner-day-compact';
+  const VERSION = '2026-07-09-v93-preserve-ical-links';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -3511,8 +3511,12 @@
     const row = list.find(ch => String(ch.id) === String(id));
     if(!row) return null;
     row.platform = (qs(channelInputId(id,'platform')) && qs(channelInputId(id,'platform')).value) || row.platform || 'Airbnb';
-    row.ical_url = (qs(channelInputId(id,'ical')) && qs(channelInputId(id,'ical')).value || '').trim();
-    row.listing_url = (qs(channelInputId(id,'listing')) && qs(channelInputId(id,'listing')).value || '').trim();
+    const currentIcal = String(row.ical_url || '').trim();
+    const currentListing = String(row.listing_url || '').trim();
+    const nextIcal = (qs(channelInputId(id,'ical')) && qs(channelInputId(id,'ical')).value || '').trim();
+    const nextListing = (qs(channelInputId(id,'listing')) && qs(channelInputId(id,'listing')).value || '').trim();
+    row.ical_url = nextIcal || currentIcal;
+    row.listing_url = nextListing || currentListing;
     row.channel_note = (qs(channelInputId(id,'note')) && qs(channelInputId(id,'note')).value || '').trim();
     row.updated_at = nowIso();
     return row;
