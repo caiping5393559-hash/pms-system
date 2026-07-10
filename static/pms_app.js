@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-10-v97-responsive-ui';
+  const VERSION = '2026-07-10-v98-photo-flow';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -2558,6 +2558,50 @@
     (items || []).forEach(item => keys.add(cleaningPhotoTaskKey(row,item)));
     return getPhotos().filter(p => p && keys.has(String(p.task_key || p.taskKey || '')));
   }
+  function photoFlowText(key){
+    const lang = currentLanguage();
+    const rows = {
+      checklist: ['拍摄清单：房间全景、床铺、卫生间、地面/垃圾、耗材、异常细节','Photo checklist: room overview, bed, bathroom, floors/trash, supplies, and issues','Lista: vista general, cama, baño, piso/basura, insumos y problemas'],
+      selected: ['已选择 {count} 张，确认无误后一次上传','{count} selected. Review, then upload once.','{count} seleccionadas. Revisa y sube una vez.'],
+      camera: ['拍照','Take photo','Tomar foto'],
+      gallery: ['从相册选择','Choose photos','Elegir fotos'],
+      confirm: ['确认并上传','Confirm & upload','Confirmar y subir'],
+      retake: ['重新拍摄','Retake','Repetir foto'],
+      remove: ['删除','Remove','Eliminar'],
+      duplicate: ['已跳过 {count} 张重复照片','Skipped {count} duplicate photo(s)','Se omitieron {count} foto(s) duplicadas'],
+      uploading: ['正在并发上传 {done}/{total}…','Uploading {done}/{total}…','Subiendo {done}/{total}…'],
+      success: ['已成功上传 {count} 张','Uploaded {count} photo(s)','Se subieron {count} foto(s)'],
+      partial: ['成功 {done} 张，失败 {failed} 张；可直接重试失败照片','{done} uploaded, {failed} failed. Retry failed photos.','{done} subidas, {failed} fallidas. Reintenta las fallidas.'],
+      empty: ['请先拍照或从相册选择','Take a photo or choose photos first','Toma una foto o elige fotos']
+    };
+    const idx = lang === 'en-US' ? 1 : lang === 'es-ES' ? 2 : 0;
+    return (rows[key] || [key,key,key])[idx];
+  }
+  function photoDraftState(key){
+    ui.photoDrafts = ui.photoDrafts || {};
+    return ui.photoDrafts[key] || (ui.photoDrafts[key] = {items:[],uploading:false});
+  }
+  function photoDraftFingerprint(file){
+    return [String(file && file.name || '').toLowerCase(),Number(file && file.size || 0),Number(file && file.lastModified || 0)].join('|');
+  }
+  function existingPhotoFingerprint(photo){
+    return [String(photo && photo.file_name || '').toLowerCase(),Number(photo && photo.size || 0)].join('|');
+  }
+  function photoDraftHtml(key){
+    const draft = photoDraftState(key);
+    if(!draft.items.length) return '';
+    const encoded = encodeURIComponent(key);
+    const cards = draft.items.map((item,index) => {
+      const state = item.state || 'ready';
+      const label = item.file && item.file.name || ('photo-' + (index + 1));
+      return `<div class="photo-draft-item ${esc(state)}"><img src="${esc(item.preview || '')}" alt="${esc(label)}"><div class="photo-draft-meta"><b>${esc(index + 1)}. ${esc(label)}</b><span>${Math.max(1,Math.round(Number(item.file && item.file.size || 0)/1024))} KB</span></div><button type="button" class="photo-draft-remove" aria-label="${esc(photoFlowText('remove'))}" onclick="removeCleaningPhotoDraft('${encoded}',${index})" ${draft.uploading?'disabled':''}>×</button><div class="photo-draft-state">${state === 'uploading' ? '…' : state === 'done' ? '✓' : state === 'error' ? '!' : ''}</div></div>`;
+    }).join('');
+    return `<div class="photo-draft-shell"><div class="photo-draft-head"><b>${esc(photoFlowText('selected').replace('{count}',draft.items.length))}</b><button type="button" class="smallbtn" onclick="chooseCleaningPhoto('${encoded}','camera')" ${draft.uploading?'disabled':''}>${esc(photoFlowText('retake'))}</button></div><div class="photo-draft-grid">${cards}</div><button type="button" id="cleanPhotoConfirm_${safe(key)}" class="smallbtn primary photo-confirm-upload" onclick="confirmCleaningPhotoUpload('${encoded}',this)" ${draft.uploading?'disabled':''}>${esc(photoFlowText('confirm'))}（${draft.items.length}）</button></div>`;
+  }
+  function refreshPhotoDraft(key){
+    const root = qs('cleanPhotoDraft_' + safe(key));
+    if(root) root.innerHTML = photoDraftHtml(key);
+  }
   function cleaningPhotoControls(row,item=null,options={}){
     if(!row || !row.date || !row.target_id) return '';
     const key = cleaningPhotoTaskKey(row,item);
@@ -2572,9 +2616,10 @@
     const cameraId = 'cleanPhotoCamera_' + safe(key);
     const fileId = 'cleanPhotoFile_' + safe(key);
     const statusId = 'cleanPhotoStatus_' + safe(key);
+    const draftId = 'cleanPhotoDraft_' + safe(key);
     const photos = Array.isArray(options.photos) ? options.photos : cleaningPhotosForRow(row,item);
     const canUpload = row.date <= today();
-    const upload = canUpload ? `<div class="mail-actions"><label class="smallbtn" for="${cameraId}">${esc(t('cleaning.camera'))}</label><label class="smallbtn" for="${fileId}">${esc(t('cleaning.uploadMany'))}</label></div><input id="${cameraId}" data-upload-source="camera" type="file" accept="image/*" capture="environment" multiple onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><input id="${fileId}" data-upload-source="file" type="file" accept="image/*" multiple onchange="uploadCleaningPhoto('${encodeURIComponent(key)}',this)"><div id="${statusId}" class="photo-status"></div>` : '';
+    const upload = canUpload ? `<div class="photo-shot-guide">${esc(photoFlowText('checklist'))}</div><div class="mail-actions photo-source-actions"><label class="smallbtn primary" for="${cameraId}">${esc(photoFlowText('camera'))}</label><label class="smallbtn" for="${fileId}">${esc(photoFlowText('gallery'))}</label></div><input id="${cameraId}" data-upload-source="camera" type="file" accept="image/*" capture="environment" onchange="stageCleaningPhotos('${encodeURIComponent(key)}',this)"><input id="${fileId}" data-upload-source="file" type="file" accept="image/*" multiple onchange="stageCleaningPhotos('${encodeURIComponent(key)}',this)"><div id="${draftId}">${photoDraftHtml(key)}</div><div id="${statusId}" class="photo-status"></div>` : '';
     const list = photos.length ? `<div class="photo-thumb-list">${photos.map((p,i) => {
       const href = String(p.url || '').startsWith('/') ? apiUrl(p.url) : String(p.url || '');
       const label = t('cleaning.photoLink', {count: i + 1});
@@ -2598,6 +2643,36 @@
     const key = decodeURIComponent(encodedKey || '');
     const input = qs((mode === 'file' ? 'cleanPhotoFile_' : 'cleanPhotoCamera_') + safe(key));
     if(input) input.click();
+  }
+  function removeCleaningPhotoDraft(encodedKey,index){
+    const key = decodeURIComponent(encodedKey || '');
+    const draft = photoDraftState(key);
+    if(draft.uploading) return;
+    const item = draft.items[index];
+    if(item && item.preview) try{URL.revokeObjectURL(item.preview);}catch(e){}
+    draft.items.splice(index,1);
+    refreshPhotoDraft(key);
+  }
+  function stageCleaningPhotos(encodedKey,input){
+    const key = decodeURIComponent(encodedKey || '');
+    const files = Array.from((input && input.files) || []);
+    const draft = photoDraftState(key);
+    const row = ui.photoRows[key];
+    const status = qs('cleanPhotoStatus_' + safe(key));
+    if(!row || !files.length || draft.uploading) return;
+    const seen = new Set(draft.items.map(item => item.fingerprint));
+    const existing = new Set(cleaningPhotosForRow(row,null).map(existingPhotoFingerprint));
+    let duplicates = 0;
+    files.forEach(file => {
+      const fingerprint = photoDraftFingerprint(file);
+      const loose = [String(file.name || '').toLowerCase(),Number(file.size || 0)].join('|');
+      if(seen.has(fingerprint) || existing.has(loose)){duplicates += 1;return;}
+      seen.add(fingerprint);
+      draft.items.push({file,source:(input.dataset && input.dataset.uploadSource)||'',fingerprint,preview:URL.createObjectURL(file),state:'ready'});
+    });
+    if(input) input.value = '';
+    if(status && duplicates) status.textContent = photoFlowText('duplicate').replace('{count}',duplicates);
+    refreshPhotoDraft(key);
   }
   function fileToDataUrl(file){
     return new Promise((resolve,reject) => {
@@ -2644,47 +2719,62 @@
       return dataUrl;
     }
   }
-  async function uploadCleaningPhoto(encodedKey,input){
-    const key = decodeURIComponent(encodedKey || '');
+  async function uploadOneCleaningPhoto(key,item,index){
     const row = ui.photoRows[key];
-    const files = Array.from((input && input.files) || []);
+    item.state = 'uploading';
+    refreshPhotoDraft(key);
+    const dataUrl = await prepareCleaningPhoto(item.file);
+    const res = await fetch(apiUrl('/api/cleaning-photo'), {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({...row,file_name:item.file.name || `cleaning-photo-${index + 1}.jpg`,content_type:item.file.type || 'image/jpeg',upload_source:item.source || '',photo_data:dataUrl})
+    });
+    const raw = await res.text();
+    let data = {};
+    try{data = raw ? JSON.parse(raw) : {};}catch(e){}
+    if(!res.ok || data.ok === false) throw new Error(data.error || raw.slice(0,200) || ('上传失败 HTTP ' + res.status));
+    if(data.photo) upsertCleaningPhoto(data.photo);
+    item.state = 'done';
+    return data.photo;
+  }
+  async function confirmCleaningPhotoUpload(encodedKey,button){
+    const key = decodeURIComponent(encodedKey || '');
+    const draft = photoDraftState(key);
+    const pending = draft.items.filter(item => item.state !== 'done');
     const status = qs('cleanPhotoStatus_' + safe(key));
-    const setStatus = (text, kind='') => {
-      if(status){
-        status.textContent = text || '';
-        status.className = 'photo-status' + (kind ? ' ' + kind : '');
+    if(!pending.length){if(status) status.textContent = photoFlowText('empty');return;}
+    if(draft.uploading) return;
+    draft.uploading = true;
+    if(button) button.disabled = true;
+    let done = 0;
+    const errors = [];
+    const update = () => {
+      if(status){status.textContent = photoFlowText('uploading').replace('{done}',done).replace('{total}',pending.length);status.className='photo-status';}
+      refreshPhotoDraft(key);
+    };
+    update();
+    let cursor = 0;
+    const worker = async() => {
+      while(cursor < pending.length){
+        const index = cursor++;
+        const item = pending[index];
+        try{await uploadOneCleaningPhoto(key,item,index);done += 1;}catch(e){item.state='error';errors.push(e && e.message || String(e));}
+        update();
       }
     };
-    if(!row || !files.length) return;
-    const oldTitle = document.title;
-    let uploaded = 0;
-    try{
-      for(const file of files){
-        setStatus(t('cleaning.uploading', {done: uploaded + 1, total: files.length}));
-        const dataUrl = await prepareCleaningPhoto(file);
-        const res = await fetch(apiUrl('/api/cleaning-photo'), {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({...row, file_name: file.name || `cleaning-photo-${uploaded + 1}.jpg`, content_type: file.type || 'image/jpeg', upload_source: (input && input.dataset && input.dataset.uploadSource) || '', photo_data: dataUrl})
-        });
-        const raw = await res.text();
-        let data = {};
-        try{data = raw ? JSON.parse(raw) : {};}catch(e){}
-        if(!res.ok || data.ok === false) throw new Error(data.error || raw.slice(0, 200) || ('上传失败 HTTP ' + res.status));
-        if(data.photo) upsertCleaningPhoto(data.photo);
-        else applyStateFromServerImpl(data.state || data);
-        uploaded += 1;
-      }
-      setStatus(t('cleaning.uploaded', {count: uploaded}), 'ok');
-      renderAll();
-    }catch(e){
-      const message = e && e.message ? e.message : String(e || '未知错误');
-      setStatus(t('cleaning.uploadFailedPartial', {done: uploaded, total: files.length, message}), 'error');
-      alert(t('cleaning.uploadPhotoFailed', {message}));
-    }finally{
-      if(input) input.value = '';
-      document.title = oldTitle;
+    await Promise.all(Array.from({length:Math.min(3,pending.length)},worker));
+    draft.uploading = false;
+    draft.items.filter(item => item.state === 'done').forEach(item => {if(item.preview) try{URL.revokeObjectURL(item.preview);}catch(e){}});
+    draft.items = draft.items.filter(item => item.state !== 'done');
+    if(status){
+      if(errors.length){status.textContent=photoFlowText('partial').replace('{done}',done).replace('{failed}',errors.length);status.className='photo-status error';}
+      else{status.textContent=photoFlowText('success').replace('{count}',done);status.className='photo-status ok';}
     }
+    refreshPhotoDraft(key);
+    renderAll();
+  }
+  function uploadCleaningPhoto(encodedKey,input){
+    stageCleaningPhotos(encodedKey,input);
   }
   function cleaningConfirmControls(row){
     if(!row) return '';
