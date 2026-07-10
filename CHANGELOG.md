@@ -1,5 +1,16 @@
 # PMS Version History
 
+## 2026-07-10 · v99-photo-speed
+
+Release identifier: `2026-07-10-v99-photo-speed`
+
+### Single-photo latency
+
+- Reuses the state already loaded during session authentication instead of loading it again inside the upload handler.
+- Writes photo bytes and photo metadata concurrently instead of serially.
+- Keeps the v98 three-photo parallel upload, preview, retry, and duplicate protection flow.
+- Production target: reduce a real single upload from the v98 baseline of 8.6 seconds to 2–4 seconds.
+
 ## 2026-07-10 · v98-photo-flow
 
 Release identifier: `2026-07-10-v98-photo-flow`
