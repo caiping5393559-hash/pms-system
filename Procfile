@@ -1,1 +1,1 @@
-web: python app.py
+web: env MALLOC_ARENA_MAX=2 PMS_STATE_UI_CACHE_SECONDS=0 PYTHONUNBUFFERED=1 python app.py
