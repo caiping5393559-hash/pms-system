@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-09-v96-future-booking-locks';
+  const VERSION = '2026-07-10-v97-responsive-ui';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
