@@ -112,3 +112,28 @@ th,td{overflow-wrap:anywhere}
   html{scroll-behavior:auto}
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+
+/* v98 guided photo capture and fast upload */
+.photo-shot-guide{margin:0 0 8px;padding:8px 10px;border-radius:9px;background:#eff6ff;color:#1e3a8a;font-size:12px;font-weight:700;line-height:1.45}
+.photo-source-actions{display:grid!important;grid-template-columns:1fr 1fr;gap:7px!important}
+.photo-source-actions .smallbtn{display:flex;align-items:center;justify-content:center;min-width:0}
+.photo-draft-shell{margin-top:9px;padding:9px;border:1px solid #bfdbfe;border-radius:10px;background:#f8fbff}
+.photo-draft-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:12px}
+.photo-draft-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
+.photo-draft-item{position:relative;min-width:0;border:1px solid #dbe4ef;border-radius:9px;background:#fff;overflow:hidden}
+.photo-draft-item>img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#e2e8f0}
+.photo-draft-meta{display:grid;gap:2px;padding:6px 7px;font-size:10px;color:#64748b}
+.photo-draft-meta b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#334155}
+.photo-draft-remove{position:absolute;top:5px;right:5px;width:28px;height:28px;min-height:28px;padding:0;border:0;border-radius:999px;background:rgba(15,23,42,.82);color:#fff;font-size:20px;line-height:1}
+.photo-draft-state{position:absolute;left:5px;top:5px;display:flex;align-items:center;justify-content:center;min-width:24px;height:24px;padding:0 5px;border-radius:999px;background:rgba(15,23,42,.76);color:#fff;font-weight:900}
+.photo-draft-item.done{border-color:#22c55e}.photo-draft-item.error{border-color:#ef4444}.photo-draft-item.uploading{opacity:.72}
+.photo-confirm-upload{width:100%;margin-top:9px;border-radius:9px!important}
+.photo-status{min-height:20px;margin-top:6px;font-size:12px;font-weight:800;line-height:1.35}
+.photo-status.ok{color:#047857}.photo-status.error{color:#b91c1c}
+@media(max-width:600px){
+  .photo-shot-guide{font-size:11px;padding:7px 8px}
+  .photo-source-actions{position:sticky;bottom:calc(8px + env(safe-area-inset-bottom));z-index:4;padding:6px;background:rgba(255,255,255,.94);border:1px solid #dbe4ef;border-radius:11px;box-shadow:0 8px 24px rgba(15,23,42,.12)}
+  .photo-source-actions .smallbtn{min-height:46px;font-size:14px}
+  .photo-draft-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .photo-draft-head{align-items:flex-start}
+}
