@@ -18,8 +18,9 @@ import urllib.request
 import urllib.error
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-07-10-v98-photo-flow"
+PMS_APP_VERSION = "2026-07-10-v99-photo-speed"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -1460,7 +1461,13 @@ def current_user(handler):
     user_id = parse_session_token(cookie_value(handler, SESSION_COOKIE))
     if not user_id:
         return None
-    return find_user_by_id(normalize_state(load_main_state()), user_id)
+    state = normalize_state(load_main_state())
+    user = find_user_by_id(state, user_id)
+    if not user:
+        return None
+    actor = dict(user)
+    actor["_pms_loaded_state"] = state
+    return actor
 
 
 def require_user(handler, roles=None):
@@ -5340,7 +5347,8 @@ def _pms_photo_decode_payload(payload):
 def upload_cleaning_task_photo(payload, actor=None):
     if not isinstance(payload, dict):
         raise RuntimeError("payload must be an object")
-    state = _pms_photo_cleanup_state(load_main_state(), delete_objects=True)
+    request_state = (actor or {}).get("_pms_loaded_state")
+    state = _pms_photo_cleanup_state(request_state if isinstance(request_state, dict) else load_main_state(), delete_objects=True)
     room_ids, common_ids = _pms_photo_allowed_targets(state, actor)
     target_type = _pms_photo_text(payload.get("target_type") or payload.get("targetType") or "room", 20)
     target_id = _pms_photo_text(payload.get("target_id") or payload.get("targetId"), 120)
@@ -5377,16 +5385,17 @@ def upload_cleaning_task_photo(payload, actor=None):
     photo_doc = photo_id
     bucket, storage_object = "", ""
     storage_mode = str(os.environ.get("PMS_PHOTO_STORAGE_MODE", "firestore") or "firestore").strip().lower()
+    photo_write_pending = storage_mode != "storage"
     if storage_mode == "storage":
         try:
             bucket, storage_object, url = _pms_photo_upload_storage(object_name, content, content_type)
             storage_backend = "storage"
             photo_doc = ""
+            photo_write_pending = False
         except Exception:
-            _pms_photo_write_firestore(photo_id, content, content_type, expires_at)
             url = f"/api/cleaning-photo/{photo_id}"
+            photo_write_pending = True
     else:
-        _pms_photo_write_firestore(photo_id, content, content_type, expires_at)
         url = f"/api/cleaning-photo/{photo_id}"
     row = {
         "id": photo_id,
@@ -5412,7 +5421,14 @@ def upload_cleaning_task_photo(payload, actor=None):
     photos = [item for item in state.get("cleaningTaskPhotos", []) if isinstance(item, dict)]
     photos.append(row)
     state["cleaningTaskPhotos"] = photos[-2000:]
-    saved = save_main_state_only(state)
+    if photo_write_pending:
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="pms-photo-save") as executor:
+            photo_future = executor.submit(_pms_photo_write_firestore, photo_id, content, content_type, expires_at)
+            state_future = executor.submit(save_main_state_only, state)
+            photo_future.result()
+            saved = state_future.result()
+    else:
+        saved = save_main_state_only(state)
     return saved, row
 
 
