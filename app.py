@@ -20,7 +20,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-07-10-v99-photo-speed"
+PMS_APP_VERSION = "2026-07-10-v100-photo-batch"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -2094,13 +2094,21 @@ class Handler(BaseHTTPRequestHandler):
                 saved, public_profile, updated_user = update_current_user_profile(payload, actor=user)
                 json_response(self, {"ok": True, "user": public_profile, "state": pms_state_response_for_user(saved, updated_user)})
                 return
+            if path == "/api/cleaning-photos":
+                user = require_user(self, ("admin", "owner", "cleaner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                saved, photos = upload_cleaning_task_photos(payload, actor=user)
+                json_response(self, {"ok": True, "photos": [_pms_photo_public(photo) for photo in photos]})
+                return
             if path == "/api/cleaning-photo":
                 user = require_user(self, ("admin", "owner", "cleaner"))
                 if not user:
                     return
                 payload = json.loads(raw.decode("utf-8") or "{}")
-                saved, photo = upload_cleaning_task_photo(payload, actor=user)
-                json_response(self, {"ok": True, "photo": _pms_photo_public(photo)})
+                saved, photos = upload_cleaning_task_photos({"photos": [payload]}, actor=user)
+                json_response(self, {"ok": True, "photo": _pms_photo_public(photos[0])})
                 return
             if path == "/api/cleaning-confirmations":
                 user = require_user(self, ("admin", "owner", "cleaner"))
@@ -5342,6 +5350,131 @@ def _pms_photo_decode_payload(payload):
     if not str(content_type).lower().startswith("image/"):
         raise RuntimeError("only image uploads are allowed")
     return content, content_type
+
+
+def _pms_photo_firestore_document_name(url):
+    text = str(url or "")
+    return text.split("/v1/", 1)[1] if "/v1/" in text else text
+
+
+def _pms_photo_compact_state_payload(state):
+    compact_state = dict(normalize_state(state))
+    for key in tuple(globals().get("_PMS_EXTERNAL_STATE_KEYS", ())):
+        compact_state.pop(key, None)
+    raw = json.dumps(compact_state, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    compressed = base64.b64encode(gzip.compress(raw, compresslevel=6)).decode("ascii")
+    if len(compressed) > 950000:
+        raise RuntimeError(f"Compressed state is still too large for one Firestore document: {len(compressed)} bytes")
+    return compact_state, {
+        "state_json": {"stringValue": ""},
+        "state_gzip_base64": {"stringValue": compressed},
+        "state_storage": {"stringValue": "gzip_base64"},
+        "state_raw_bytes": {"integerValue": str(len(raw))},
+        "state_compressed_bytes": {"integerValue": str(len(compressed))},
+        "updated_at": {"timestampValue": now_utc_iso()},
+    }
+
+
+def _pms_photo_prepare_batch_item(payload, actor, state, batch_hashes):
+    if not isinstance(payload, dict):
+        raise RuntimeError("photo payload must be an object")
+    room_ids, common_ids = _pms_photo_allowed_targets(state, actor)
+    target_type = _pms_photo_text(payload.get("target_type") or payload.get("targetType") or "room", 20)
+    target_id = _pms_photo_text(payload.get("target_id") or payload.get("targetId"), 120)
+    date_value = _pms_photo_text(payload.get("date"), 20)
+    task_key = _pms_photo_text(payload.get("task_key") or payload.get("taskKey"), 500)
+    if not date_value or not target_id or not task_key:
+        raise RuntimeError("date, target and task key are required")
+    if not _pms_photo_target_allowed({"target_type": target_type, "target_id": target_id}, room_ids, common_ids):
+        raise RuntimeError("cleaning task permission required")
+    content, content_type = _pms_photo_decode_payload(payload)
+    content_hash = hashlib.sha256(content).hexdigest()
+    dedupe_key = task_key + "|" + content_hash
+    if dedupe_key in batch_hashes:
+        return {"duplicate": True, "row": batch_hashes[dedupe_key], "content": None}
+    duplicate = next((
+        item for item in reversed(state.get("cleaningTaskPhotos", []))
+        if isinstance(item, dict)
+        and item.get("task_key") == task_key
+        and item.get("content_hash") == content_hash
+    ), None)
+    if duplicate:
+        batch_hashes[dedupe_key] = duplicate
+        return {"duplicate": True, "row": duplicate, "content": None}
+    now = _pms_photo_now()
+    photo_id = "photo_" + _pms_photo_uuid.uuid4().hex
+    ext = ".png" if "png" in content_type else ".webp" if "webp" in content_type else ".heic" if ("heic" in content_type or "heif" in content_type) else ".jpg"
+    expires_at = _pms_photo_iso(now + _pms_photo_dt.timedelta(days=max(1, _PMS_PHOTO_RETENTION_DAYS)))
+    row = {
+        "id": photo_id,
+        "date": date_value,
+        "target_id": target_id,
+        "target_type": target_type,
+        "task_key": task_key,
+        "file_name": _pms_photo_text(payload.get("file_name") or payload.get("fileName") or (photo_id + ext), 180),
+        "content_type": content_type,
+        "upload_source": _pms_photo_text(payload.get("upload_source") or payload.get("uploadSource"), 40),
+        "size": len(content),
+        "content_hash": content_hash,
+        "url": f"/api/cleaning-photo/{photo_id}",
+        "storage_bucket": "",
+        "storage_object": "",
+        "storage_backend": "firestore",
+        "photo_doc": photo_id,
+        "uploaded_by": _pms_photo_text((actor or {}).get("id") or (actor or {}).get("username"), 120),
+        "uploaded_by_name": _pms_photo_text((actor or {}).get("name") or (actor or {}).get("username"), 200),
+        "uploaded_at": _pms_photo_iso(now),
+        "expires_at": expires_at,
+    }
+    batch_hashes[dedupe_key] = row
+    return {"duplicate": False, "row": row, "content": content}
+
+
+def _pms_photo_batch_write_firestore(state, prepared):
+    compact_state, state_fields = _pms_photo_compact_state_payload(state)
+    writes = []
+    for item in prepared:
+        if item.get("duplicate") or item.get("content") is None:
+            continue
+        row = item["row"]
+        compressed = base64.b64encode(gzip.compress(item["content"], compresslevel=1)).decode("ascii")
+        photo_fields = {
+            "photo_id": {"stringValue": row["id"]},
+            "content_type": {"stringValue": row.get("content_type") or "image/jpeg"},
+            "data_gzip_base64": {"stringValue": compressed},
+            "raw_bytes": {"integerValue": str(len(item["content"]))},
+            "expires_at": {"timestampValue": row["expires_at"]},
+            "created_at": {"timestampValue": row["uploaded_at"]},
+        }
+        writes.append({"update": {"name": _pms_photo_firestore_document_name(_pms_photo_doc_url(row["id"])), "fields": photo_fields}})
+    writes.append({"update": {"name": _pms_photo_firestore_document_name(firestore_doc_url()), "fields": state_fields}})
+    project = urllib.parse.quote(firebase_project_id(), safe="")
+    url = f"https://firestore.googleapis.com/v1/projects/{project}/databases/(default)/documents:batchWrite"
+    firestore_request("POST", url, payload={"writes": writes}, timeout=20)
+    return normalize_state(compact_state)
+
+
+def upload_cleaning_task_photos(payload, actor=None):
+    rows = payload.get("photos") if isinstance(payload, dict) else None
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError("photos are required")
+    if len(rows) > 12:
+        raise RuntimeError("at most 12 photos per upload")
+    request_state = (actor or {}).get("_pms_loaded_state")
+    state = _pms_photo_cleanup_state(request_state if isinstance(request_state, dict) else load_main_state(), delete_objects=True)
+    batch_hashes = {}
+    prepared = [_pms_photo_prepare_batch_item(item, actor, state, batch_hashes) for item in rows]
+    photos = [item for item in state.get("cleaningTaskPhotos", []) if isinstance(item, dict)]
+    new_ids = {item["row"]["id"] for item in prepared if not item.get("duplicate")}
+    photos.extend(item["row"] for item in prepared if not item.get("duplicate"))
+    state["cleaningTaskPhotos"] = photos[-2000:]
+    if firebase_credentials_configured() and new_ids:
+        saved = _pms_photo_batch_write_firestore(state, prepared)
+    elif new_ids:
+        saved = save_main_state_only(state)
+    else:
+        saved = state
+    return saved, [item["row"] for item in prepared]
 
 
 def upload_cleaning_task_photo(payload, actor=None):
