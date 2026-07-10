@@ -17,11 +17,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Check Python syntax
-        run: python -m py_compile app.py sitecustomize.py codex_pms_boot_patch.py
+      - name: Check all tracked Python files
+        run: |
+          git ls-files -z '*.py' | xargs -0 -r python -m py_compile
 
-      - name: Check frontend patch syntax
-        run: node --check pms_ui_patch.js
+      - name: Check frontend syntax
+        run: node --check static/pms_app.js
 
   trigger-render-hook:
     needs: syntax-check
