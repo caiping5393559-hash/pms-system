@@ -1,5 +1,18 @@
 # PMS Version History
 
+## 2026-07-10 · v100-photo-batch
+
+Release identifier: `2026-07-10-v100-photo-batch`
+
+### One-request photo architecture
+
+- Sends all selected photos in one HTTP request.
+- Authenticates and checks permissions once per batch.
+- Uses one Firestore `batchWrite` request to atomically save all photo documents and the photo index.
+- Routes single-photo uploads through the same one-request batch path.
+- Keeps local preview, remove/retake, retry, and duplicate protection.
+- Replaces the v99 experiment, which did not meet the 2–4 second target.
+
 ## 2026-07-10 · v99-photo-speed
 
 Release identifier: `2026-07-10-v99-photo-speed`
