@@ -1,0 +1,114 @@
+/* PMS cross-module responsive UI layer */
+:root{
+  --pms-radius:12px;
+  --pms-touch:42px;
+  --pms-focus:0 0 0 3px rgba(15,118,110,.2);
+}
+html{overflow-x:hidden;scroll-behavior:smooth}
+body{min-width:0;overflow-x:hidden;-webkit-text-size-adjust:100%;text-rendering:optimizeLegibility}
+main,.section,.tab-content,.card,.ops-shell,.room-settings-shell{min-width:0}
+.card{border-radius:var(--pms-radius);overflow-wrap:anywhere}
+button,.smallbtn,input,select,textarea{font:inherit}
+button,.smallbtn{min-height:var(--pms-touch);touch-action:manipulation}
+button:focus-visible,.smallbtn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{
+  outline:none;box-shadow:var(--pms-focus);border-color:var(--primary)
+}
+input,select,textarea{
+  max-width:100%;min-height:var(--pms-touch);border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--text);padding:9px 11px
+}
+textarea{min-height:88px;resize:vertical}
+img{max-width:100%;height:auto}
+table{width:100%;border-collapse:collapse}
+th,td{overflow-wrap:anywhere}
+.scroll,table{scrollbar-width:thin;scrollbar-color:#94a3b8 transparent}
+.tabbar,.toolbar,.nav,.ops-tabs,.cleaning-subtabs{scrollbar-width:none}
+.tabbar::-webkit-scrollbar,.toolbar::-webkit-scrollbar,.nav::-webkit-scrollbar,.ops-tabs::-webkit-scrollbar,.cleaning-subtabs::-webkit-scrollbar{display:none}
+.property-cards,.ops-grid,.profile-grid,.access-grid,.channel-grid,.room-index-grid,.appliance-grid,.work-grid{
+  min-width:0
+}
+.property-card-top,.property-module-head,.property-detail-head,.room-index-head,.ops-row-head,.cleaning-work-head{
+  gap:10px
+}
+.ops-row,.access-user-card,.property-subcard,.room-setting-card,.common-area-card,.channel-card,.note-card{
+  min-width:0;overflow-wrap:anywhere
+}
+.badge,.sync-status,.mini-status{max-width:100%;white-space:normal;text-align:center}
+.photo-thumb-list{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+@media(min-width:901px){
+  main{max-width:1440px}
+  .card{padding:18px}
+  .property-cards,.ops-grid,.profile-grid,.access-grid{align-items:start}
+  table th{position:sticky;top:0;background:#f8fafc;z-index:1}
+}
+@media(max-width:900px){
+  :root{--pms-touch:44px}
+  header{position:sticky;top:0}
+  .header-inner{min-width:0}
+  .nav{width:100%;max-width:100%;overflow-x:auto;flex-wrap:nowrap!important;-webkit-overflow-scrolling:touch;padding:2px 0 4px}
+  .nav>button,.nav>.smallbtn,.nav>a{flex:0 0 auto;white-space:nowrap}
+  .formgrid,.ops-form,.property-edit-grid,.profile-grid,.access-grid,.room-basics,.common-area-form{
+    grid-template-columns:minmax(0,1fr)!important
+  }
+  .toolbar,.tabbar,.ops-tabs,.cleaning-subtabs{
+    max-width:100%;overflow-x:auto;flex-wrap:nowrap!important;-webkit-overflow-scrolling:touch
+  }
+  .toolbar>*{flex:0 0 auto}
+  .toolbar input,.toolbar select{max-width:min(72vw,280px)!important}
+  .property-actions,.common-area-actions,.ops-actions,.profile-actions,.mail-actions{gap:7px}
+  .property-actions button,.common-area-actions button,.ops-actions button,.profile-actions button{min-height:44px}
+  .scroll{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .scroll table,table.scroll,#ownerBookings table,#sixMonthStats table,#manualRecords table,#recurringTaskManager table{
+    min-width:720px
+  }
+  .ops-row,.access-user-card,.property-subcard,.room-setting-card,.common-area-card,.channel-card{
+    padding:12px
+  }
+}
+@media(max-width:600px){
+  body{padding-bottom:env(safe-area-inset-bottom)}
+  main{padding-left:8px!important;padding-right:8px!important;padding-bottom:calc(78px + env(safe-area-inset-bottom))!important}
+  header{padding-left:10px!important;padding-right:10px!important}
+  h1{font-size:19px!important}
+  h2{font-size:18px}
+  h3{font-size:16px}
+  .card{padding:11px!important;border-radius:11px;margin-bottom:10px}
+  .small{line-height:1.4}
+  .grid{gap:8px!important}
+  .formgrid,.ops-form,.property-edit-grid,.profile-grid,.access-grid,.room-basics,.common-area-form,
+  .channel-grid,.room-index-grid,.appliance-grid,.task-guidance-grid,.work-grid{
+    grid-template-columns:minmax(0,1fr)!important
+  }
+  .property-module-head,.property-detail-head,.room-index-head,.ops-row-head,.cleaning-work-head{
+    flex-direction:column;align-items:stretch!important
+  }
+  .property-actions,.common-area-actions,.ops-actions,.profile-actions{
+    display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));width:100%
+  }
+  .property-actions>*:only-child,.common-area-actions>*:only-child,.ops-actions>*:only-child,.profile-actions>*:only-child{
+    grid-column:1/-1
+  }
+  .filter-strip{display:grid!important;grid-template-columns:minmax(0,1fr)!important}
+  .filter-field{width:100%;min-width:0!important}
+  .filter-field input,.filter-field select,.profile-field input,.profile-field select,
+  .ops-form input,.ops-form select,.ops-form textarea,.property-edit-grid input,.property-edit-grid select{
+    width:100%!important;max-width:none!important
+  }
+  .filter-actions{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .filter-actions>*{width:100%;min-width:0}
+  .ops-tabs,.cleaning-subtabs,.tabbar{margin-left:-2px;margin-right:-2px;padding:2px 2px 6px}
+  .ops-tabs button,.cleaning-subtabs button,.tabbar button{min-height:40px}
+  .ops-meta,.property-meta,.room-index-meta,.cleaning-work-meta{gap:5px;flex-wrap:wrap}
+  .ops-row,.access-user-card,.property-subcard,.room-setting-card,.common-area-card,.channel-card,.note-card{
+    border-radius:10px;padding:10px
+  }
+  .photo-thumb{width:56px!important;height:56px!important}
+}
+@media(max-width:380px){
+  .property-actions,.common-area-actions,.ops-actions,.profile-actions,.filter-actions{grid-template-columns:1fr!important}
+  .grid{grid-template-columns:1fr!important}
+  #cleanerMetrics.grid{display:flex!important}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
