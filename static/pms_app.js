@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-10-v99-photo-speed';
+  const VERSION = '2026-07-10-v100-photo-batch';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -2719,24 +2719,6 @@
       return dataUrl;
     }
   }
-  async function uploadOneCleaningPhoto(key,item,index){
-    const row = ui.photoRows[key];
-    item.state = 'uploading';
-    refreshPhotoDraft(key);
-    const dataUrl = await prepareCleaningPhoto(item.file);
-    const res = await fetch(apiUrl('/api/cleaning-photo'), {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({...row,file_name:item.file.name || `cleaning-photo-${index + 1}.jpg`,content_type:item.file.type || 'image/jpeg',upload_source:item.source || '',photo_data:dataUrl})
-    });
-    const raw = await res.text();
-    let data = {};
-    try{data = raw ? JSON.parse(raw) : {};}catch(e){}
-    if(!res.ok || data.ok === false) throw new Error(data.error || raw.slice(0,200) || ('上传失败 HTTP ' + res.status));
-    if(data.photo) upsertCleaningPhoto(data.photo);
-    item.state = 'done';
-    return data.photo;
-  }
   async function confirmCleaningPhotoUpload(encodedKey,button){
     const key = decodeURIComponent(encodedKey || '');
     const draft = photoDraftState(key);
@@ -2745,33 +2727,42 @@
     if(!pending.length){if(status) status.textContent = photoFlowText('empty');return;}
     if(draft.uploading) return;
     draft.uploading = true;
+    pending.forEach(item => {item.state='uploading';});
     if(button) button.disabled = true;
-    let done = 0;
-    const errors = [];
-    const update = () => {
-      if(status){status.textContent = photoFlowText('uploading').replace('{done}',done).replace('{total}',pending.length);status.className='photo-status';}
-      refreshPhotoDraft(key);
-    };
-    update();
-    let cursor = 0;
-    const worker = async() => {
-      while(cursor < pending.length){
-        const index = cursor++;
-        const item = pending[index];
-        try{await uploadOneCleaningPhoto(key,item,index);done += 1;}catch(e){item.state='error';errors.push(e && e.message || String(e));}
-        update();
-      }
-    };
-    await Promise.all(Array.from({length:Math.min(3,pending.length)},worker));
-    draft.uploading = false;
-    draft.items.filter(item => item.state === 'done').forEach(item => {if(item.preview) try{URL.revokeObjectURL(item.preview);}catch(e){}});
-    draft.items = draft.items.filter(item => item.state !== 'done');
-    if(status){
-      if(errors.length){status.textContent=photoFlowText('partial').replace('{done}',done).replace('{failed}',errors.length);status.className='photo-status error';}
-      else{status.textContent=photoFlowText('success').replace('{count}',done);status.className='photo-status ok';}
-    }
+    if(status){status.textContent=photoFlowText('uploading').replace('{done}',0).replace('{total}',pending.length);status.className='photo-status';}
     refreshPhotoDraft(key);
-    renderAll();
+    try{
+      const row = ui.photoRows[key];
+      const prepared = await Promise.all(pending.map(async(item,index) => ({
+        ...row,
+        file_name:item.file.name || `cleaning-photo-${index + 1}.jpg`,
+        content_type:item.file.type || 'image/jpeg',
+        upload_source:item.source || '',
+        photo_data:await prepareCleaningPhoto(item.file)
+      })));
+      const res = await fetch(apiUrl('/api/cleaning-photos'), {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({photos:prepared})
+      });
+      const raw = await res.text();
+      let data = {};
+      try{data = raw ? JSON.parse(raw) : {};}catch(e){}
+      if(!res.ok || data.ok === false) throw new Error(data.error || raw.slice(0,200) || ('上传失败 HTTP ' + res.status));
+      const photos = Array.isArray(data.photos) ? data.photos : [];
+      photos.forEach(photo => upsertCleaningPhoto(photo));
+      pending.forEach(item => {item.state='done';if(item.preview) try{URL.revokeObjectURL(item.preview);}catch(e){}});
+      draft.items = draft.items.filter(item => item.state !== 'done');
+      if(status){status.textContent=photoFlowText('success').replace('{count}',photos.length);status.className='photo-status ok';}
+    }catch(e){
+      pending.forEach(item => {item.state='error';});
+      const message=e&&e.message?e.message:String(e||'未知错误');
+      if(status){status.textContent=photoFlowText('partial').replace('{done}',0).replace('{failed}',pending.length)+' '+message;status.className='photo-status error';}
+    }finally{
+      draft.uploading=false;
+      refreshPhotoDraft(key);
+      renderAll();
+    }
   }
   function uploadCleaningPhoto(encodedKey,input){
     stageCleaningPhotos(encodedKey,input);
