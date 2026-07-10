@@ -19,7 +19,7 @@ import urllib.error
 import threading
 import time
 
-PMS_APP_VERSION = "2026-07-10-v97-responsive-ui"
+PMS_APP_VERSION = "2026-07-10-v98-photo-flow"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -5265,7 +5265,7 @@ def _pms_photo_doc_url(photo_id):
 
 
 def _pms_photo_write_firestore(photo_id, content, content_type, expires_at):
-    compressed = base64.b64encode(gzip.compress(content, compresslevel=9)).decode("ascii")
+    compressed = base64.b64encode(gzip.compress(content, compresslevel=1)).decode("ascii")
     firestore_request("PATCH", _pms_photo_doc_url(photo_id), payload={
         "fields": {
             "photo_id": {"stringValue": photo_id},
@@ -5362,14 +5362,30 @@ def upload_cleaning_task_photo(payload, actor=None):
         ext = ".heic"
     object_name = "cleaning-photos/{}/{}/{}/{}{}".format(date, target_type, target_id, photo_id, ext)
     expires_at = _pms_photo_iso(now + _pms_photo_dt.timedelta(days=max(1, _PMS_PHOTO_RETENTION_DAYS)))
-    storage_backend = "storage"
-    photo_doc = ""
-    try:
-        bucket, storage_object, url = _pms_photo_upload_storage(object_name, content, content_type)
-    except Exception:
-        bucket, storage_object = "", ""
-        storage_backend = "firestore"
-        photo_doc = photo_id
+    content_hash = hashlib.sha256(content).hexdigest()
+    duplicate_window = now - _pms_photo_dt.timedelta(minutes=10)
+    duplicate = next((
+        item for item in reversed(state.get("cleaningTaskPhotos", []))
+        if isinstance(item, dict)
+        and item.get("task_key") == task_key
+        and item.get("content_hash") == content_hash
+        and _pms_photo_parse_iso(item.get("uploaded_at")) >= duplicate_window
+    ), None)
+    if duplicate:
+        return state, duplicate
+    storage_backend = "firestore"
+    photo_doc = photo_id
+    bucket, storage_object = "", ""
+    storage_mode = str(os.environ.get("PMS_PHOTO_STORAGE_MODE", "firestore") or "firestore").strip().lower()
+    if storage_mode == "storage":
+        try:
+            bucket, storage_object, url = _pms_photo_upload_storage(object_name, content, content_type)
+            storage_backend = "storage"
+            photo_doc = ""
+        except Exception:
+            _pms_photo_write_firestore(photo_id, content, content_type, expires_at)
+            url = f"/api/cleaning-photo/{photo_id}"
+    else:
         _pms_photo_write_firestore(photo_id, content, content_type, expires_at)
         url = f"/api/cleaning-photo/{photo_id}"
     row = {
@@ -5382,6 +5398,7 @@ def upload_cleaning_task_photo(payload, actor=None):
         "content_type": content_type,
         "upload_source": _pms_photo_text(payload.get("upload_source") or payload.get("uploadSource"), 40),
         "size": len(content),
+        "content_hash": content_hash,
         "url": url,
         "storage_bucket": bucket,
         "storage_object": storage_object,
