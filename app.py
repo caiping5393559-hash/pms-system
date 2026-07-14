@@ -20,7 +20,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-07-10-v100-photo-batch"
+PMS_APP_VERSION = "2026-07-13-v101-stats-summary"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -6502,10 +6502,16 @@ def _pms_start_ical_auto_sync():
     if interval <= 0:
         return
     def worker():
+        # Keep the interval measured from the start of one sync to the start of
+        # the next. Previously the code waited the full interval only after a
+        # sync finished, so a 10-minute sync plus 15-minute sleep actually ran
+        # about every 25 minutes.
         time.sleep(min(60, interval))
         while True:
+            started_at = time.monotonic()
             _pms_run_scheduled_ical_sync()
-            time.sleep(interval)
+            elapsed = time.monotonic() - started_at
+            time.sleep(max(1.0, interval - elapsed))
     threading.Thread(target=worker, daemon=True, name="pms-ical-auto-sync").start()
 
 _pms_mail_sync_lock = threading.Lock()
