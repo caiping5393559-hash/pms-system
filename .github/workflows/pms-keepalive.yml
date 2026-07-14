@@ -1,0 +1,17 @@
+name: PMS keepalive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keep-render-awake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Wake PMS service
+        run: curl --fail --silent --show-error --max-time 45 https://pms-system-708g.onrender.com/api/version
