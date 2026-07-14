@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-13-v101-stats-summary';
+  const VERSION = '2026-07-13-v102-lock-dedupe';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -2053,10 +2053,30 @@
     return (rows || getBookings()).filter(b => roomEntityId(b.room_id) === entity);
   }
   function ownerBookingsAll(){return getBookings().filter(b => roomMatches(b.room_id));}
+  function lockCoveredByRealBooking(lock, realRows){
+    if(!lock) return false;
+    const entity = roomEntityId(lock.room_id);
+    return (realRows || []).some(real =>
+      roomEntityId(real.room_id) === entity &&
+      String(real.checkin || '') <= String(lock.checkin || '') &&
+      String(real.checkout || '') >= String(lock.checkout || '')
+    );
+  }
+  function visibleLockBookings(lockRows, realRows){
+    return dedupeBookings(lockRows).filter(lock => !lockCoveredByRealBooking(lock, realRows));
+  }
   function ownerRealBookings(){return dedupeBookings(ownerBookingsAll().filter(b => !isLockedBooking(b)));}
-  function ownerLockBookings(){return dedupeBookings(ownerBookingsAll().filter(isLockedBooking));}
+  function ownerLockBookings(){
+    const all = ownerBookingsAll();
+    const real = dedupeBookings(all.filter(b => !isLockedBooking(b)));
+    return visibleLockBookings(all.filter(isLockedBooking), real);
+  }
   function realBookingsImpl(){return dedupeBookings(getBookings().filter(b => !isLockedBooking(b)));}
-  function lockBookingsImpl(){return dedupeBookings(getBookings().filter(isLockedBooking));}
+  function lockBookingsImpl(){
+    const all = getBookings();
+    const real = dedupeBookings(all.filter(b => !isLockedBooking(b)));
+    return visibleLockBookings(all.filter(isLockedBooking), real);
+  }
 
   function cleanTargetKey(row){
     const type = row && row.target_type === 'common' ? 'common' : 'room';
