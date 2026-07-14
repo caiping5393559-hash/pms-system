@@ -1,5 +1,18 @@
 # PMS Version History
 
+## 2026-07-13 · v101-stats-summary
+
+Release identifier: `2026-07-13-v101-stats-summary`
+
+### Reservation summary and iCal schedule correction
+
+- Adds a highlighted summary row below the per-room reservation statistics.
+- Totals orders, booked nights, blocked nights, and available nights.
+- Calculates the overall occupancy rate from total booked versus bookable nights.
+- Shows the average per-room cleaning fee.
+- Corrects the in-process iCal scheduler to measure 15 minutes from sync start instead of waiting 15 minutes after a sync completes.
+- Documents that Render sleep can still pause in-process scheduling; an external keep-alive is included.
+
 ## 2026-07-10 · v100-photo-batch
 
 Release identifier: `2026-07-10-v100-photo-batch`
