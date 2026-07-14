@@ -1,5 +1,15 @@
 # PMS Version History
 
+## 2026-07-13 · v102-lock-dedupe
+
+Release identifier: `2026-07-13-v102-lock-dedupe`
+
+### Duplicate Airbnb lock reconciliation
+
+- Hides an Airbnb `Not available` lock when the same room and dates are already fully covered by a real reservation.
+- Removes the duplicate lock from the daily dashboard, lock totals, calendar statistics, and booking views.
+- Preserves genuine locks that extend beyond a real reservation.
+
 ## 2026-07-13 · v101-stats-summary
 
 Release identifier: `2026-07-13-v101-stats-summary`
