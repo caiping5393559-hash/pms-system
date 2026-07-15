@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-13-v102-lock-dedupe';
+  const VERSION = '2026-07-14-v103-cleaning-future30';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -3291,9 +3291,9 @@
   function renderCleaningFinanceSubTabImpl(){
     const root = qs('ownerCleaningSubContent');
     if(!root) return;
-    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>保洁结算统计</h2><div class="small">按日期倒序汇总；先看每天的房间数、公区数和金额，再看当天明细。</div></div></div><div class="filter-strip"><div class="filter-field"><label>开始日期</label><input id="cleanStart" type="date" onchange="renderCleaningFinance()"></div><div class="filter-field"><label>结束日期</label><input id="cleanEnd" type="date" onchange="renderCleaningFinance()"></div><div class="filter-actions"><button class="smallbtn" onclick="setCleaningFinanceRange('last30')">最近30天</button><button class="smallbtn" onclick="setCleaningFinanceRange('month')">本月</button><button class="smallbtn" onclick="setCleaningFinanceRange('next30')">未来30天</button></div></div><div id="cleaningFinance"></div></div>`;
-    const cs = qs('cleanStart'); if(cs && !cs.value) cs.value = addDay(today(), -30);
-    const ce = qs('cleanEnd'); if(ce && !ce.value) ce.value = today();
+    root.innerHTML = `<div class="card"><div class="property-detail-head"><div><h2>保洁结算统计</h2><div class="small">默认显示今天起未来30天；按离今天由近到远排列，先看每天汇总，再看当天明细。</div></div></div><div class="filter-strip"><div class="filter-field"><label>开始日期</label><input id="cleanStart" type="date" onchange="renderCleaningFinance()"></div><div class="filter-field"><label>结束日期</label><input id="cleanEnd" type="date" onchange="renderCleaningFinance()"></div><div class="filter-actions"><button class="smallbtn" onclick="setCleaningFinanceRange('last30')">最近30天</button><button class="smallbtn" onclick="setCleaningFinanceRange('month')">本月</button><button class="smallbtn" onclick="setCleaningFinanceRange('next30')">未来30天</button></div></div><div id="cleaningFinance"></div></div>`;
+    const cs = qs('cleanStart'); if(cs && !cs.value) cs.value = today();
+    const ce = qs('cleanEnd'); if(ce && !ce.value) ce.value = addDay(today(), 29);
     renderCleaningFinanceImpl();
   }
   function setCleaningFinanceRangeImpl(mode){
@@ -3306,7 +3306,7 @@
       ce.value = addDay(nextMonthStart, -1);
     }else if(mode === 'next30'){
       cs.value = today();
-      ce.value = addDay(today(), 30);
+      ce.value = addDay(today(), 29);
     }else{
       cs.value = addDay(today(), -30);
       ce.value = today();
@@ -3361,11 +3361,12 @@
   }
   function renderCleaningFinanceImpl(){
     const cs = qs('cleanStart'), ce = qs('cleanEnd');
-    if(cs && !cs.value) cs.value = addDay(today(), -30);
-    if(ce && !ce.value) ce.value = today();
-    const start = (cs && cs.value) || addDay(today(), -30);
-    const end = (ce && ce.value) || today();
-    const rows = scopedCleaningRows(start,end).filter(r => r.date >= start && r.date <= end).sort((a,b) => String(b.date).localeCompare(String(a.date)) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
+    if(cs && !cs.value) cs.value = today();
+    if(ce && !ce.value) ce.value = addDay(today(), 29);
+    const start = (cs && cs.value) || today();
+    const end = (ce && ce.value) || addDay(today(), 29);
+    const nearestDateFirst = (left, right) => Math.abs(daysBetweenSafe(today(), String(left || ''))) - Math.abs(daysBetweenSafe(today(), String(right || ''))) || String(left || '').localeCompare(String(right || ''));
+    const rows = scopedCleaningRows(start,end).filter(r => r.date >= start && r.date <= end).sort((a,b) => nearestDateFirst(a.date,b.date) || targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
     const total = rows.reduce((s,r) => s + rowAmount(r), 0);
     const roomRows = rows.filter(r => (r.target_type || 'room') === 'room');
     const commonRows = rows.filter(r => r.target_type === 'common');
@@ -3378,7 +3379,7 @@
       if(!byDate.has(date)) byDate.set(date, []);
       byDate.get(date).push(row);
     });
-    const dayHtml = Array.from(byDate.entries()).sort((a,b) => String(b[0]).localeCompare(String(a[0]))).map(([date, list]) => {
+    const dayHtml = Array.from(byDate.entries()).sort((a,b) => nearestDateFirst(a[0],b[0])).map(([date, list]) => {
       list.sort((a,b) => targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
       const dayRooms = list.filter(r => (r.target_type || 'room') === 'room');
       const dayCommons = list.filter(r => r.target_type === 'common');
