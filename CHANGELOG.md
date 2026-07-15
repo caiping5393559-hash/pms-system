@@ -1,5 +1,15 @@
 # PMS Version History
 
+## 2026-07-14 · v103-cleaning-future30
+
+Release identifier: `2026-07-14-v103-cleaning-future30`
+
+### Cleaning settlement default range
+
+- Opens cleaning settlement statistics on today through the next 29 days (30 calendar days total).
+- Sorts settlement dates by proximity to today, so the nearest date appears first.
+- Keeps the recent-30-days, current-month, and future-30-days shortcut buttons.
+
 ## 2026-07-13 · v102-lock-dedupe
 
 Release identifier: `2026-07-13-v102-lock-dedupe`
