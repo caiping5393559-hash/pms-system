@@ -1,5 +1,16 @@
 # PMS Version History
 
+## 2026-07-17 · v104-ical-cron
+
+Release identifier: `2026-07-17-v104-ical-cron`
+
+### Reliable iCal scheduling on sleeping Render services
+
+- Replaces the keep-alive-only request with a direct scheduled iCal sync trigger.
+- Wakes a sleeping Render instance and queues synchronization immediately.
+- Adds a server-side nine-minute rate limit and reuses the global sync lock to prevent duplicate work.
+- Keeps the internal 15-minute scheduler as a fallback while the instance is already awake.
+
 ## 2026-07-14 · v103-cleaning-future30
 
 Release identifier: `2026-07-14-v103-cleaning-future30`
