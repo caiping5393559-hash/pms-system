@@ -1,4 +1,4 @@
-name: PMS keepalive
+name: PMS scheduled iCal sync
 
 on:
   schedule:
@@ -9,9 +9,9 @@ permissions:
   contents: read
 
 jobs:
-  keep-render-awake:
+  trigger-ical-sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
-      - name: Wake PMS service
-        run: curl --fail --silent --show-error --max-time 45 https://pms-system-708g.onrender.com/api/version
+      - name: Wake PMS and queue iCal sync
+        run: curl --fail --silent --show-error --max-time 45 https://pms-system-708g.onrender.com/api/cron/ical-sync
