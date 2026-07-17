@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-14-v103-cleaning-future30';
+  const VERSION = '2026-07-17-v104-ical-cron';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
