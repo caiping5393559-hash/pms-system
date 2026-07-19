@@ -1,5 +1,16 @@
 # PMS Version History
 
+## 2026-07-18 · v104-ical-external-sync
+
+Release identifier: `2026-07-18-v104-ical-external-sync`
+
+### Reliable free iCal scheduling
+
+- Replaces the keepalive-only request with a scheduled endpoint that wakes Render and immediately queues an iCal synchronization every 10 minutes.
+- Authenticates each trigger with GitHub Actions' short-lived OIDC identity; no permanent cron secret is stored or exposed.
+- Accepts only the PMS repository's scheduled/manual `main` workflow and rejects unsigned, expired, wrong-repository, wrong-branch, and wrong-workflow requests.
+- Prevents overlapping and repeated synchronization while retaining the existing 15-minute in-process scheduler as a fallback.
+
 ## 2026-07-14 · v103-cleaning-future30
 
 Release identifier: `2026-07-14-v103-cleaning-future30`

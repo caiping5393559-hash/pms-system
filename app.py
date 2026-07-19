@@ -20,7 +20,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-07-14-v103-cleaning-future30"
+PMS_APP_VERSION = "2026-07-18-v104-ical-external-sync"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -86,6 +86,21 @@ DEFAULT_OWNER_PASSWORD = str(os.environ.get("DEFAULT_OWNER_PASSWORD") or CONFIG.
 SESSION_COOKIE = "pms_session"
 SESSION_SECONDS = 60 * 60 * 24 * 7
 SESSION_SECRET = str(os.environ.get("SESSION_SECRET") or CONFIG.get("session_secret") or hashlib.sha256(f"{OWNER_KEY}:{CLEANER_KEY}:{OWNER_PASS}".encode("utf-8")).hexdigest())
+PMS_GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
+PMS_GITHUB_OIDC_AUDIENCE = str(
+    os.environ.get("PMS_GITHUB_OIDC_AUDIENCE")
+    or "https://pms-system-708g.onrender.com/api/cron/ical-sync"
+)
+PMS_GITHUB_OIDC_REPOSITORY = str(
+    os.environ.get("PMS_GITHUB_OIDC_REPOSITORY")
+    or "caiping5393559-hash/pms-system"
+)
+PMS_GITHUB_OIDC_WORKFLOW_REF = str(
+    os.environ.get("PMS_GITHUB_OIDC_WORKFLOW_REF")
+    or f"{PMS_GITHUB_OIDC_REPOSITORY}/.github/workflows/pms-keepalive.yml@refs/heads/main"
+)
+PMS_GITHUB_OIDC_JWKS_CACHE = {"keys": [], "expires_at": 0.0}
+PMS_GITHUB_OIDC_JWKS_LOCK = threading.Lock()
 STATE_COLLECTION = FIREBASE_CONFIG.get("state_collection", "settings")
 STATE_DOCUMENT = FIREBASE_CONFIG.get("state_document", "system")
 ROOM_FIELDS = [
@@ -1970,6 +1985,98 @@ def render_index_html(raw):
     return text.encode("utf-8")
 
 
+def _pms_base64url_decode(value):
+    text = str(value or "")
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+def _pms_load_github_oidc_jwks(force_refresh=False):
+    now = time.time()
+    with PMS_GITHUB_OIDC_JWKS_LOCK:
+        if not force_refresh and PMS_GITHUB_OIDC_JWKS_CACHE["keys"] and PMS_GITHUB_OIDC_JWKS_CACHE["expires_at"] > now:
+            return PMS_GITHUB_OIDC_JWKS_CACHE["keys"]
+        request = urllib.request.Request(
+            PMS_GITHUB_OIDC_ISSUER + "/.well-known/jwks",
+            headers={"Accept": "application/json", "User-Agent": "PMS-GitHub-OIDC/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        keys = payload.get("keys") if isinstance(payload, dict) else None
+        if not isinstance(keys, list) or not keys:
+            raise ValueError("GitHub OIDC did not return signing keys")
+        PMS_GITHUB_OIDC_JWKS_CACHE["keys"] = keys
+        PMS_GITHUB_OIDC_JWKS_CACHE["expires_at"] = now + 3600
+        return keys
+
+
+def _pms_verify_github_oidc_token(token):
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+    parts = str(token or "").split(".")
+    if len(parts) != 3:
+        raise ValueError("invalid OIDC token format")
+    try:
+        header = json.loads(_pms_base64url_decode(parts[0]).decode("utf-8"))
+        claims = json.loads(_pms_base64url_decode(parts[1]).decode("utf-8"))
+    except Exception as exc:
+        raise ValueError("invalid OIDC token encoding") from exc
+    if header.get("alg") != "RS256" or not header.get("kid"):
+        raise ValueError("unsupported OIDC signing algorithm")
+
+    signing_key = next((item for item in _pms_load_github_oidc_jwks() if item.get("kid") == header["kid"]), None)
+    if not signing_key:
+        signing_key = next((item for item in _pms_load_github_oidc_jwks(force_refresh=True) if item.get("kid") == header["kid"]), None)
+    if not signing_key or signing_key.get("kty") != "RSA":
+        raise ValueError("unknown OIDC signing key")
+    try:
+        modulus = int.from_bytes(_pms_base64url_decode(signing_key["n"]), "big")
+        exponent = int.from_bytes(_pms_base64url_decode(signing_key["e"]), "big")
+        public_key = rsa.RSAPublicNumbers(exponent, modulus).public_key()
+        public_key.verify(
+            _pms_base64url_decode(parts[2]),
+            (parts[0] + "." + parts[1]).encode("ascii"),
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+    except Exception as exc:
+        raise ValueError("invalid OIDC signature") from exc
+
+    now = time.time()
+    if claims.get("iss") != PMS_GITHUB_OIDC_ISSUER:
+        raise ValueError("unexpected OIDC issuer")
+    audience = claims.get("aud")
+    if PMS_GITHUB_OIDC_AUDIENCE not in ([audience] if isinstance(audience, str) else (audience or [])):
+        raise ValueError("unexpected OIDC audience")
+    if float(claims.get("exp") or 0) < now - 30:
+        raise ValueError("expired OIDC token")
+    if float(claims.get("nbf") or 0) > now + 30:
+        raise ValueError("OIDC token is not active")
+    if float(claims.get("iat") or 0) > now + 30:
+        raise ValueError("OIDC token issued in the future")
+    if claims.get("repository") != PMS_GITHUB_OIDC_REPOSITORY:
+        raise ValueError("unexpected GitHub repository")
+    if claims.get("ref") != "refs/heads/main":
+        raise ValueError("unexpected GitHub ref")
+    if claims.get("sub") != f"repo:{PMS_GITHUB_OIDC_REPOSITORY}:ref:refs/heads/main":
+        raise ValueError("unexpected GitHub subject")
+    if claims.get("workflow_ref") != PMS_GITHUB_OIDC_WORKFLOW_REF:
+        raise ValueError("unexpected GitHub workflow")
+    if claims.get("event_name") not in ("schedule", "workflow_dispatch"):
+        raise ValueError("unexpected GitHub event")
+    return claims
+
+
+def _pms_require_github_cron_identity(handler):
+    authorization = str(handler.headers.get("Authorization") or "")
+    if not authorization.startswith("Bearer "):
+        raise ValueError("missing bearer token")
+    token = authorization[7:].strip()
+    if not token or len(token) > 20000:
+        raise ValueError("invalid bearer token")
+    return _pms_verify_github_oidc_token(token)
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         if urllib.parse.urlparse(self.path).path in ('/', '/login', '/owner-register', '/cleaner-register', '/health', '/api/health'):
@@ -2067,6 +2174,25 @@ class Handler(BaseHTTPRequestHandler):
             parsed, _ = parse_query(self.path)
             path = parsed.path
             raw = self.rfile.read(int(self.headers.get("Content-Length", "0") or "0"))
+            if path == "/api/cron/ical-sync":
+                try:
+                    claims = _pms_require_github_cron_identity(self)
+                except Exception as exc:
+                    print(f"Rejected scheduled iCal sync request: {exc}")
+                    json_response(self, {"ok": False, "error": "unauthorized"}, status=401)
+                    return
+                trigger_status = _pms_queue_scheduled_ical_sync()
+                json_response(
+                    self,
+                    {
+                        "ok": True,
+                        "version": PMS_APP_VERSION,
+                        "sync": trigger_status,
+                        "run_id": str(claims.get("run_id") or ""),
+                    },
+                    status=202,
+                )
+                return
             if path == "/api/login":
                 payload = json.loads(raw.decode("utf-8") or "{}")
                 username = str(payload.get("username") or "").strip()
@@ -6483,6 +6609,8 @@ def inspect_ical_diagnostics(payload, actor=None):
 
 
 _pms_ical_sync_lock = threading.Lock()
+_pms_ical_trigger_lock = threading.Lock()
+_pms_ical_last_external_trigger = 0.0
 
 def _pms_run_scheduled_ical_sync():
     if not _pms_ical_sync_lock.acquire(blocking=False):
@@ -6493,6 +6621,22 @@ def _pms_run_scheduled_ical_sync():
         traceback.print_exc()
     finally:
         _pms_ical_sync_lock.release()
+
+def _pms_queue_scheduled_ical_sync():
+    global _pms_ical_last_external_trigger
+    with _pms_ical_trigger_lock:
+        now = time.monotonic()
+        if _pms_ical_sync_lock.locked():
+            return "already_running"
+        if _pms_ical_last_external_trigger and now - _pms_ical_last_external_trigger < 300:
+            return "recently_triggered"
+        _pms_ical_last_external_trigger = now
+        threading.Thread(
+            target=_pms_run_scheduled_ical_sync,
+            daemon=True,
+            name="pms-ical-external-sync",
+        ).start()
+        return "queued"
 
 def _pms_start_ical_auto_sync():
     enabled = str(os.environ.get("PMS_ICAL_AUTO_SYNC_ENABLED", "1")).strip().lower() in ("1", "true", "yes", "on")

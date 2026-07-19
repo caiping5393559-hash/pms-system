@@ -1,4 +1,4 @@
-name: PMS keepalive
+name: PMS scheduled iCal sync
 
 on:
   schedule:
@@ -7,11 +7,28 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
-  keep-render-awake:
+  trigger-ical-sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
-      - name: Wake PMS service
-        run: curl --fail --silent --show-error --max-time 45 https://pms-system-708g.onrender.com/api/version
+      - name: Wake PMS and trigger iCal sync
+        env:
+          PMS_OIDC_AUDIENCE: https://pms-system-708g.onrender.com/api/cron/ical-sync
+          PMS_SYNC_URL: https://pms-system-708g.onrender.com/api/cron/ical-sync
+        run: |
+          OIDC_TOKEN="$(
+            curl --fail --silent --show-error --get \
+              --header "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              --data-urlencode "audience=${PMS_OIDC_AUDIENCE}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}" \
+            | jq -er '.value'
+          )"
+          curl --fail-with-body --silent --show-error \
+            --retry 2 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 30 --max-time 180 \
+            --request POST \
+            --header "Authorization: Bearer ${OIDC_TOKEN}" \
+            "${PMS_SYNC_URL}"
