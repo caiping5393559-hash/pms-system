@@ -2,7 +2,15 @@ name: PMS scheduled iCal sync
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    # Separate off-peak schedules are more reliable than */10 on GitHub's
+    # shared scheduler, which had been coalescing this repository to one run
+    # per hour and can drop jobs near the start of an hour.
+    - cron: '7 * * * *'
+    - cron: '17 * * * *'
+    - cron: '27 * * * *'
+    - cron: '37 * * * *'
+    - cron: '47 * * * *'
+    - cron: '57 * * * *'
   workflow_dispatch:
 
 permissions:
