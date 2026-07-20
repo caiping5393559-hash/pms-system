@@ -20,7 +20,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-07-18-v104-ical-external-sync"
+PMS_APP_VERSION = "2026-07-20-v105-manual-cleaning-integrity"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -556,6 +556,45 @@ def _pms_core_normalize_state(raw):
         area.setdefault("cleaning_fee", 0)
         for key, value in normalize_common_area_components(area).items():
             area[key] = value
+    room_h = next(
+        (
+            room
+            for room in state["rooms"]
+            if isinstance(room, dict)
+            and str(room.get("name") or "").strip().lower().replace(" ", "") in {"房间h", "roomh"}
+        ),
+        None,
+    )
+    for idx, item in enumerate(state["manualChanges"]):
+        if not isinstance(item, dict):
+            item = {}
+            state["manualChanges"][idx] = item
+        item.setdefault("id", f"manual{idx + 1}")
+        item.setdefault("target_type", "room")
+        item.setdefault("type", "add")
+        reason = str(item.get("reason") or "").strip()
+        try:
+            raw_amount = float(item.get("amount") or 0)
+        except (TypeError, ValueError):
+            raw_amount = 0.0
+        # One known mobile optimistic-save error was explicitly confirmed by
+        # the owner: this exact row was meant to cancel room H, not add room 1.
+        if (
+            room_h
+            and str(item.get("date") or "") == "2026-07-20"
+            and str(item.get("target_id") or "") == "room1"
+            and str(item.get("type") or "") == "add"
+            and raw_amount == -25
+            and "续住" in reason
+            and "两个订单" in reason
+        ):
+            item["target_id"] = room_h.get("id")
+            item["target_type"] = "room"
+            item["type"] = "remove"
+        change_type = "remove" if str(item.get("type") or "").lower() == "remove" else "add"
+        item["type"] = change_type
+        magnitude = abs(raw_amount)
+        item["amount"] = -magnitude if change_type == "remove" else magnitude
     for idx, item in enumerate(state["maintenanceTickets"]):
         if not isinstance(item, dict):
             item = {}

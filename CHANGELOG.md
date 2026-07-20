@@ -1,5 +1,16 @@
 # PMS Version History
 
+## 2026-07-20 · v105-manual-cleaning-integrity
+
+Release identifier: `2026-07-20-v105-manual-cleaning-integrity`
+
+### Manual cleaning adjustment correctness
+
+- Automatically fills the selected room or common-area cleaning fee and applies a positive sign to additions and a negative sign to cancellations.
+- Requires a final confirmation showing date, exact target, adjustment type, signed amount, and reason before saving.
+- Rolls back optimistic browser rows when persistence fails and adds an explicit delete action for correction.
+- Normalizes manual-adjustment signs on the server and repairs the confirmed July 20 room-H cancellation that appeared as a negative room-1 addition.
+
 ## 2026-07-18 · v104-ical-external-sync
 
 Release identifier: `2026-07-18-v104-ical-external-sync`

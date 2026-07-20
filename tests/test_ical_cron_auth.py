@@ -68,8 +68,10 @@ class GitHubOidcCronTests(unittest.TestCase):
             self.verify(self.make_token(workflow_ref="caiping5393559-hash/pms-system/.github/workflows/other.yml@refs/heads/main"))
 
     def test_rejects_tampered_signature(self):
-        token = self.make_token()
-        token = token[:-1] + ("A" if token[-1] != "A" else "B")
+        header, claims, encoded_signature = self.make_token().split(".")
+        signature = bytearray(app._pms_base64url_decode(encoded_signature))
+        signature[0] ^= 1
+        token = f"{header}.{claims}.{b64url(bytes(signature))}"
         with self.assertRaisesRegex(ValueError, "signature"):
             self.verify(token)
 

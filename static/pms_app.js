@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-18-v104-ical-external-sync';
+  const VERSION = '2026-07-20-v105-manual-cleaning-integrity';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -1993,8 +1993,12 @@
   }
   function changeBadge(value){
     const add = value === 'add';
-    const label = add ? (currentLanguage() === 'zh-CN' ? '额外增加' : (currentLanguage() === 'es-ES' ? 'Agregar limpieza' : 'Extra cleaning')) : (currentLanguage() === 'zh-CN' ? '取消保洁' : (currentLanguage() === 'es-ES' ? 'Cancelar limpieza' : 'Cancel cleaning'));
+    const label = changeBadgeText(value);
     return `<span class="badge ${add ? 'green' : 'red'}">${esc(label)}</span>`;
+  }
+  function changeBadgeText(value){
+    const add = value === 'add';
+    return add ? (currentLanguage() === 'zh-CN' ? '额外增加' : (currentLanguage() === 'es-ES' ? 'Agregar limpieza' : 'Extra cleaning')) : (currentLanguage() === 'zh-CN' ? '取消保洁' : (currentLanguage() === 'es-ES' ? 'Cancelar limpieza' : 'Cancel cleaning'));
   }
 
   function inventoryGroupId(room){
@@ -3283,9 +3287,10 @@
   function renderManualChangeSubTabImpl(){
     const root = qs('ownerCleaningSubContent');
     if(!root) return;
-    root.innerHTML = `<div class="card"><h2>手动调整实际保洁</h2><div class="formgrid"><div><label>日期</label><input id="manualDate" type="date"></div><div><label>对象</label><select id="manualTarget"></select></div><div><label>调整类型</label><select id="manualType"><option value="add">额外增加保洁</option><option value="remove">取消系统保洁</option></select></div><div><label>调整金额</label><input id="manualAmount" type="number" step="0.01"></div><div><label>原因</label><input id="manualReason" placeholder="例如：临时加扫 / 实际没打扫"></div></div><br><button class="smallbtn primary" onclick="addManualChange()">添加调整记录</button></div><div class="card"><div class="toolbar"><h2 style="margin:0">手动调整记录</h2><input id="manualFilterStart" type="date" onchange="renderManualRecords()"><input id="manualFilterEnd" type="date" onchange="renderManualRecords()"><select id="manualFilterTarget" onchange="renderManualRecords()"></select><select id="manualFilterType" onchange="renderManualRecords()"><option value="">全部调整</option><option value="add">额外增加</option><option value="remove">取消保洁</option></select></div><div id="manualRecords"></div></div>`;
+    root.innerHTML = `<div class="card"><h2>手动调整实际保洁</h2><div class="formgrid"><div><label>日期</label><input id="manualDate" type="date"></div><div><label>对象</label><select id="manualTarget" onchange="syncManualAmount(true)"></select></div><div><label>调整类型</label><select id="manualType" onchange="syncManualAmount(true)"><option value="add">额外增加保洁</option><option value="remove">取消系统保洁</option></select></div><div><label>调整金额</label><input id="manualAmount" type="number" step="0.01"></div><div><label>原因</label><input id="manualReason" placeholder="例如：临时加扫 / 实际没打扫"></div></div><br><button class="smallbtn primary" onclick="addManualChange(this)">添加调整记录</button></div><div class="card"><div class="toolbar"><h2 style="margin:0">手动调整记录</h2><input id="manualFilterStart" type="date" onchange="renderManualRecords()"><input id="manualFilterEnd" type="date" onchange="renderManualRecords()"><select id="manualFilterTarget" onchange="renderManualRecords()"></select><select id="manualFilterType" onchange="renderManualRecords()"><option value="">全部调整</option><option value="add">额外增加</option><option value="remove">取消保洁</option></select></div><div id="manualRecords"></div></div>`;
     const md = qs('manualDate'); if(md && !md.value) md.value = today();
     initSelectsImpl();
+    syncManualAmountImpl(true);
     renderManualRecordsImpl();
   }
   function renderCleaningFinanceSubTabImpl(){
@@ -3333,13 +3338,52 @@
     root.innerHTML = `<div class="card cleaning-subnav-card"><div class="property-detail-head"><div><h2 style="margin:0">保洁管理</h2><div class="small">保洁任务、结算、手动调整和保洁事项分开处理。</div></div></div>${renderCleaningSubTabs(active)}</div><div id="ownerCleaningSubContent"></div>`;
     renderCleaningSubContentImpl(active);
   }
-  function addManualChangeImpl(){
+  function syncManualAmountImpl(force=false){
+    const amountInput = qs('manualAmount');
+    if(!amountInput || (!force && String(amountInput.value || '').trim())) return;
+    const target = parseTarget(qs('manualTarget') && qs('manualTarget').value);
+    const changeType = (qs('manualType') && qs('manualType').value) === 'remove' ? 'remove' : 'add';
+    const magnitude = Math.abs(Number(targetFee(target.id,target.type) || 0));
+    amountInput.value = String(changeType === 'remove' ? -magnitude : magnitude);
+  }
+  async function addManualChangeImpl(btn){
     const target = parseTarget(qs('manualTarget') && qs('manualTarget').value);
     if(!target.id) return alert('请选择对象');
-    getManual().unshift({id:'manual_'+Date.now(),date:(qs('manualDate') && qs('manualDate').value) || today(),target_id:target.id,target_type:target.type,type:(qs('manualType') && qs('manualType').value) || 'add',amount:Number((qs('manualAmount') && qs('manualAmount').value) || 0),reason:(qs('manualReason') && qs('manualReason').value) || '未填写原因',created_by:userName('房东'),created_at:nowIso()});
-    if(qs('manualReason')) qs('manualReason').value = '';
-    if(qs('manualAmount')) qs('manualAmount').value = '';
-    persistAll().then(renderAll).catch(e => alert('保存失败：' + e.message));
+    const date = (qs('manualDate') && qs('manualDate').value) || today();
+    const changeType = (qs('manualType') && qs('manualType').value) === 'remove' ? 'remove' : 'add';
+    const rawAmount = Number((qs('manualAmount') && qs('manualAmount').value) || targetFee(target.id,target.type) || 0);
+    if(!Number.isFinite(rawAmount)) return alert('请输入正确的调整金额');
+    const magnitude = Math.abs(rawAmount);
+    const amount = changeType === 'remove' ? -magnitude : magnitude;
+    const reason = String((qs('manualReason') && qs('manualReason').value) || '').trim() || '未填写原因';
+    const typeLabel = changeType === 'remove' ? '取消保洁' : '额外增加保洁';
+    const summary = `${date}｜${targetName(target.id,target.type)}｜${typeLabel}｜${signedMoney(amount)}`;
+    if(!confirm(`请确认本次调整：\n${summary}\n原因：${reason}`)) return;
+    const before = getManual().slice();
+    const row = {id:'manual_'+Date.now(),date,target_id:target.id,target_type:target.type,type:changeType,amount,reason,created_by:userName('房东'),created_at:nowIso()};
+    getManual().unshift(row);
+    try{
+      await persistAll(btn);
+      if(qs('manualReason')) qs('manualReason').value = '';
+      syncManualAmountImpl(true);
+      renderAll();
+    }catch(e){
+      setManual(before);
+      renderAll();
+    }
+  }
+  async function deleteManualChangeImpl(id,btn){
+    const row = getManual().find(item => String(item.id || '') === String(id || ''));
+    if(!row || !confirm(`删除这条手动调整？\n${row.date || ''}｜${targetName(row.target_id,row.target_type)}｜${changeBadgeText(row.type)}｜${signedMoney(row.amount)}`)) return;
+    const before = getManual().slice();
+    setManual(getManual().filter(item => String(item.id || '') !== String(id || '')));
+    try{
+      await persistAll(btn);
+      renderAll();
+    }catch(e){
+      setManual(before);
+      renderAll();
+    }
   }
   function renderManualRecordsImpl(){
     const fs = qs('manualFilterStart') && qs('manualFilterStart').value;
@@ -3356,7 +3400,7 @@
     if(el) el.innerHTML = renderManualRecordsHTMLImpl(rows,false);
   }
   function renderManualRecordsHTMLImpl(rows, withCard=true){
-    const table = `<table><tr><th>日期</th><th>对象</th><th>类型</th><th>调整金额</th><th>原因</th><th>操作人</th></tr>${(rows || []).map(m => `<tr><td>${esc(m.date)}</td><td>${objectBadge(m.target_type)} ${esc(targetName(m.target_id,m.target_type))}</td><td>${changeBadge(m.type)}</td><td>${signedMoney(m.amount)}</td><td>${esc(m.reason || '')}</td><td>${esc(m.created_by || '')}</td></tr>`).join('') || '<tr><td colspan="6">暂无记录</td></tr>'}</table>`;
+    const table = `<table><tr><th>日期</th><th>对象</th><th>类型</th><th>调整金额</th><th>原因</th><th>操作人</th><th>操作</th></tr>${(rows || []).map(m => `<tr><td>${esc(m.date)}</td><td>${objectBadge(m.target_type)} ${esc(targetName(m.target_id,m.target_type))}</td><td>${changeBadge(m.type)}</td><td>${signedMoney(m.amount)}</td><td>${esc(m.reason || '')}</td><td>${esc(m.created_by || '')}</td><td><button class="smallbtn danger" onclick='deleteManualChange(${JSON.stringify(String(m.id || ''))},this)'>删除</button></td></tr>`).join('') || '<tr><td colspan="7">暂无记录</td></tr>'}</table>`;
     return withCard ? `<div class="card">${table}</div>` : table;
   }
   function renderCleaningFinanceImpl(){
@@ -5052,6 +5096,8 @@
     renderOwnerBookings: renderOwnerBookingsImpl,
     renderRoomSettings: renderRoomSettingsImpl,
     renderManualRecords: renderManualRecordsImpl,
+    syncManualAmount: syncManualAmountImpl,
+    deleteManualChange: deleteManualChangeImpl,
     renderManualRecordsHTML: renderManualRecordsHTMLImpl,
     renderCleaningFinance: renderCleaningFinanceImpl,
     setCleaningFinanceRange: setCleaningFinanceRangeImpl,
