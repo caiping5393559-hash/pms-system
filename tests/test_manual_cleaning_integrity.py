@@ -34,14 +34,24 @@ class ManualCleaningIntegrityTests(unittest.TestCase):
         self.assertEqual(row["amount"], -25)
 
     def test_normalizes_amount_sign_to_adjustment_type(self):
-        added, removed = self.normalize(
+        rows = self.normalize(
             [
                 {"id": "add", "target_id": "room1", "type": "add", "amount": -30},
                 {"id": "remove", "target_id": "room9", "type": "remove", "amount": 25},
             ]
         )
+        added = next(row for row in rows if row["id"] == "add")
+        removed = next(row for row in rows if row["id"] == "remove")
         self.assertEqual(added["amount"], 30)
         self.assertEqual(removed["amount"], -25)
+
+    def test_inserts_missing_confirmed_room_h_cancellation(self):
+        rows = self.normalize([])
+        correction = next(row for row in rows if row["id"] == "manual_correction_2026_07_20_room_h_remove")
+        self.assertEqual(correction["date"], "2026-07-20")
+        self.assertEqual(correction["target_id"], "room9")
+        self.assertEqual(correction["type"], "remove")
+        self.assertEqual(correction["amount"], -25)
 
 
 if __name__ == "__main__":

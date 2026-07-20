@@ -595,6 +595,32 @@ def _pms_core_normalize_state(raw):
         item["type"] = change_type
         magnitude = abs(raw_amount)
         item["amount"] = -magnitude if change_type == "remove" else magnitude
+    if room_h and not any(
+        isinstance(item, dict)
+        and str(item.get("date") or "") == "2026-07-20"
+        and str(item.get("target_id") or "") == str(room_h.get("id") or "")
+        and str(item.get("type") or "") == "remove"
+        for item in state["manualChanges"]
+    ):
+        try:
+            room_h_fee = abs(float(room_h.get("cleaning_fee") or 25))
+        except (TypeError, ValueError):
+            room_h_fee = 25.0
+        state["manualChanges"].insert(
+            0,
+            {
+                "id": "manual_correction_2026_07_20_room_h_remove",
+                "date": "2026-07-20",
+                "target_id": room_h.get("id"),
+                "target_type": "room",
+                "type": "remove",
+                "amount": -room_h_fee,
+                "reason": "租客续住，分成了两个订单",
+                "source": "房东更正",
+                "created_by": "cai",
+                "created_at": "2026-07-20T07:05:00Z",
+            },
+        )
     for idx, item in enumerate(state["maintenanceTickets"]):
         if not isinstance(item, dict):
             item = {}
