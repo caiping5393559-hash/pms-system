@@ -1,5 +1,17 @@
 # PMS Version History
 
+## 2026-07-20 · v106-room-ical-sync
+
+Release identifier: `2026-07-20-v106-room-ical-sync`
+
+### iCal synchronization accuracy and controls
+
+- Displays UTC synchronization timestamps in the user's configured time zone while preserving UTC storage on the server.
+- Adds a per-room iCal synchronization action that updates every configured channel for that room without waiting for the full property.
+- Removes the redundant full-state save before manual synchronization to reduce request latency.
+- Rechecks server state after a response timeout so a completed synchronization is reported as successful instead of showing a false failure.
+- Surfaces backend error detail and a diagnostic ID when synchronization truly fails.
+
 ## 2026-07-20 · v105-manual-cleaning-integrity
 
 Release identifier: `2026-07-20-v105-manual-cleaning-integrity`

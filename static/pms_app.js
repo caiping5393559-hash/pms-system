@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-20-v105-manual-cleaning-integrity';
+  const VERSION = '2026-07-20-v106-room-ical-sync';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -345,6 +345,25 @@
   }
   function today(timeZone){
     return localDateString(new Date(), timeZone || activeTimeZone());
+  }
+  function utcDateValue(value){
+    let text = String(value || '').trim();
+    if(!text) return null;
+    if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(text)) text += 'Z';
+    const date = new Date(text);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  function formatUserDateTime(value, withSeconds){
+    const date = utcDateValue(value);
+    if(!date) return String(value || '');
+    const parts = new Intl.DateTimeFormat(currentLanguage(), {
+      timeZone: userTimeZone(),
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: withSeconds === false ? undefined : '2-digit',
+      hourCycle: 'h23', timeZoneName: 'short'
+    }).formatToParts(date).reduce((out, part) => {out[part.type] = part.value; return out;}, {});
+    const clock = withSeconds === false ? `${parts.hour}:${parts.minute}` : `${parts.hour}:${parts.minute}:${parts.second}`;
+    return `${parts.year}-${parts.month}-${parts.day} ${clock}${parts.timeZoneName ? ` ${parts.timeZoneName}` : ''}`;
   }
   try{Object.defineProperty(window, 'TODAY', {configurable:true, get:function(){return today();}});}catch(e){window.TODAY = today();}
   function parseDate(value){
@@ -2803,7 +2822,7 @@
       ui.confirmRows[key] = {row, item};
       const doneRow = subtaskConfirmation(key);
       if(doneRow){
-        return `<div class="task-confirm-item done"><span class="sync-status ok">${esc(t('cleaning.done'))}</span><div class="small">${esc(doneRow.completed_at || doneRow.created_at || '')}</div></div>`;
+        return `<div class="task-confirm-item done"><span class="sync-status ok">${esc(t('cleaning.done'))}</span><div class="small">${esc(formatUserDateTime(doneRow.completed_at || doneRow.created_at || ''))}</div></div>`;
       }
       const completeBtn = canComplete ? `<button class="smallbtn primary" onclick="markCleaningSubtaskDone('${encodeURIComponent(key)}',this)">${esc(t('cleaning.done'))}</button>` : `<span class="sync-status warn">${esc(t('cleaning.notDue'))}</span>`;
       const deferBtn = item.can_defer ? `<button class="smallbtn" onclick="deferCleaningSubtask('${encodeURIComponent(key)}',this)">${esc(t('cleaning.deferNextCheckout'))}</button>` : '';
@@ -2817,7 +2836,7 @@
     const key = String((item && item.key) || '');
     ui.confirmRows[key] = {row, item};
     const doneRow = subtaskConfirmation(key);
-    if(doneRow) return `<div class="task-confirm-item done"><span class="sync-status ok">${esc(t('cleaning.done'))}</span><div class="small">${esc(doneRow.completed_at || doneRow.created_at || '')}</div></div>`;
+    if(doneRow) return `<div class="task-confirm-item done"><span class="sync-status ok">${esc(t('cleaning.done'))}</span><div class="small">${esc(formatUserDateTime(doneRow.completed_at || doneRow.created_at || ''))}</div></div>`;
     const canComplete = row.date <= today();
     const completeBtn = canComplete ? `<button class="smallbtn primary task-done-btn" onclick="markCleaningSubtaskDone('${encodeURIComponent(key)}',this)">${esc(t('cleaning.done'))}</button>` : `<span class="sync-status warn">${esc(t('cleaning.notDue'))}</span>`;
     const deferBtn = item && item.can_defer ? `<button class="smallbtn task-defer-btn" onclick="deferCleaningSubtask('${encodeURIComponent(key)}',this)">${esc(t('cleaning.deferNext'))}</button>` : '';
@@ -3695,7 +3714,8 @@
   function renderChannel(room,ch){
     const urlIssue = cleanChannelUrls({...ch}, false);
     const hasImportIcal = !!String(ch.ical_url || '').trim();
-    const status = urlIssue.moved ? `<span class="sync-status warn">${esc(urlIssue.message)}</span>` : (!urlIssue.ok ? `<span class="sync-status warn">${esc(urlIssue.message)}</span>` : (!hasImportIcal && ch.last_sync ? `<span class="sync-status warn">缺 iCal：只保留旧同步 ${esc(ch.last_sync)} · ${Number(ch.synced_booking_count || 0)} 条</span>` : (!hasImportIcal ? '<span class="sync-status warn">未填写平台导出 iCal</span>' : (ch.sync_error ? `<span class="sync-status error">同步失败：${esc(ch.sync_error)}</span>` : (ch.last_sync ? `<span class="sync-status ok">同步：${esc(ch.last_sync)} · ${Number(ch.synced_booking_count || 0)} 条</span>` : '<span class="sync-status warn">已填 iCal，未同步</span>')))));
+    const syncTime = formatUserDateTime(ch.last_sync);
+    const status = urlIssue.moved ? `<span class="sync-status warn">${esc(urlIssue.message)}</span>` : (!urlIssue.ok ? `<span class="sync-status warn">${esc(urlIssue.message)}</span>` : (!hasImportIcal && ch.last_sync ? `<span class="sync-status warn">缺 iCal：只保留旧同步 ${esc(syncTime)} · ${Number(ch.synced_booking_count || 0)} 条</span>` : (!hasImportIcal ? '<span class="sync-status warn">未填写平台导出 iCal</span>' : (ch.sync_error ? `<span class="sync-status error">同步失败：${esc(ch.sync_error)}</span>` : (ch.last_sync ? `<span class="sync-status ok">同步：${esc(syncTime)} · ${Number(ch.synced_booking_count || 0)} 条</span>` : '<span class="sync-status warn">已填 iCal，未同步</span>')))));
     const feedUrl = feedUrlForChannel(room,ch);
     return `<div class="channel-card"><div class="channel-grid"><div><label>平台</label><select id="${channelInputId(ch.id,'platform')}"><option ${ch.platform==='Airbnb'?'selected':''}>Airbnb</option><option ${ch.platform==='Booking'?'selected':''}>Booking</option><option ${ch.platform==='Vrbo'?'selected':''}>Vrbo</option><option ${ch.platform==='Other'?'selected':''}>Other</option></select></div><div><label>平台导出 iCal</label><input id="${channelInputId(ch.id,'ical')}" value="${esc(ch.ical_url || '')}" placeholder="粘贴平台导出的 .ics/iCal，不是房源页面"></div><div><label>公开房源链接</label><input id="${channelInputId(ch.id,'listing')}" value="${esc(ch.listing_url || '')}" placeholder="粘贴客人可见的公开房源页面"></div><div><label>备注</label><input id="${channelInputId(ch.id,'note')}" value="${esc(ch.channel_note || '')}" placeholder="账号/房源备注"></div><div class="property-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-row"><div>${status}</div><button class="smallbtn" onclick="copyText('${esc(feedUrl)}')">复制防超卖 iCal</button></div><div class="feed-line">${esc(feedUrl)}</div></div>`;
   }
@@ -3705,7 +3725,8 @@
     const roomHead = editing
       ? `<div class="room-basics"><div><label>房间名称</label><input id="roomName_${safe(room.id)}" value="${esc(room.name || '')}"></div><div><label>单次保洁费</label><input id="roomFee_${safe(room.id)}" type="number" value="${esc(room.cleaning_fee || 0)}"></div><div><label>卫生间</label><select id="roomBathroom_${safe(room.id)}">${roomBathroomOptions(room.bathroom_type || 'private')}</select></div><div><label>房间厨房</label><div class="check-grid"><label><input id="roomKitchen_${safe(room.id)}" type="checkbox" ${roomHasKitchen(room) ? 'checked' : ''}> 房间内有厨房/小厨房</label></div><div class="small">默认不选；不选时房间保洁不包含厨房打扫。</div></div><div><label>房间独有电器</label>${roomApplianceCheckboxes(room)}<div class="small">默认不选；只有勾选后才会生成家电细节清洁任务。</div></div><div class="property-actions"><button class="smallbtn primary" onclick="saveRoomBasics('${esc(room.id)}',this)">保存</button><button class="smallbtn" onclick="cancelRoomBasics()">取消</button></div></div>`
       : `<div><strong>${esc(room.name || room.id)}</strong><div class="small">清洁费：${money(room.cleaning_fee || 0)} · ${roomBathroomLabel(room)} · ${roomKitchenLabel(room)} · 电器：${esc(roomApplianceLabel(room))} · ${channels.length} 个渠道</div></div><div class="property-actions"><button class="smallbtn" onclick="editRoomBasics('${esc(room.id)}')">修改</button><button class="smallbtn" onclick="deleteRoomUi('${esc(room.id)}',this)">删除</button></div>`;
-    return `<div class="room-setting-card"><div class="room-head">${roomHead}</div><div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">渠道 / iCal</h3><div class="small">同一个真实房间只建一次；多个 Airbnb 账号或平台都作为渠道挂在这里。</div></div><button class="smallbtn primary" onclick="addChannelListing('${esc(room.id)}')">添加渠道</button></div><div class="channel-list">${channels.length ? channels.map(ch => renderChannel(room,ch)).join('') : '<div class="empty-panel">还没有渠道。点击“添加渠道”后粘贴 Airbnb/平台导出的 iCal。</div>'}</div></div></div>`;
+    const sync = ui.syncResults['room:' + room.id];
+    return `<div class="room-setting-card"><div class="room-head">${roomHead}</div><div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">渠道 / iCal</h3><div class="small">同一个真实房间只建一次；多个 Airbnb 账号或平台都作为渠道挂在这里。</div></div><div class="property-actions"><button class="smallbtn" onclick="syncRoomIcal('${esc(room.id)}',this)">同步本房间 iCal</button><button class="smallbtn primary" onclick="addChannelListing('${esc(room.id)}')">添加渠道</button>${sync?`<span class="sync-status ${sync.kind || ''}">${esc(sync.text || '')}</span>`:''}</div></div><div class="channel-list">${channels.length ? channels.map(ch => renderChannel(room,ch)).join('') : '<div class="empty-panel">还没有渠道。点击“添加渠道”后粘贴 Airbnb/平台导出的 iCal。</div>'}</div></div></div>`;
   }
   function renderCleanerPanel(prop){
     const cleaners = propCleaners(prop.id);
@@ -4053,7 +4074,7 @@
     const row = mailSetting(prop.id) || {};
     const events = ui.mail.mailEvents.filter(e => String(e.property_id) === String(prop.id)).sort((a,b) => String(b.received_at || b.created_at || '').localeCompare(String(a.received_at || a.created_at || ''))).slice(0,8);
     const addr = row.pms_forward_address || generatedMailAddress(prop.id);
-    return `<div class="mail-panel" id="mailPanel_${safe(prop.id)}"><div class="property-detail-head"><div><h3 style="margin:0">${esc(prop.name || prop.id)}</h3><div class="small">${events.length} 条邮件提醒</div></div><div class="mail-actions">${mailPanelStatusHtml(prop.id)}<button class="smallbtn primary" onclick="savePropertyMail('${esc(prop.id)}',this)">保存邮箱</button><button class="smallbtn" onclick="syncMailEventsFromGmail('${esc(prop.id)}',this)">同步 Gmail</button><button class="smallbtn" onclick="checkMailDiagnostics('${esc(prop.id)}',this)">检查 Gmail</button></div></div><div class="formgrid"><div><label>Airbnb 通知邮箱</label><input id="mailSource_${safe(prop.id)}" value="${esc(row.source_email || '')}" placeholder="Airbnb 发信到哪个邮箱"></div><div><label>PMS 转发地址</label><input readonly value="${esc(addr || '后台未配置主 Gmail')}"></div><div><label>状态</label><select id="mailStatus_${safe(prop.id)}"><option value="not_set" ${row.forward_status==='not_set'?'selected':''}>未设置</option><option value="verification_pending" ${row.forward_status==='verification_pending'?'selected':''}>待验证</option><option value="active" ${row.forward_status==='active'?'selected':''}>启用</option><option value="paused" ${row.forward_status==='paused'?'selected':''}>暂停</option></select></div><div><label>备注</label><input id="mailNotes_${safe(prop.id)}" value="${esc(row.notes || '')}"></div></div>${events.length ? `<table><tr><th>收到</th><th>类型</th><th>房间</th><th>内容</th></tr>${events.map(e => `<tr><td>${esc((e.received_at || e.created_at || '').slice(0,16))}</td><td>${esc(e.event_type || 'notice')}</td><td>${esc(e.room_id ? roomName(e.room_id) : e.room_name || '')}</td><td>${esc(e.title || e.summary || e.raw_subject || '')}</td></tr>`).join('')}</table>` : '<div class="empty-panel">暂无邮件提醒。</div>'}</div>`;
+    return `<div class="mail-panel" id="mailPanel_${safe(prop.id)}"><div class="property-detail-head"><div><h3 style="margin:0">${esc(prop.name || prop.id)}</h3><div class="small">${events.length} 条邮件提醒</div></div><div class="mail-actions">${mailPanelStatusHtml(prop.id)}<button class="smallbtn primary" onclick="savePropertyMail('${esc(prop.id)}',this)">保存邮箱</button><button class="smallbtn" onclick="syncMailEventsFromGmail('${esc(prop.id)}',this)">同步 Gmail</button><button class="smallbtn" onclick="checkMailDiagnostics('${esc(prop.id)}',this)">检查 Gmail</button></div></div><div class="formgrid"><div><label>Airbnb 通知邮箱</label><input id="mailSource_${safe(prop.id)}" value="${esc(row.source_email || '')}" placeholder="Airbnb 发信到哪个邮箱"></div><div><label>PMS 转发地址</label><input readonly value="${esc(addr || '后台未配置主 Gmail')}"></div><div><label>状态</label><select id="mailStatus_${safe(prop.id)}"><option value="not_set" ${row.forward_status==='not_set'?'selected':''}>未设置</option><option value="verification_pending" ${row.forward_status==='verification_pending'?'selected':''}>待验证</option><option value="active" ${row.forward_status==='active'?'selected':''}>启用</option><option value="paused" ${row.forward_status==='paused'?'selected':''}>暂停</option></select></div><div><label>备注</label><input id="mailNotes_${safe(prop.id)}" value="${esc(row.notes || '')}"></div></div>${events.length ? `<table><tr><th>收到</th><th>类型</th><th>房间</th><th>内容</th></tr>${events.map(e => `<tr><td>${esc(formatUserDateTime(e.received_at || e.created_at || '', false))}</td><td>${esc(e.event_type || 'notice')}</td><td>${esc(e.room_id ? roomName(e.room_id) : e.room_name || '')}</td><td>${esc(e.title || e.summary || e.raw_subject || '')}</td></tr>`).join('')}</table>` : '<div class="empty-panel">暂无邮件提醒。</div>'}</div>`;
   }
   function openPropertyMailInRooms(propertyId){
     const id = String(propertyId || '');
@@ -4166,59 +4187,90 @@
     initAppImpl().catch(e => console.error(e));
   }
 
-  async function syncPropertyIcalImpl(propertyId,btn){
+  async function syncIcalScopeImpl(propertyId,roomId,btn){
     const propId = propertyId || (selectedProp() && selectedProp().id);
     if(!propId) return alert('请先进入一个房源');
-    const roomIds = new Set(propRooms(propId).map(r => r.id));
+    const selectedRoomId = String(roomId || '');
+    const resultKey = selectedRoomId ? 'room:' + selectedRoomId : propId;
+    const roomIds = new Set(selectedRoomId ? [selectedRoomId] : propRooms(propId).map(r => r.id));
     const rows = getChannels().filter(ch => roomIds.has(ch.room_id)).map(ch => readChannelForm(ch.id) || ch);
     let movedListingUrl = false;
     for(const row of rows){
       const check = cleanChannelUrls(row, true);
       if(check.moved) movedListingUrl = true;
       if(!check.ok){
-        ui.syncResults[propId] = {kind:'error', text:'同步失败：iCal 链接填写错误'};
+        ui.syncResults[resultKey] = {kind:'error', text:'同步失败：iCal 链接填写错误'};
         renderRoomSettingsImpl();
         return alert(check.message);
       }
     }
     if(!rows.length){
-      ui.syncResults[propId] = {kind:'error', text:'同步失败：这个房源还没有渠道 iCal'};
+      ui.syncResults[resultKey] = {kind:'error', text:`同步失败：这个${selectedRoomId ? '房间' : '房源'}还没有渠道 iCal`};
       renderRoomSettingsImpl();
       return alert('请先在房间里添加渠道，并粘贴平台导出的 iCal。');
     }
     const importRows = rows.filter(r => String(r.ical_url || '').trim());
     if(!importRows.length){
-      ui.syncResults[propId] = {kind:'error', text:'同步失败：没有填写平台导出的 iCal'};
+      ui.syncResults[resultKey] = {kind:'error', text:'同步失败：没有填写平台导出的 iCal'};
       if(movedListingUrl) await persistAll();
       renderRoomSettingsImpl();
       return alert('已保存公开房源链接，但还没有填写平台导出的 .ics/iCal，所以不能同步订单。');
     }
     const old = btn && btn.textContent;
     if(btn){btn.disabled = true; btn.textContent = '同步中...';}
-    ui.syncResults[propId] = {kind:'warn', text:'同步中：正在保存渠道并读取 iCal...'};
+    const beforeSync = new Map(rows.map(row => [String(row.id || ''), String(row.last_sync || '')]));
+    ui.syncResults[resultKey] = {kind:'warn', text:'同步中：正在读取 iCal...'};
     renderRoomSettingsImpl();
     try{
-      await persistAll();
       const started = Date.now();
-      const res = await fetch(apiUrl('/api/sync'), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id: propId, channelListings: rows})});
+      const payload = {property_id: propId, channelListings: rows};
+      if(selectedRoomId) payload.room_id = selectedRoomId;
+      const res = await fetch(apiUrl('/api/sync'), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       const data = await res.json().catch(() => ({}));
-      if(!res.ok || data.ok === false) throw new Error(data.error || 'iCal 同步失败');
+      if(!res.ok || data.ok === false){
+        const detail = data.detail ? `（${data.detail}${data.debug_id ? `，编号 ${data.debug_id}` : ''}）` : '';
+        throw new Error((data.error || `iCal 同步失败：HTTP ${res.status}`) + detail);
+      }
       applyStateFromServerImpl(data.state || data);
       const seconds = Math.max(1, Math.round((Date.now() - started) / 1000));
       const errs = getSyncErrors().filter(e => roomIds.has(e.room_id));
       const imported = getChannels().filter(ch => roomIds.has(ch.room_id)).reduce((n,ch) => n + Number(ch.synced_booking_count || 0), 0);
-      ui.syncResults[propId] = errs.length ? {kind:'error', text:`同步完成 ${seconds} 秒，但 ${errs.length} 个渠道失败`} : {kind:'ok', text:`同步完成 ${seconds} 秒：导入 ${imported} 条`};
+      ui.syncResults[resultKey] = errs.length ? {kind:'error', text:`同步完成 ${seconds} 秒，但 ${errs.length} 个渠道失败`} : {kind:'ok', text:`同步完成 ${seconds} 秒：导入 ${imported} 条`};
       renderAll();
       if(errs.length) alert(`iCal 同步完成，但有 ${errs.length} 个渠道失败。`);
       return data;
     }catch(e){
-      ui.syncResults[propId] = {kind:'error', text:'同步失败：' + (e && e.message ? e.message : e)};
+      try{
+        await loadStateImpl();
+        const refreshed = getChannels().filter(ch => roomIds.has(String(ch.room_id)));
+        const advanced = refreshed.filter(ch => ch.last_sync && String(ch.last_sync) !== beforeSync.get(String(ch.id || '')) && !ch.sync_error);
+        const failed = getSyncErrors().filter(err => roomIds.has(String(err.room_id)));
+        if(advanced.length && !failed.length){
+          const imported = refreshed.reduce((n,ch) => n + Number(ch.synced_booking_count || 0), 0);
+          ui.syncResults[resultKey] = {kind:'ok', text:`后台已完成同步：导入 ${imported} 条`};
+          renderAll();
+          alert('服务器响应超时，但已核验后台同步成功。');
+          return {ok:true, recovered:true};
+        }
+      }catch(reloadError){ console.warn('同步失败后核验状态失败', reloadError); }
+      rows.forEach(source => {
+        let target = getChannels().find(ch => String(ch.id || '') === String(source.id || ''));
+        if(!target){ target = {}; getChannels().push(target); }
+        ['id','room_id','platform','ical_url','listing_url','channel_note','is_new_listing','created_at','updated_at'].forEach(key => {target[key] = source[key];});
+      });
+      ui.syncResults[resultKey] = {kind:'error', text:'同步失败：' + (e && e.message ? e.message : e)};
       renderRoomSettingsImpl();
       alert('同步失败：' + (e && e.message ? e.message : e));
       return null;
     }finally{
-      if(btn){btn.disabled = false; btn.textContent = old || '同步当前房源 iCal';}
+      if(btn){btn.disabled = false; btn.textContent = old || (selectedRoomId ? '同步本房间 iCal' : '同步当前房源 iCal');}
     }
+  }
+  function syncPropertyIcalImpl(propertyId,btn){
+    return syncIcalScopeImpl(propertyId, '', btn);
+  }
+  function syncRoomIcalImpl(roomId,btn){
+    return syncIcalScopeImpl(roomPropId(roomId), roomId, btn);
   }
 
   function copyText(text){
@@ -4977,7 +5029,7 @@
     const issue = ch.sync_error;
     const cls = issue ? 'error' : ch.last_sync ? 'ok' : 'warn';
     const text = issue ? '同步失败' : ch.last_sync ? '已同步' : '未同步';
-    return `<div class="ops-row"><div class="ops-row-head"><div><div class="ops-title">${esc(roomName(ch.room_id))} / ${esc(ch.platform || 'Airbnb')}</div><div class="small">${esc(propName(roomPropId(ch.room_id)))}</div></div><span class="sync-status ${cls}">${text}</span></div><div class="small">${issue ? esc(issue) : `上次同步：${esc(ch.last_sync || '无')} / ${Number(ch.synced_booking_count || 0)} 条`}</div></div>`;
+    return `<div class="ops-row"><div class="ops-row-head"><div><div class="ops-title">${esc(roomName(ch.room_id))} / ${esc(ch.platform || 'Airbnb')}</div><div class="small">${esc(propName(roomPropId(ch.room_id)))}</div></div><span class="sync-status ${cls}">${text}</span></div><div class="small">${issue ? esc(issue) : `上次同步：${esc(ch.last_sync ? formatUserDateTime(ch.last_sync) : '无')} / ${Number(ch.synced_booking_count || 0)} 条`}</div></div>`;
   }
   function renderChannelHealthOps(){
     const rows = getChannels().filter(ch => ownerRoomEntityIds().has(roomEntityId(ch.room_id)));
@@ -4987,7 +5039,7 @@
   function renderAuditOps(){
     const ids = ownerPropIds();
     const rows = getAuditLog().filter(x => !x.property_id || ids.includes(x.property_id)).slice(-120).reverse();
-    return `<div class="ops-panel"><h3>操作日志</h3>${rows.length ? `<table><tr><th>时间</th><th>人员</th><th>房源</th><th>动作</th><th>内容</th></tr>${rows.map(r => `<tr><td>${esc((r.created_at || '').slice(0,19))}</td><td>${esc(r.actor_name || '')}</td><td>${esc(propName(r.property_id))}</td><td>${esc(r.action || '')}</td><td>${esc(r.detail || '')}</td></tr>`).join('')}</table>` : '<div class="ops-empty">暂无日志。</div>'}</div>`;
+    return `<div class="ops-panel"><h3>操作日志</h3>${rows.length ? `<table><tr><th>时间</th><th>人员</th><th>房源</th><th>动作</th><th>内容</th></tr>${rows.map(r => `<tr><td>${esc(formatUserDateTime(r.created_at || ''))}</td><td>${esc(r.actor_name || '')}</td><td>${esc(propName(r.property_id))}</td><td>${esc(r.action || '')}</td><td>${esc(r.detail || '')}</td></tr>`).join('')}</table>` : '<div class="ops-empty">暂无日志。</div>'}</div>`;
   }
   async function addMaintenanceTicket(btn){
     const propId = (qs('maintProp') && qs('maintProp').value) || selectedOpsPropertyId();
@@ -5151,6 +5203,7 @@
     saveChannelListing,
     deleteChannelListing,
     syncPropertyIcal: syncPropertyIcalImpl,
+    syncRoomIcal: syncRoomIcalImpl,
     syncIcal: syncPropertyIcalImpl,
     bindPropertyCleanerUi,
     unbindPropertyCleanerUi,
@@ -5257,6 +5310,7 @@
     ['addRoom', addRoomImpl],
     ['addCommonArea', addCommonAreaImpl],
     ['syncIcal', syncPropertyIcalImpl],
+    ['syncRoomIcal', syncRoomIcalImpl],
     ['checkMailDiagnostics', checkMailDiagnostics],
     ['markCleaningSubtaskDone', markCleaningSubtaskDone],
     ['deferCleaningSubtask', deferCleaningSubtask],

@@ -20,7 +20,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-07-20-v105-manual-cleaning-integrity"
+PMS_APP_VERSION = "2026-07-20-v106-room-ical-sync"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -2471,7 +2471,12 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 payload = json.loads(raw.decode("utf-8") or "{}") if raw else {}
                 try:
-                    synced = sync_icals(actor=user, property_id=payload.get("property_id"), incoming_channels=payload.get("channelListings"))
+                    synced = sync_icals(
+                        actor=user,
+                        property_id=payload.get("property_id"),
+                        room_id=payload.get("room_id"),
+                        incoming_channels=payload.get("channelListings"),
+                    )
                     json_response(self, {"ok": True, "state": pms_state_response_for_user(synced, user)})
                 except Exception as exc:
                     message = str(exc) or exc.__class__.__name__
@@ -2480,7 +2485,7 @@ class Handler(BaseHTTPRequestHandler):
                         public_error = "同步失败：平台 iCal 链接读取失败，请检查对应渠道 iCal 是否仍有效。"
                     elif "Firestore" in message or "Firebase database" in message:
                         public_error = "同步失败：数据库保存或读取失败，iCal 没有被完整写入，请稍后重试。"
-                    elif "property permission" in message:
+                    elif "property permission" in message or "room permission" in message:
                         public_error = "同步失败：当前账号没有这个房源的权限。"
                     else:
                         public_error = "同步失败：系统没有完成本次 iCal 同步。"
@@ -3756,17 +3761,27 @@ def _pms_channel_restore_historical_archive_bookings(state, successful_listing_i
     return restored
 
 
-def _pms_channel_sync_icals(actor=None, property_id=None, incoming_channels=None):
+def _pms_channel_sync_room_ids(state, allowed_property_ids, room_id=None):
+    allowed_room_ids = {
+        room.get("id") for room in state.get("rooms", [])
+        if isinstance(room, dict) and room.get("property_id") in allowed_property_ids and room.get("id")
+    }
+    requested_room_id = _pms_channel_text(room_id)
+    if requested_room_id:
+        if requested_room_id not in allowed_room_ids:
+            raise RuntimeError("room permission required")
+        return {requested_room_id}
+    return allowed_room_ids
+
+
+def _pms_channel_sync_icals(actor=None, property_id=None, room_id=None, incoming_channels=None):
     state = normalize_state(load_state())
     allowed_property_ids = _pms_channel_allowed_property_ids(actor, state)
     if property_id:
         if property_id not in allowed_property_ids:
             raise RuntimeError("property permission required")
         allowed_property_ids = {property_id}
-    allowed_room_ids = {
-        room.get("id") for room in state.get("rooms", [])
-        if isinstance(room, dict) and room.get("property_id") in allowed_property_ids
-    }
+    allowed_room_ids = _pms_channel_sync_room_ids(state, allowed_property_ids, room_id)
     _pms_channel_merge_sync_payload(state, incoming_channels, allowed_room_ids)
     _pms_channel_backfill_legacy_room_icals(state, allowed_room_ids)
     listings = [
@@ -6661,8 +6676,8 @@ def save_state(state):
     return _pms_external_save_state(state)
 
 
-def sync_icals(actor=None, property_id=None, incoming_channels=None):
-    return _pms_channel_sync_icals(actor=actor, property_id=property_id, incoming_channels=incoming_channels)
+def sync_icals(actor=None, property_id=None, room_id=None, incoming_channels=None):
+    return _pms_channel_sync_icals(actor=actor, property_id=property_id, room_id=room_id, incoming_channels=incoming_channels)
 
 
 def make_feed(feed_id):
