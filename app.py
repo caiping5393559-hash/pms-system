@@ -20,7 +20,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-07-20-v106-room-ical-sync"
+PMS_APP_VERSION = "2026-07-27-v107-channel-actions"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -2329,6 +2329,14 @@ class Handler(BaseHTTPRequestHandler):
                 _, listing = save_channel_listing(payload, actor=user)
                 json_response(self, {"ok": True, "channelListing": listing, "saved_at": now_utc_iso()})
                 return
+            if path == "/api/channel-listing/delete":
+                user = require_user(self, ("admin", "owner"))
+                if not user:
+                    return
+                payload = json.loads(raw.decode("utf-8") or "{}")
+                _, deleted = delete_channel_listing(payload.get("id"), actor=user)
+                json_response(self, {"ok": True, "deleted": deleted, "saved_at": now_utc_iso()})
+                return
             if path == "/api/cleaners/register":
                 payload = json.loads(raw.decode("utf-8") or "{}")
                 _, cleaner = register_cleaner(payload)
@@ -3650,6 +3658,39 @@ def save_channel_listing(payload, actor=None):
     except Exception:
         pass
     return saved, clean
+
+
+def delete_channel_listing(channel_id, actor=None):
+    item_id = _pms_channel_text(channel_id)
+    if not item_id:
+        raise RuntimeError("channel listing id is required")
+    current = normalize_state(load_state())
+    existing = next(
+        (
+            item for item in current.get("channelListings", [])
+            if isinstance(item, dict) and item.get("id") == item_id
+        ),
+        None,
+    )
+    if not existing:
+        return current, False
+    allowed_property_ids = _pms_channel_allowed_property_ids(actor, current)
+    allowed_room_ids = {
+        room.get("id")
+        for room in current.get("rooms", [])
+        if isinstance(room, dict) and room.get("id") and room.get("property_id") in allowed_property_ids
+    }
+    if existing.get("room_id") not in allowed_room_ids:
+        raise RuntimeError("room permission required")
+    saved = _pms_channel_save_state_from_payload(
+        {"channelListings": [{"id": item_id, "_delete": True}]},
+        actor=actor,
+    )
+    try:
+        _pms_ui_state_cache_clear()
+    except Exception:
+        pass
+    return saved, True
 
 
 def _pms_channel_backfill_legacy_room_icals(state, allowed_room_ids):

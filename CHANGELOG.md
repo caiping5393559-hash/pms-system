@@ -1,5 +1,17 @@
 # PMS Version History
 
+## 2026-07-27 · v107-channel-actions
+
+Release identifier: `2026-07-27-v107-channel-actions`
+
+### Channel interaction reliability
+
+- Prevents repeated taps on “Add channel” from creating multiple empty channel cards for the same room.
+- Focuses the existing unfinished channel draft instead of inserting another draft.
+- Removes unsaved channel drafts immediately without a server request.
+- Deletes saved channels optimistically through a dedicated endpoint instead of uploading the full PMS state.
+- Restores a channel automatically and shows an explicit error if the server-side deletion fails.
+
 ## 2026-07-20 · v106-room-ical-sync
 
 Release identifier: `2026-07-20-v106-room-ical-sync`

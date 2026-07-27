@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-20-v106-room-ical-sync';
+  const VERSION = '2026-07-27-v107-channel-actions';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -37,6 +37,8 @@
   ui.calendarVacancyOnly = !!ui.calendarVacancyOnly;
   ui.roomSettingsPanel = ui.roomSettingsPanel || 'summary';
   ui.roomDefaultsApplied = !!ui.roomDefaultsApplied;
+  ui.pendingChannels = ui.pendingChannels || {};
+  ui.deletingChannels = ui.deletingChannels || {};
   ui.editingRecurringTaskId = ui.editingRecurringTaskId || '';
   ui.cleaningSubTab = ['today','finance','manual','notes'].includes(ui.cleaningSubTab) ? ui.cleaningSubTab : 'today';
   ui.cleaningWorkDate = ui.cleaningWorkDate || '';
@@ -3726,7 +3728,7 @@
       ? `<div class="room-basics"><div><label>房间名称</label><input id="roomName_${safe(room.id)}" value="${esc(room.name || '')}"></div><div><label>单次保洁费</label><input id="roomFee_${safe(room.id)}" type="number" value="${esc(room.cleaning_fee || 0)}"></div><div><label>卫生间</label><select id="roomBathroom_${safe(room.id)}">${roomBathroomOptions(room.bathroom_type || 'private')}</select></div><div><label>房间厨房</label><div class="check-grid"><label><input id="roomKitchen_${safe(room.id)}" type="checkbox" ${roomHasKitchen(room) ? 'checked' : ''}> 房间内有厨房/小厨房</label></div><div class="small">默认不选；不选时房间保洁不包含厨房打扫。</div></div><div><label>房间独有电器</label>${roomApplianceCheckboxes(room)}<div class="small">默认不选；只有勾选后才会生成家电细节清洁任务。</div></div><div class="property-actions"><button class="smallbtn primary" onclick="saveRoomBasics('${esc(room.id)}',this)">保存</button><button class="smallbtn" onclick="cancelRoomBasics()">取消</button></div></div>`
       : `<div><strong>${esc(room.name || room.id)}</strong><div class="small">清洁费：${money(room.cleaning_fee || 0)} · ${roomBathroomLabel(room)} · ${roomKitchenLabel(room)} · 电器：${esc(roomApplianceLabel(room))} · ${channels.length} 个渠道</div></div><div class="property-actions"><button class="smallbtn" onclick="editRoomBasics('${esc(room.id)}')">修改</button><button class="smallbtn" onclick="deleteRoomUi('${esc(room.id)}',this)">删除</button></div>`;
     const sync = ui.syncResults['room:' + room.id];
-    return `<div class="room-setting-card"><div class="room-head">${roomHead}</div><div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">渠道 / iCal</h3><div class="small">同一个真实房间只建一次；多个 Airbnb 账号或平台都作为渠道挂在这里。</div></div><div class="property-actions"><button class="smallbtn" onclick="syncRoomIcal('${esc(room.id)}',this)">同步本房间 iCal</button><button class="smallbtn primary" onclick="addChannelListing('${esc(room.id)}')">添加渠道</button>${sync?`<span class="sync-status ${sync.kind || ''}">${esc(sync.text || '')}</span>`:''}</div></div><div class="channel-list">${channels.length ? channels.map(ch => renderChannel(room,ch)).join('') : '<div class="empty-panel">还没有渠道。点击“添加渠道”后粘贴 Airbnb/平台导出的 iCal。</div>'}</div></div></div>`;
+    return `<div class="room-setting-card"><div class="room-head">${roomHead}</div><div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">渠道 / iCal</h3><div class="small">同一个真实房间只建一次；多个 Airbnb 账号或平台都作为渠道挂在这里。</div></div><div class="property-actions"><button class="smallbtn" onclick="syncRoomIcal('${esc(room.id)}',this)">同步本房间 iCal</button><button class="smallbtn primary" onclick="addChannelListing('${esc(room.id)}',this)">添加渠道</button>${sync?`<span class="sync-status ${sync.kind || ''}">${esc(sync.text || '')}</span>`:''}</div></div><div class="channel-list">${channels.length ? channels.map(ch => renderChannel(room,ch)).join('') : '<div class="empty-panel">还没有渠道。点击“添加渠道”后粘贴 Airbnb/平台导出的 iCal。</div>'}</div></div></div>`;
   }
   function renderCleanerPanel(prop){
     const cleaners = propCleaners(prop.id);
@@ -4460,10 +4462,30 @@
     await persistAll(btn);
     renderAll();
   }
-  function addChannelListing(roomId){
-    getChannels().push({id:'channel_' + safe(roomId) + '_' + Date.now(), room_id:roomId, platform:'Airbnb', ical_url:'', listing_url:'', channel_note:'', is_new_listing:false, created_at:nowIso(), updated_at:nowIso()});
+  function addChannelListing(roomId,btn){
+    const roomKey = String(roomId || '');
+    const existingDraft = getChannels().find(ch =>
+      String(ch.room_id || '') === roomKey &&
+      !String(ch.ical_url || '').trim() &&
+      !String(ch.listing_url || '').trim() &&
+      !String(ch.channel_note || '').trim() &&
+      !ch.last_sync
+    );
+    if(existingDraft){
+      ui.pendingChannels[roomKey] = existingDraft.id;
+      ui.roomSettingsPanel = roomSettingsPanelKey('room', roomId);
+      renderRoomSettingsImpl();
+      const input = qs(channelInputId(existingDraft.id, 'ical'));
+      if(input){ input.focus(); input.scrollIntoView({behavior:'smooth', block:'center'}); }
+      return;
+    }
+    const id = 'channel_' + safe(roomId) + '_' + Date.now();
+    ui.pendingChannels[roomKey] = id;
+    getChannels().push({id, room_id:roomId, platform:'Airbnb', ical_url:'', listing_url:'', channel_note:'', is_new_listing:false, _localDraft:true, created_at:nowIso(), updated_at:nowIso()});
     ui.roomSettingsPanel = roomSettingsPanelKey('room', roomId);
     renderRoomSettingsImpl();
+    const input = qs(channelInputId(id, 'ical'));
+    if(input){ input.focus(); input.scrollIntoView({behavior:'smooth', block:'center'}); }
   }
   async function saveChannelListing(id,btn){
     const row = readChannelForm(id);
@@ -4495,6 +4517,7 @@
         const next = getChannels().filter(ch => String(ch.id) !== String(saved.id));
         next.push(saved);
         setChannels(next);
+        if(ui.pendingChannels[String(saved.room_id || '')] === saved.id) delete ui.pendingChannels[String(saved.room_id || '')];
       }
       rememberGoodState();
       renderRoomSettingsImpl();
@@ -4511,9 +4534,50 @@
   }
   async function deleteChannelListing(id,btn){
     if(!confirm('确定删除这个渠道？')) return;
-    setChannels(getChannels().filter(ch => String(ch.id) !== String(id)));
-    await persistAll(btn);
-    renderAll();
+    const list = getChannels();
+    const index = list.findIndex(ch => String(ch.id) === String(id));
+    if(index < 0 || ui.deletingChannels[String(id)]) return;
+    const removed = {...list[index]};
+    const roomKey = String(removed.room_id || '');
+    ui.deletingChannels[String(id)] = true;
+    setChannels(list.filter(ch => String(ch.id) !== String(id)));
+    if(ui.pendingChannels[roomKey] === id) delete ui.pendingChannels[roomKey];
+    ui.syncResults['room:' + roomKey] = {kind:'warn', text:'正在删除渠道...'};
+    renderRoomSettingsImpl();
+    if(removed._localDraft){
+      delete ui.deletingChannels[String(id)];
+      ui.syncResults['room:' + roomKey] = {kind:'ok', text:'未保存的渠道已删除'};
+      renderRoomSettingsImpl();
+      return;
+    }
+    try{
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 15000) : null;
+      let res;
+      try{
+        res = await fetch(apiUrl('/api/channel-listing/delete'), {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          signal: controller ? controller.signal : undefined,
+          body:JSON.stringify({id})
+        });
+      }finally{
+        if(timeoutId) clearTimeout(timeoutId);
+      }
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || data.ok === false) throw new Error(data.error || ('删除失败 HTTP ' + res.status));
+      ui.syncResults['room:' + roomKey] = {kind:'ok', text:'渠道已删除'};
+      rememberGoodState();
+    }catch(err){
+      const restored = getChannels().slice();
+      restored.splice(Math.min(index, restored.length), 0, removed);
+      setChannels(restored);
+      ui.syncResults['room:' + roomKey] = {kind:'error', text:'删除失败，渠道已恢复'};
+      alert('删除失败：' + (err && err.message ? err.message : err));
+    }finally{
+      delete ui.deletingChannels[String(id)];
+      renderRoomSettingsImpl();
+    }
   }
   async function bindPropertyCleanerUi(propId,btn){
     const code = (qs('cleanerCode_' + safe(propId)) && qs('cleanerCode_' + safe(propId)).value || '').trim().toUpperCase();
