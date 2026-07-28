@@ -1,5 +1,16 @@
 # PMS Version History
 
+## 2026-07-28 · v108-fast-channel-delete
+
+Release identifier: `2026-07-28-v108-fast-channel-delete`
+
+### Fast channel deletion
+
+- Deletes channels from the compact main state without reading or rewriting external iCal archive shards.
+- Removes the deleted channel's live iCal bookings, sync errors, legacy room fields, and feed cache in one main-state save.
+- Extends the client safety timeout and keeps an optimistically deleted card hidden if the request times out while the server finishes.
+- Refreshes server state automatically after a rare timeout instead of immediately restoring the deleted card.
+
 ## 2026-07-27 · v107-channel-actions
 
 Release identifier: `2026-07-27-v107-channel-actions`

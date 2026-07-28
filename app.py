@@ -20,7 +20,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-07-27-v107-channel-actions"
+PMS_APP_VERSION = "2026-07-28-v108-fast-channel-delete"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -3664,7 +3664,10 @@ def delete_channel_listing(channel_id, actor=None):
     item_id = _pms_channel_text(channel_id)
     if not item_id:
         raise RuntimeError("channel listing id is required")
-    current = normalize_state(load_state())
+    # Channel deletion is a main-state mutation. Loading the external iCal
+    # archive shards here made a simple delete take longer than the browser
+    # timeout even though those archived rows are not part of the live UI.
+    current = normalize_state(load_main_state())
     existing = next(
         (
             item for item in current.get("channelListings", [])
@@ -3682,10 +3685,26 @@ def delete_channel_listing(channel_id, actor=None):
     }
     if existing.get("room_id") not in allowed_room_ids:
         raise RuntimeError("room permission required")
-    saved = _pms_channel_save_state_from_payload(
-        {"channelListings": [{"id": item_id, "_delete": True}]},
-        actor=actor,
-    )
+    room_id = existing.get("room_id")
+    current["channelListings"] = [
+        item for item in current.get("channelListings", [])
+        if not (isinstance(item, dict) and item.get("id") == item_id)
+    ]
+    current["bookings"] = [
+        item for item in current.get("bookings", [])
+        if not (
+            isinstance(item, dict)
+            and item.get("source") == "ical"
+            and item.get("channel_listing_id") == item_id
+        )
+    ]
+    current["sync_errors"] = [
+        item for item in current.get("sync_errors", [])
+        if not (isinstance(item, dict) and item.get("channel_listing_id") == item_id)
+    ]
+    _pms_channel_clear_room_legacy_fields(current, room_id)
+    current = _pms_channel_refresh_feed_cache(current, now_utc_iso())
+    saved = save_main_state_only(current)
     try:
         _pms_ui_state_cache_clear()
     except Exception:

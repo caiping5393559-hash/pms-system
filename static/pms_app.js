@@ -1,5 +1,5 @@
 (function(){
-  const VERSION = '2026-07-27-v107-channel-actions';
+  const VERSION = '2026-07-28-v108-fast-channel-delete';
   window.__PMS_APP_VERSION = VERSION;
   const CLEANING_CONFIRM_REQUIRED_FROM = '2026-07-04';
   const CLEANING_TASK_LAUNCH_DATE = '2026-07-04';
@@ -4552,7 +4552,7 @@
     }
     try{
       const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      const timeoutId = controller ? setTimeout(() => controller.abort(), 15000) : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 30000) : null;
       let res;
       try{
         res = await fetch(apiUrl('/api/channel-listing/delete'), {
@@ -4569,6 +4569,13 @@
       ui.syncResults['room:' + roomKey] = {kind:'ok', text:'渠道已删除'};
       rememberGoodState();
     }catch(err){
+      if(err && err.name === 'AbortError'){
+        ui.syncResults['room:' + roomKey] = {kind:'warn', text:'删除请求已提交，正在后台确认...'};
+        setTimeout(() => {
+          loadStateImpl().then(() => renderAll()).catch(reloadError => console.warn('删除后刷新失败', reloadError));
+        }, 3000);
+        return;
+      }
       const restored = getChannels().slice();
       restored.splice(Math.min(index, restored.length), 0, removed);
       setChannels(restored);
