@@ -20,22 +20,36 @@ permissions:
 jobs:
   trigger-ical-sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Wake PMS and trigger iCal sync
         env:
+          PMS_BASE_URL: https://pms-system-708g.onrender.com
           PMS_OIDC_AUDIENCE: https://pms-system-708g.onrender.com/api/cron/ical-sync
           PMS_SYNC_URL: https://pms-system-708g.onrender.com/api/cron/ical-sync
         run: |
+          set -euo pipefail
+
+          # Render can briefly return 5xx responses while an instance wakes up.
+          # Warm the service first, but do not fail the job if the health request
+          # itself is transient; the authenticated sync call below is authoritative.
+          curl --silent --show-error --output /dev/null \
+            --retry 5 --retry-all-errors --retry-delay 10 --retry-max-time 180 \
+            --connect-timeout 20 --max-time 60 \
+            "${PMS_BASE_URL}/api/version" || true
+
           OIDC_TOKEN="$(
             curl --fail --silent --show-error --get \
+              --retry 5 --retry-all-errors --retry-delay 5 --retry-max-time 120 \
+              --connect-timeout 15 --max-time 45 \
               --header "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
               --data-urlencode "audience=${PMS_OIDC_AUDIENCE}" \
               "${ACTIONS_ID_TOKEN_REQUEST_URL}" \
             | jq -er '.value'
           )"
+
           curl --fail-with-body --silent --show-error \
-            --retry 2 --retry-all-errors --retry-delay 5 \
+            --retry 6 --retry-all-errors --retry-delay 10 --retry-max-time 300 \
             --connect-timeout 30 --max-time 180 \
             --request POST \
             --header "Authorization: Bearer ${OIDC_TOKEN}" \
