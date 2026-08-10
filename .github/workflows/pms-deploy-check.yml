@@ -27,7 +27,6 @@ jobs:
   trigger-render-hook:
     needs: syntax-check
     runs-on: ubuntu-latest
-    if: ${{ vars.RENDER_DEPLOY_HOOK_ENABLED == 'true' }}
     steps:
       - name: Trigger Render deploy hook
         env:
