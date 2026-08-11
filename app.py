@@ -22,7 +22,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-08-10-v112-ical-dedupe"
+PMS_APP_VERSION = "2026-08-10-v113-ical-light-sync"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -3864,7 +3864,11 @@ def _pms_channel_sync_room_ids(state, allowed_property_ids, room_id=None):
 
 
 def _pms_channel_sync_icals(actor=None, property_id=None, room_id=None, incoming_channels=None):
-    state = normalize_state(load_state())
+    # iCal sync only changes core operational data (channels, bookings, tasks
+    # and feed cache). Loading the external mail/history shards here used to
+    # duplicate those large collections in memory and could restart a free
+    # Render instance before the sync was saved.
+    state = normalize_state(load_main_state())
     allowed_property_ids = _pms_channel_allowed_property_ids(actor, state)
     if property_id:
         if property_id not in allowed_property_ids:
@@ -4061,7 +4065,7 @@ def _pms_channel_sync_icals(actor=None, property_id=None, room_id=None, incoming
     state["sync_errors"] = sync_errors
     state["last_sync"] = now
     state = _pms_channel_refresh_feed_cache(state, now)
-    return save_state(state)
+    return save_main_state_only(state)
 
 
 def _pms_channel_feed_target(state, feed_id):

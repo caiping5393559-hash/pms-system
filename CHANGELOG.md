@@ -1,5 +1,12 @@
 # PMS Version History
 
+## 2026-08-10 · v113-ical-light-sync
+
+Release identifier: `2026-08-10-v113-ical-light-sync`
+
+- iCal full-property and single-room sync now load only core operational state instead of all mail and iCal history shards.
+- iCal sync saves only core operational state, reducing peak memory on the Render free instance and preventing HTTP 502 restarts.
+
 ## 2026-08-10 · v112-ical-dedupe
 
 Release identifier: `2026-08-10-v112-ical-dedupe`
