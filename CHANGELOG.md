@@ -1,5 +1,12 @@
 # PMS Version History
 
+## 2026-08-10 · v114-stable-ical-schedule
+
+Release identifier: `2026-08-10-v114-stable-ical-schedule`
+
+- Keeps iCal automation on the four stable 15-minute schedule slots and removes the deploy-time push trigger.
+- Prevents a new deployment from restarting Render while the same push simultaneously starts an iCal sync.
+
 ## 2026-08-10 · v113-ical-light-sync
 
 Release identifier: `2026-08-10-v113-ical-light-sync`
