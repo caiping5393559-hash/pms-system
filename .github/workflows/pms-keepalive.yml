@@ -1,9 +1,11 @@
 name: PMS scheduled iCal sync
 
 on:
+  push:
+    branches: [main]
   schedule:
-    # A single external scheduler is enough. Four off-peak runs per hour keep
-    # calendars fresh without overlapping the old in-process 15-minute loop.
+    # GitHub's scheduler may be delayed at busy times. Four runs per hour plus
+    # one immediate post-deploy sync keep calendars current.
     - cron: '7 * * * *'
     - cron: '22 * * * *'
     - cron: '37 * * * *'
