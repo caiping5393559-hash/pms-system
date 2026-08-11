@@ -1,5 +1,14 @@
 # PMS Version History
 
+## 2026-08-10 · v111-memory-safe-sync
+
+Release identifier: `2026-08-10-v111-memory-safe-sync`
+
+- Applies memory safeguards directly in `app.py`, so they work even when Render overrides the Procfile start command.
+- Stops loading and rebuilding raw historical iCal snapshots during normal sync while preserving live bookings and compact sync history.
+- Uses GitHub Actions as the only 15-minute scheduler, caps concurrent request workers, and returns freed sync memory to the OS.
+- Rechecks server state after an HTTP 502/timeout so a completed sync is shown as successful instead of a false failure.
+
 ## 2026-07-28 · v108-fast-channel-delete
 
 Release identifier: `2026-07-28-v108-fast-channel-delete`

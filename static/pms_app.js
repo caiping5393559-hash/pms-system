@@ -4242,19 +4242,22 @@
       if(errs.length) alert(`iCal 同步完成，但有 ${errs.length} 个渠道失败。`);
       return data;
     }catch(e){
-      try{
-        await loadStateImpl();
-        const refreshed = getChannels().filter(ch => roomIds.has(String(ch.room_id)));
-        const advanced = refreshed.filter(ch => ch.last_sync && String(ch.last_sync) !== beforeSync.get(String(ch.id || '')) && !ch.sync_error);
-        const failed = getSyncErrors().filter(err => roomIds.has(String(err.room_id)));
-        if(advanced.length && !failed.length){
-          const imported = refreshed.reduce((n,ch) => n + Number(ch.synced_booking_count || 0), 0);
-          ui.syncResults[resultKey] = {kind:'ok', text:`后台已完成同步：导入 ${imported} 条`};
-          renderAll();
-          alert('服务器响应超时，但已核验后台同步成功。');
-          return {ok:true, recovered:true};
-        }
-      }catch(reloadError){ console.warn('同步失败后核验状态失败', reloadError); }
+      for(let attempt=0; attempt<4; attempt++){
+        try{
+          if(attempt) await new Promise(resolve => setTimeout(resolve, 3000));
+          await loadStateImpl();
+          const refreshed = getChannels().filter(ch => roomIds.has(String(ch.room_id)));
+          const advanced = refreshed.filter(ch => ch.last_sync && String(ch.last_sync) !== beforeSync.get(String(ch.id || '')) && !ch.sync_error);
+          const failed = getSyncErrors().filter(err => roomIds.has(String(err.room_id)));
+          if(advanced.length && !failed.length){
+            const imported = refreshed.reduce((n,ch) => n + Number(ch.synced_booking_count || 0), 0);
+            ui.syncResults[resultKey] = {kind:'ok', text:`后台已完成同步：导入 ${imported} 条`};
+            renderAll();
+            alert('服务器响应超时，但已核验后台同步成功。');
+            return {ok:true, recovered:true};
+          }
+        }catch(reloadError){ console.warn('同步失败后核验状态失败', reloadError); }
+      }
       rows.forEach(source => {
         let target = getChannels().find(ch => String(ch.id || '') === String(source.id || ''));
         if(!target){ target = {}; getChannels().push(target); }

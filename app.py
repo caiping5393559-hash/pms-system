@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, date, timezone
 from email.utils import formatdate
 from zoneinfo import ZoneInfo
 import base64
+import ctypes
+import gc
 import gzip
 import hashlib
 import hmac
@@ -20,7 +22,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-07-28-v108-fast-channel-delete"
+PMS_APP_VERSION = "2026-08-10-v111-memory-safe-sync"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -6247,6 +6249,11 @@ def _pms_ical_archive_record_from_event(state, listing, event, synced_at, sync_s
 
 
 def _pms_ical_archive_update(state, listing, synced_at, sync_status, raw_events, error="", warning="", missing_events=None):
+    # Raw iCal snapshots are diagnostic-only and grew without a practical
+    # bound. Live bookings and compact sync history remain authoritative.
+    if str(os.environ.get("PMS_DISABLE_ICAL_ARCHIVE", "1") or "1").strip().lower() in ("1", "true", "yes", "on"):
+        state["icalEventArchive"] = []
+        return state
     state.setdefault("icalEventArchive", [])
     archive = {}
     for item in state.get("icalEventArchive", []):
@@ -6342,7 +6349,7 @@ def _pms_ical_archive_inspect_ical_diagnostics(payload, actor=None):
 
 _pms_external_event_storage_v1 = True
 
-_PMS_EXTERNAL_STATE_KEYS = ("icalEventArchive", "mailEvents", "icalSyncHistory")
+_PMS_EXTERNAL_STATE_KEYS = ("mailEvents", "icalSyncHistory")
 _PMS_EXTERNAL_SHARD_RAW_LIMIT = 360000
 _PMS_EXTERNAL_LAST_HASH = {}
 
@@ -6642,9 +6649,9 @@ _PMS_UI_STATE_CACHE_LOCK = threading.Lock()
 
 def _pms_ui_state_cache_ttl():
     try:
-        return max(0.0, float(os.environ.get("PMS_STATE_UI_CACHE_SECONDS", "12") or "12"))
+        return max(0.0, float(os.environ.get("PMS_STATE_UI_CACHE_SECONDS", "0") or "0"))
     except Exception:
-        return 12.0
+        return 0.0
 
 
 def _pms_ui_state_copy(state):
@@ -6760,6 +6767,15 @@ def _pms_run_scheduled_ical_sync():
     except Exception:
         traceback.print_exc()
     finally:
+        try:
+            _pms_ui_state_cache_clear()
+        except Exception:
+            pass
+        gc.collect()
+        try:
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except Exception:
+            pass
         _pms_ical_sync_lock.release()
 
 def _pms_queue_scheduled_ical_sync():
@@ -6832,8 +6848,33 @@ def _pms_start_mail_auto_sync():
             time.sleep(interval)
     threading.Thread(target=worker, daemon=True, name="pms-mail-auto-sync").start()
 
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+    block_on_close = False
+
+    def __init__(self, server_address, request_handler_class):
+        super().__init__(server_address, request_handler_class)
+        limit = max(2, min(int(os.environ.get("PMS_MAX_REQUEST_WORKERS", "6") or "6"), 24))
+        self._request_slots = threading.BoundedSemaphore(limit)
+
+    def process_request(self, request, client_address):
+        self._request_slots.acquire()
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._request_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._request_slots.release()
+
+
 if __name__ == "__main__":
-    _pms_start_ical_auto_sync()
+    # GitHub Actions is the only 15-minute iCal scheduler. A second loop inside
+    # Render could overlap a full sync and double the memory peak.
     _pms_start_mail_auto_sync()
     print(f"PMS Firebase REST backend started on port {PORT}")
-    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
+    BoundedThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

@@ -19,7 +19,7 @@ os.environ.setdefault("PMS_STATE_LOAD_EXTERNAL", "0")
 
 import app  # noqa: E402
 
-app.PMS_APP_VERSION = "2026-08-10-v110-memory-history-lite"
+app.PMS_APP_VERSION = "2026-08-10-v111-memory-safe-sync"
 
 # Keep only mail events in the normal external-state load path. Historical iCal
 # archive and the old full sync-history shards remain untouched in Firestore for
@@ -145,4 +145,4 @@ if __name__ == "__main__":
     # only scheduler, which avoids overlapping duplicate syncs.
     app._pms_start_mail_auto_sync()
     print(f"PMS memory-safe backend started on port {app.PORT}; version={app.PMS_APP_VERSION}")
-    app.ThreadingHTTPServer((app.HOST, app.PORT), app.Handler).serve_forever()
+    app.BoundedThreadingHTTPServer((app.HOST, app.PORT), app.Handler).serve_forever()
