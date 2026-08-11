@@ -1413,7 +1413,7 @@
       owner.appendChild(div);
     };
     pane('ownerDailyWork', `<div class="card"><h2>${esc(t('owner.daily.title'))}</h2><div class="toolbar"><span class="small">${esc(t('owner.daily.date'))}</span><input id="workDate" type="date" onchange="setWorkDate(this.value)"><button class="smallbtn primary" onclick="setWorkDateToday()">${esc(t('owner.daily.today'))}</button><button class="smallbtn" onclick="shiftWorkDate(1)">${esc(t('owner.daily.next'))}</button><button class="smallbtn" onclick="shiftWorkDate(-1)">${esc(t('owner.daily.prev'))}</button></div><div id="dailyWorkMetrics" class="grid"></div></div><div id="dailyWorkContent"></div>`);
-    pane('ownerCalendar', `<div class="card"><h2>${esc(t('owner.calendar.title'))}</h2><div class="toolbar"><span class="small">${esc(t('owner.calendar.sub'))}</span><button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">${esc(t('owner.calendar.range14'))}</button><button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">${esc(t('owner.calendar.range28'))}</button><input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()"><input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()"><span id="ownerRoomFilterSummary" class="badge blue"></span><button id="calendarVacancyOnlyBtn" class="smallbtn" onclick="toggleCalendarVacancyOnly()">${esc(t('owner.calendar.vacancyOnly'))}</button><span id="calendarVacancySummary" class="badge green"></span></div><div class="scroll"><div id="calendarGrid" class="timeline"></div></div></div><div class="card"><h2 id="futureStatsTitle">${esc(t('owner.calendar.currentStats'))}</h2><div id="sixMonthStats"></div></div><div class="card"><div class="toolbar"><strong id="futureBookingsTitle">${esc(t('owner.calendar.currentBookings'))}</strong><select id="platformFilter" onchange="renderOwnerBookings()"><option value="">${esc(t('owner.calendar.platformAll'))}</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>Other</option><option value="微信直订">${esc(t('owner.calendar.direct'))}</option></select><span id="bookingRoomFilterSummary" class="badge blue"></span></div><div id="ownerBookings"></div></div>`);
+    pane('ownerCalendar', `<div class="card"><h2>${esc(t('owner.calendar.title'))}</h2><div class="toolbar"><span class="small">${esc(t('owner.calendar.sub'))}</span><button class="smallbtn primary" data-range-preset="14" onclick="setRangePreset(14)">${esc(t('owner.calendar.range14'))}</button><button class="smallbtn" data-range-preset="28" onclick="setRangePreset(28)">${esc(t('owner.calendar.range28'))}</button><input id="rangeStart" type="date" onchange="refreshCalendarRangeViews()"><input id="rangeEnd" type="date" onchange="refreshCalendarRangeViews()"><span id="ownerRoomFilterSummary" class="badge blue"></span><button id="calendarVacancyOnlyBtn" class="smallbtn" onclick="toggleCalendarVacancyOnly()">${esc(t('owner.calendar.vacancyOnly'))}</button><span id="calendarVacancySummary" class="badge green"></span></div><div class="scroll"><div id="calendarGrid" class="timeline"></div></div></div><div class="card future-stats-card"><h2 id="futureStatsTitle">${esc(t('owner.calendar.currentStats'))}</h2><div id="sixMonthStats" class="future-stats-scroll" tabindex="0" aria-label="${esc(t('owner.calendar.currentStats'))}"></div></div><div class="card"><div class="toolbar"><strong id="futureBookingsTitle">${esc(t('owner.calendar.currentBookings'))}</strong><select id="platformFilter" onchange="renderOwnerBookings()"><option value="">${esc(t('owner.calendar.platformAll'))}</option><option>Airbnb</option><option>Booking</option><option>Vrbo</option><option>Other</option><option value="微信直订">${esc(t('owner.calendar.direct'))}</option></select><span id="bookingRoomFilterSummary" class="badge blue"></span></div><div id="ownerBookings"></div></div>`);
     pane('ownerCleaning', `<div id="ownerCleaningShell"></div>`);
     pane('ownerRooms', `<div id="roomSettingsUnifiedShell" class="room-settings-shell"><div id="roomSettings"></div></div>`);
     syncOwnerPaneLabels();
@@ -1703,6 +1703,10 @@
       .property-edit-actions .smallbtn{min-width:120px}
       .timezone-picker{max-width:260px}
       .scroll{overflow:auto;-webkit-overflow-scrolling:touch}
+      .future-stats-card{min-width:0;overflow:hidden}
+      .future-stats-scroll{display:block;width:100%;max-width:100%;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;touch-action:pan-x pan-y;padding-bottom:8px}
+      .future-stats-scroll table{width:max-content;min-width:760px;margin:0}
+      .future-stats-scroll th,.future-stats-scroll td{white-space:nowrap}
       #calendarGrid{display:grid;gap:6px;align-items:stretch;min-width:max-content;padding-bottom:4px}
       #calendarGrid .cell{position:relative;overflow:hidden;min-width:64px;min-height:54px;border:1px solid #d8e1ef;background:#fff;border-radius:8px;padding:6px;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:850;line-height:1.12;color:#0f172a}
       #calendarGrid .cell.head{background:#eaf1fb;font-weight:900;z-index:2}
@@ -1875,6 +1879,17 @@
         .tabbar button,.toolbar button,.toolbar .smallbtn{flex:0 0 auto;white-space:nowrap}
         .toolbar input,.toolbar select{flex:0 0 auto;max-width:150px}
         .toolbar>.small{display:none}
+        .scope-filter{padding:9px;gap:8px}
+        .scope-filter-head>.small,.scope-filter-head>div>.small{display:none}
+        .scope-chip-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:6px;width:100%}
+        .scope-chip{display:grid;grid-template-columns:18px minmax(0,1fr);align-items:center;gap:4px;width:100%;min-width:0;border-radius:8px;padding:7px 6px;font-size:12px;line-height:1.15}
+        .scope-chip>span:not(.prop-label){min-width:0;white-space:normal;overflow-wrap:anywhere}
+        .scope-chip .prop-label{grid-column:2;font-size:9px;white-space:normal;overflow-wrap:anywhere}
+        .scope-chip .smallbtn{display:none}
+        .future-stats-card{padding-left:10px!important;padding-right:10px!important}
+        .future-stats-scroll{margin-right:-2px;scrollbar-width:thin}
+        .future-stats-scroll table{min-width:720px;font-size:13px}
+        .future-stats-scroll th,.future-stats-scroll td{padding:8px 9px}
         #calendarGrid{gap:4px;padding-bottom:8px}
         #calendarGrid .cell{min-width:52px;min-height:38px;border-radius:7px;padding:4px;font-size:12px;line-height:1.05}
         #calendarGrid .cell.room{min-width:88px;max-width:88px;font-size:12px;line-height:1.15;box-shadow:4px 0 8px rgba(15,23,42,.10)}
@@ -4232,6 +4247,32 @@
       if(!res.ok || data.ok === false){
         const detail = data.detail ? `（${data.detail}${data.debug_id ? `，编号 ${data.debug_id}` : ''}）` : '';
         throw new Error((data.error || `iCal 同步失败：HTTP ${res.status}`) + detail);
+      }
+      if(res.status === 202 || data.queued){
+        ui.syncResults[resultKey] = {kind:'warn', text:'已提交后台同步，正在核验结果...'};
+        renderRoomSettingsImpl();
+        for(let attempt=0; attempt<30; attempt++){
+          await new Promise(resolve => setTimeout(resolve, attempt ? 3000 : 1500));
+          await loadStateImpl();
+          const refreshed = getChannels().filter(ch => roomIds.has(String(ch.room_id)));
+          const advanced = refreshed.filter(ch => ch.last_sync && String(ch.last_sync) !== beforeSync.get(String(ch.id || '')));
+          const failed = advanced.filter(ch => ch.sync_error);
+          if(advanced.length && !failed.length){
+            const imported = refreshed.reduce((n,ch) => n + Number(ch.synced_booking_count || 0), 0);
+            const seconds = Math.max(1, Math.round((Date.now() - started) / 1000));
+            ui.syncResults[resultKey] = {kind:'ok', text:`同步完成 ${seconds} 秒：导入 ${imported} 条`};
+            renderAll();
+            return {ok:true, background:true};
+          }
+          if(failed.length){
+            throw new Error(failed.map(ch => `${ch.channel_note || ch.platform || '渠道'}：${ch.sync_error}`).join('；'));
+          }
+          if(attempt && attempt % 5 === 0){
+            ui.syncResults[resultKey] = {kind:'warn', text:`后台同步中，已等待 ${Math.round((Date.now()-started)/1000)} 秒...`};
+            renderRoomSettingsImpl();
+          }
+        }
+        throw new Error('后台同步超过90秒仍未完成，请稍后刷新查看；系统不会重复提交');
       }
       applyStateFromServerImpl(data.state || data);
       const seconds = Math.max(1, Math.round((Date.now() - started) / 1000));

@@ -19,7 +19,7 @@ os.environ.setdefault("PMS_STATE_LOAD_EXTERNAL", "0")
 
 import app  # noqa: E402
 
-app.PMS_APP_VERSION = "2026-08-10-v112-ical-dedupe"
+app.PMS_APP_VERSION = "2026-08-11-v115-global-memory"
 
 # Keep only mail events in the normal external-state load path. Historical iCal
 # archive and the old full sync-history shards remain untouched in Firestore for
@@ -34,7 +34,9 @@ def _memory_safe_normalize_state(raw):
     # Live operation needs current bookings/channel state, not raw diagnostic
     # archives. Reset these on load so they cannot accumulate in the main state.
     state["icalEventArchive"] = []
-    state["icalSyncHistory"] = []
+    state["icalSyncHistory"] = [
+        item for item in state.get("icalSyncHistory", []) if isinstance(item, dict)
+    ][-40:]
     return state
 
 

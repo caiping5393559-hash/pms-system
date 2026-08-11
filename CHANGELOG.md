@@ -1,5 +1,17 @@
 # PMS Version History
 
+## 2026-08-11 · v115-global-memory
+
+Release identifier: `2026-08-11-v115-global-memory`
+
+- Runs the Render process with a single glibc allocation arena and actively returns memory after photo, state, mail, and iCal operations.
+- Removes persisted anti-overbooking feed copies, disables the zero-second UI cache's retained state copy, and keeps only 40 compact iCal sync summaries.
+- Stops loading the old external iCal history shards in normal application operations and lowers the default request concurrency from six to three.
+- Caps request bodies before reading them into memory while preserving the existing multi-photo single-request upload flow.
+- Changes manual room/property iCal sync to a single background job with up to 90 seconds of frontend result polling, preventing HTTP 502 errors and duplicate sync jobs.
+- Adds current and peak RSS plus thread count to `/api/health` for deployment verification.
+- Makes the mobile future-reservation statistics table horizontally touch-scrollable and compacts room-scope choices into a multi-column grid.
+
 ## 2026-08-10 · v114-stable-ical-schedule
 
 Release identifier: `2026-08-10-v114-stable-ical-schedule`

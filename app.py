@@ -1,3 +1,16 @@
+import os
+import sys
+
+# Render currently starts this file directly instead of using the Procfile.
+# Re-exec once with allocator limits in the process environment so glibc does
+# not retain multiple large arenas after photo/state requests finish.
+if __name__ == "__main__" and os.environ.get("PMS_MEMORY_BOOTSTRAPPED") != "1":
+    _pms_boot_env = dict(os.environ)
+    _pms_boot_env.setdefault("MALLOC_ARENA_MAX", "1")
+    _pms_boot_env.setdefault("PYTHONMALLOC", "malloc")
+    _pms_boot_env["PMS_MEMORY_BOOTSTRAPPED"] = "1"
+    os.execve(sys.executable, [sys.executable, *sys.argv], _pms_boot_env)
+
 from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from datetime import datetime, timedelta, date, timezone
@@ -11,7 +24,6 @@ import hashlib
 import hmac
 import json
 import mimetypes
-import os
 import re
 import secrets
 import traceback
@@ -22,7 +34,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-08-10-v114-stable-ical-schedule"
+PMS_APP_VERSION = "2026-08-11-v115-global-memory"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -62,6 +74,37 @@ STATE_KEYS = [
 ]
 TOKEN_CACHE = {"token": "", "expiry": 0}
 SERVICE_ACCOUNT_CACHE = None
+
+
+def pms_memory_stats():
+    """Return small, non-sensitive process memory diagnostics for health checks."""
+    result = {"threads": threading.active_count()}
+    try:
+        values = {}
+        with open("/proc/self/status", "r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith(("VmRSS:", "VmHWM:")):
+                    key, raw = line.split(":", 1)
+                    values[key] = int(raw.strip().split()[0]) / 1024.0
+        result["rss_mb"] = round(values.get("VmRSS", 0.0), 1)
+        result["peak_rss_mb"] = round(values.get("VmHWM", 0.0), 1)
+    except Exception:
+        pass
+    return result
+
+
+def _pms_release_memory():
+    try:
+        cache_clear = globals().get("_pms_ui_state_cache_clear")
+        if callable(cache_clear):
+            cache_clear()
+    except Exception:
+        pass
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
 
 
 def load_config():
@@ -1092,7 +1135,7 @@ def register_owner(payload):
     }
     state["users"].append(user)
     state["properties"].append({"id": property_id, "group_id": group_id, "name": "默认房源", "created_at": now_utc_iso()})
-    saved = save_state(state)
+    saved = save_main_state_only(state)
     return saved, public_user(user)
 
 def register_cleaner(payload):
@@ -1120,7 +1163,7 @@ def register_cleaner(payload):
         "created_at": now_utc_iso(),
     }
     state["users"].append(user)
-    saved = save_state(state)
+    saved = save_main_state_only(state)
     return saved, public_user(user)
 
 
@@ -1184,7 +1227,7 @@ def save_room(room_id, payload, actor=None):
         raise RuntimeError("room_id is required")
     if not isinstance(payload, dict):
         raise RuntimeError("room payload must be an object")
-    state = normalize_state(load_state())
+    state = normalize_state((actor or {}).get("_pms_loaded_state") or load_main_state())
     room = next((item for item in state["rooms"] if item.get("id") == room_id), None)
     if room is None:
         room = {"id": room_id, "type": "room"}
@@ -1207,7 +1250,7 @@ def save_room(room_id, payload, actor=None):
             room[field] = str(payload.get(field) or "")
     room["id"] = room_id
     room["type"] = "room"
-    saved = save_state(state)
+    saved = save_main_state_only(state)
     saved_room = next((item for item in saved["rooms"] if item.get("id") == room_id), room)
     return saved, saved_room
 
@@ -1218,7 +1261,7 @@ def save_property(property_id, payload, actor=None):
         raise RuntimeError("property_id is required")
     if not isinstance(payload, dict):
         raise RuntimeError("property payload must be an object")
-    state = normalize_state(load_state())
+    state = normalize_state((actor or {}).get("_pms_loaded_state") or load_main_state())
     requested_group_id = str(payload.get("group_id") or state.get("current_group_id") or DEFAULT_GROUP_ID)
     if actor and actor.get("role") != "admin":
         groups = sorted(user_group_ids(actor))
@@ -1244,7 +1287,7 @@ def save_property(property_id, payload, actor=None):
     prop["id"] = property_id
     prop["group_id"] = proposed_group_id
     prop["name"] = proposed_name
-    saved = save_state(state)
+    saved = save_main_state_only(state)
     saved_prop = next((item for item in saved["properties"] if item.get("id") == property_id), prop)
     return saved, saved_prop
 
@@ -1273,7 +1316,7 @@ def update_property_cleaner(payload, actor=None):
     ]
     if action not in ("unbind", "delete", "remove"):
         state["propertyCleaners"].append({"property_id": property_id, "cleaner_code": cleaner_code, "created_at": now_utc_iso()})
-    return save_state(state)
+    return save_main_state_only(state)
 
 
 def parse_query(path):
@@ -1351,6 +1394,9 @@ def save_main_state_only(state):
     compact_state = dict(normalize_state(state))
     for key in tuple(globals().get("_PMS_EXTERNAL_STATE_KEYS", ())):
         compact_state.pop(key, None)
+    feed_refresher = globals().get("_pms_channel_refresh_feed_cache")
+    if callable(feed_refresher):
+        compact_state = feed_refresher(compact_state)
     base_saver = globals().get("_pms_external_base_save_state")
     if callable(base_saver):
         return normalize_state(base_saver(compact_state))
@@ -2192,7 +2238,7 @@ class Handler(BaseHTTPRequestHandler):
                 json_response(self, {"ok": True, "version": PMS_APP_VERSION})
                 return
             if path == "/api/health":
-                json_response(self, {"ok": True, "firebase_project": firebase_project_id(), "driver": "firestore-rest"})
+                json_response(self, {"ok": True, "firebase_project": firebase_project_id(), "driver": "firestore-rest", "memory": pms_memory_stats()})
                 return
             if path == "/owner":
                 user = current_user(self)
@@ -2220,7 +2266,8 @@ class Handler(BaseHTTPRequestHandler):
                 user = require_user(self, ("admin", "owner", "cleaner"))
                 if not user:
                     return
-                json_response(self, pms_state_response_for_user(pms_load_state_for_ui(), user))
+                loaded_state = user.pop("_pms_loaded_state", None)
+                json_response(self, pms_state_response_for_user(loaded_state if isinstance(loaded_state, dict) else pms_load_state_for_ui(), user))
                 return
             if path.startswith("/feed/") and path.endswith(".ics"):
                 room_id = urllib.parse.unquote(path[len("/feed/") : -len(".ics")])
@@ -2237,10 +2284,16 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, {"ok": False, "error": traceback.format_exc()}, status=500)
 
     def do_POST(self):
+        path = ""
         try:
             parsed, _ = parse_query(self.path)
             path = parsed.path
-            raw = self.rfile.read(int(self.headers.get("Content-Length", "0") or "0"))
+            content_length = int(self.headers.get("Content-Length", "0") or "0")
+            max_body = 18 * 1024 * 1024 if path in ("/api/cleaning-photos", "/api/cleaning-photo") else 4 * 1024 * 1024
+            if content_length < 0 or content_length > max_body:
+                json_response(self, {"ok": False, "error": "请求内容过大，请减少照片数量或重新压缩后再上传"}, status=413)
+                return
+            raw = self.rfile.read(content_length)
             if path == "/api/cron/ical-sync":
                 try:
                     claims = _pms_require_github_cron_identity(self)
@@ -2481,13 +2534,17 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 payload = json.loads(raw.decode("utf-8") or "{}") if raw else {}
                 try:
-                    synced = sync_icals(
+                    trigger_status = _pms_queue_manual_ical_sync(
                         actor=user,
                         property_id=payload.get("property_id"),
                         room_id=payload.get("room_id"),
                         incoming_channels=payload.get("channelListings"),
                     )
-                    json_response(self, {"ok": True, "state": pms_state_response_for_user(synced, user)})
+                    json_response(
+                        self,
+                        {"ok": True, "queued": True, "sync": trigger_status, "version": PMS_APP_VERSION},
+                        status=202,
+                    )
                 except Exception as exc:
                     message = str(exc) or exc.__class__.__name__
                     debug_id = hashlib.sha1((message + str(time.time())).encode("utf-8")).hexdigest()[:10]
@@ -2505,6 +2562,12 @@ class Handler(BaseHTTPRequestHandler):
             text_response(self, "not found", status=404)
         except Exception:
             json_response(self, {"ok": False, "error": traceback.format_exc()}, status=500)
+        finally:
+            if path in {
+                "/api/cleaning-photos", "/api/cleaning-photo", "/api/sync",
+                "/api/mail-events/sync", "/api/mail-events/parse", "/api/state",
+            }:
+                _pms_release_memory()
 
     def serve_static(self, relative_path):
         relative_path = urllib.parse.unquote(relative_path or "index.html")
@@ -3161,12 +3224,12 @@ def _pms_channel_history_room(state, room_id):
 def _pms_channel_append_ical_history(state, listing, synced_at, status, events=None, raw_events=None, error="", warning="", inferred_events=None, missing_events=None):
     room = _pms_channel_history_room(state, listing.get("room_id"))
     url = _pms_channel_text(listing.get("ical_url"))
-    raw_events = raw_events if raw_events is not None else [_pms_channel_event_history_snapshot(item) for item in (events or [])]
-    inferred_events = [_pms_channel_event_history_snapshot(item) for item in (inferred_events or [])]
-    missing_events = [_pms_channel_event_history_snapshot(item) for item in (missing_events or [])]
+    count_rows = raw_events if raw_events else (events or [])
+    inferred_events = inferred_events or []
+    missing_events = missing_events or []
     archive_update = globals().get("_pms_ical_archive_update")
     if callable(archive_update):
-        archive_update(state, listing, synced_at, status, raw_events, error=error, warning=warning, missing_events=missing_events)
+        archive_update(state, listing, synced_at, status, raw_events or [], error=error, warning=warning, missing_events=missing_events)
     row = {
         "id": "icalhist_" + hashlib.sha1(("|".join([_pms_channel_text(listing.get("id")), synced_at, url])).encode("utf-8")).hexdigest()[:24],
         "synced_at": synced_at,
@@ -3178,20 +3241,17 @@ def _pms_channel_append_ical_history(state, listing, synced_at, status, events=N
         "channel_note": listing.get("channel_note") or "",
         "url_hash": hashlib.sha1(url.encode("utf-8")).hexdigest()[:16] if url else "",
         "status": status,
-        "event_count": len(raw_events),
-        "booking_count": sum(1 for item in raw_events if item.get("kind") != "lock"),
-        "lock_count": sum(1 for item in raw_events if item.get("kind") == "lock"),
+        "event_count": len(count_rows),
+        "booking_count": sum(1 for item in count_rows if isinstance(item, dict) and not (item.get("kind") == "lock" or item.get("booking_type") == "lock" or item.get("is_locked"))),
+        "lock_count": sum(1 for item in count_rows if isinstance(item, dict) and (item.get("kind") == "lock" or item.get("booking_type") == "lock" or item.get("is_locked"))),
         "inferred_lock_count": len(inferred_events),
         "missing_event_count": len(missing_events),
-        "events": raw_events[:120],
-        "inferred_events": inferred_events[:80],
-        "missing_events": missing_events[:80],
         "warning": warning or "",
         "error": error or "",
     }
     history = [item for item in state.get("icalSyncHistory", []) if isinstance(item, dict)]
     history.append(row)
-    state["icalSyncHistory"] = history[-600:]
+    state["icalSyncHistory"] = history[-40:]
     return row
 
 
@@ -3977,7 +4037,8 @@ def _pms_channel_sync_icals(actor=None, property_id=None, room_id=None, incoming
             continue
         try:
             raw_ical_text = fetch_text(url)
-            raw_events = _pms_channel_raw_event_snapshots(raw_ical_text, parse_listing)
+            archive_enabled = str(os.environ.get("PMS_DISABLE_ICAL_ARCHIVE", "1") or "1").strip().lower() not in ("1", "true", "yes", "on")
+            raw_events = _pms_channel_raw_event_snapshots(raw_ical_text, parse_listing) if archive_enabled else []
             imported = _pms_channel_parse_ics(raw_ical_text, parse_listing)
             listing["synced_booking_count"] = len(imported)
             imported_keys = {_pms_missing_event_key(item) for item in imported}
@@ -4174,30 +4235,10 @@ def _pms_channel_build_feed_from_state(state, feed_id, generated_at=""):
 
 
 def _pms_channel_refresh_feed_cache(state, generated_at=""):
+    # Feed text can always be rebuilt from bookings. Persisting one full ICS
+    # copy for every room and every channel inflated the main state by ~30%.
     state = normalize_state(state)
-    generated = generated_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
-    feed_ids = []
-    for listing in state.get("channelListings", []):
-        if isinstance(listing, dict) and listing.get("id"):
-            feed_ids.append(str(listing.get("id")))
-    for room in state.get("rooms", []):
-        if isinstance(room, dict) and room.get("id"):
-            feed_ids.append(str(room.get("id")))
-
-    cache = []
-    for feed_id in dict.fromkeys(feed_ids):
-        ics, meta = _pms_channel_build_feed_from_state(state, feed_id, generated)
-        if ics is None:
-            continue
-        cache.append({
-            "feed_id": feed_id,
-            "room_id": meta.get("room_id", ""),
-            "target_channel_id": meta.get("target_channel_id", ""),
-            "event_count": meta.get("event_count", 0),
-            "generated_at": generated,
-            "ics": ics,
-        })
-    state["icalFeedCache"] = cache
+    state["icalFeedCache"] = []
     return state
 
 
@@ -4349,14 +4390,14 @@ def _pms_mail_filter_state_for_user(state, actor):
 def save_mail_config_setting(payload, actor=None):
     if not actor or actor.get("role") != "admin":
         raise RuntimeError("admin permission required")
-    state = normalize_state(load_state())
+    state = normalize_state((actor or {}).get("_pms_loaded_state") or load_main_state())
     state["mailForwardingConfig"] = [_pms_mail_clean_config(payload if isinstance(payload, dict) else {})]
-    return save_state(state)
+    return save_main_state_only(state)
 
 
 def save_property_mail_setting(payload, actor=None):
     raw = dict(payload) if isinstance(payload, dict) else {}
-    state = normalize_state(load_state())
+    state = normalize_state((actor or {}).get("_pms_loaded_state") or load_main_state())
     property_id = _pms_mail_text(raw.get("property_id") or raw.get("propertyId"), 100)
     if not property_id:
         raise RuntimeError("property required")
@@ -4373,13 +4414,13 @@ def save_property_mail_setting(payload, actor=None):
     if raw.get("_delete") or raw.get("_clear"):
         by_property.pop(property_id, None)
         state["propertyMailForwarding"] = list(by_property.values())
-        return save_state(state), None
+        return save_main_state_only(state), None
     if not _pms_mail_text(raw.get("source_email") or raw.get("sourceEmail"), 240):
         raise RuntimeError("没有内容可保存：请先填写 Airbnb 通知邮箱；如果要删除绑定，请点清空。")
     clean = _pms_mail_clean_property_setting(raw, state)
     by_property[property_id] = clean
     state["propertyMailForwarding"] = list(by_property.values())
-    saved = save_state(state)
+    saved = save_main_state_only(state)
     saved_row = next(
         (item for item in saved.get("propertyMailForwarding", []) if isinstance(item, dict) and item.get("property_id") == property_id),
         clean,
@@ -6381,7 +6422,7 @@ def _pms_ical_archive_inspect_ical_diagnostics(payload, actor=None):
 
 _pms_external_event_storage_v1 = True
 
-_PMS_EXTERNAL_STATE_KEYS = ("mailEvents", "icalSyncHistory")
+_PMS_EXTERNAL_STATE_KEYS = ("mailEvents",)
 _PMS_EXTERNAL_SHARD_RAW_LIMIT = 360000
 _PMS_EXTERNAL_LAST_HASH = {}
 
@@ -6633,6 +6674,7 @@ def pms_state_response_for_user(state, actor):
     except Exception:
         pass
     normalized["icalEventArchive"] = []
+    normalized["icalFeedCache"] = []
     normalized["icalSyncHistory"] = _pms_ui_sync_history_summary(normalized.get("icalSyncHistory", []))
     filtered = filter_state_for_user(normalized, actor)
     if not isinstance(filtered, dict):
@@ -6660,6 +6702,7 @@ def pms_state_response_for_user(state, actor):
     # The UI never needs raw archived iCal fields. Keep them in Firestore for
     # diagnostics/sync logic, but do not ship them on every page load.
     filtered["icalEventArchive"] = []
+    filtered["icalFeedCache"] = []
     filtered["icalSyncHistory"] = _pms_ui_sync_history_summary(filtered.get("icalSyncHistory", []))
     return filtered
 
@@ -6708,6 +6751,9 @@ def _pms_ui_state_cache_get():
 
 def _pms_ui_state_cache_store(state):
     normalized = normalize_state(state)
+    if _pms_ui_state_cache_ttl() <= 0:
+        _pms_ui_state_cache_clear()
+        return normalized
     if not _pms_ui_state_data_count(normalized):
         return normalized
     with _PMS_UI_STATE_CACHE_LOCK:
@@ -6791,40 +6837,70 @@ _pms_ical_sync_lock = threading.Lock()
 _pms_ical_trigger_lock = threading.Lock()
 _pms_ical_last_external_trigger = 0.0
 
-def _pms_run_scheduled_ical_sync():
-    if not _pms_ical_sync_lock.acquire(blocking=False):
-        return
+def _pms_execute_locked_ical_sync(actor=None, property_id=None, room_id=None, incoming_channels=None):
     try:
-        sync_icals()
+        sync_icals(
+            actor=actor,
+            property_id=property_id,
+            room_id=room_id,
+            incoming_channels=incoming_channels,
+        )
     except Exception:
         traceback.print_exc()
     finally:
-        try:
-            _pms_ui_state_cache_clear()
-        except Exception:
-            pass
-        gc.collect()
-        try:
-            ctypes.CDLL("libc.so.6").malloc_trim(0)
-        except Exception:
-            pass
+        _pms_release_memory()
         _pms_ical_sync_lock.release()
+
+
+def _pms_start_ical_sync_thread(actor=None, property_id=None, room_id=None, incoming_channels=None):
+    if not _pms_ical_sync_lock.acquire(blocking=False):
+        return "already_running"
+    clean_actor = None
+    if isinstance(actor, dict):
+        clean_actor = {key: value for key, value in actor.items() if not str(key).startswith("_pms_")}
+    try:
+        threading.Thread(
+            target=_pms_execute_locked_ical_sync,
+            kwargs={
+                "actor": clean_actor,
+                "property_id": property_id,
+                "room_id": room_id,
+                "incoming_channels": incoming_channels,
+            },
+            daemon=True,
+            name="pms-ical-sync",
+        ).start()
+    except Exception:
+        _pms_ical_sync_lock.release()
+        raise
+    return "queued"
+
+
+def _pms_run_scheduled_ical_sync():
+    if not _pms_ical_sync_lock.acquire(blocking=False):
+        return
+    _pms_execute_locked_ical_sync()
+
+
+def _pms_queue_manual_ical_sync(actor=None, property_id=None, room_id=None, incoming_channels=None):
+    return _pms_start_ical_sync_thread(
+        actor=actor,
+        property_id=property_id,
+        room_id=room_id,
+        incoming_channels=incoming_channels,
+    )
+
 
 def _pms_queue_scheduled_ical_sync():
     global _pms_ical_last_external_trigger
     with _pms_ical_trigger_lock:
         now = time.monotonic()
-        if _pms_ical_sync_lock.locked():
-            return "already_running"
         if _pms_ical_last_external_trigger and now - _pms_ical_last_external_trigger < 300:
             return "recently_triggered"
-        _pms_ical_last_external_trigger = now
-        threading.Thread(
-            target=_pms_run_scheduled_ical_sync,
-            daemon=True,
-            name="pms-ical-external-sync",
-        ).start()
-        return "queued"
+        status = _pms_start_ical_sync_thread()
+        if status == "queued":
+            _pms_ical_last_external_trigger = now
+        return status
 
 def _pms_start_ical_auto_sync():
     enabled = str(os.environ.get("PMS_ICAL_AUTO_SYNC_ENABLED", "1")).strip().lower() in ("1", "true", "yes", "on")
@@ -6855,7 +6931,7 @@ def _pms_run_scheduled_mail_sync():
         if not _pms_gmail_enabled():
             return
         days = max(1, min(int(os.environ.get("PMS_MAIL_SYNC_DAYS", "3")), 30))
-        max_results = max(1, min(int(os.environ.get("PMS_MAIL_SYNC_MAX_RESULTS", "25")), 50))
+        max_results = max(1, min(int(os.environ.get("PMS_MAIL_SYNC_MAX_RESULTS", "15")), 30))
         sync_gmail_mail_events(
             {"days": days, "max_results": max_results},
             actor={"id": "system", "username": "system-auto", "role": "admin"},
@@ -6863,6 +6939,7 @@ def _pms_run_scheduled_mail_sync():
     except Exception:
         traceback.print_exc()
     finally:
+        _pms_release_memory()
         _pms_mail_sync_lock.release()
 
 def _pms_start_mail_auto_sync():
@@ -6886,7 +6963,7 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
 
     def __init__(self, server_address, request_handler_class):
         super().__init__(server_address, request_handler_class)
-        limit = max(2, min(int(os.environ.get("PMS_MAX_REQUEST_WORKERS", "6") or "6"), 24))
+        limit = max(2, min(int(os.environ.get("PMS_MAX_REQUEST_WORKERS", "3") or "3"), 12))
         self._request_slots = threading.BoundedSemaphore(limit)
 
     def process_request(self, request, client_address):
