@@ -1,5 +1,13 @@
 # PMS Version History
 
+## 2026-08-11 · v116-split-availability
+
+Release identifier: `2026-08-11-v116-split-availability`
+
+- Splits selected-range availability into past unbooked nights and future available nights.
+- Treats dates before today as past and today onward as future; blocked nights are excluded from both columns.
+- Adds separate per-room and summary totals in Chinese, English, and Spanish while keeping occupancy based on the full selected range.
+
 ## 2026-08-11 · v115-global-memory
 
 Release identifier: `2026-08-11-v115-global-memory`

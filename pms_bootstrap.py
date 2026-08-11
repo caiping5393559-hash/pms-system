@@ -19,7 +19,7 @@ os.environ.setdefault("PMS_STATE_LOAD_EXTERNAL", "0")
 
 import app  # noqa: E402
 
-app.PMS_APP_VERSION = "2026-08-11-v115-global-memory"
+app.PMS_APP_VERSION = "2026-08-11-v116-split-availability"
 
 # Keep only mail events in the normal external-state load path. Historical iCal
 # archive and the old full sync-history shards remain untouched in Firestore for
