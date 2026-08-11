@@ -1,5 +1,12 @@
 # PMS Version History
 
+## 2026-08-10 · v112-ical-dedupe
+
+Release identifier: `2026-08-10-v112-ical-dedupe`
+
+- Removes an archived booking copy when the same channel returns the same stay again.
+- Prefers the live iCal record over the restored historical record so occupancy and cleaning statistics count the stay once.
+
 ## 2026-08-10 · v111-memory-safe-sync
 
 Release identifier: `2026-08-10-v111-memory-safe-sync`

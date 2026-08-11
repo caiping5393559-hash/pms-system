@@ -22,7 +22,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-08-10-v111-memory-safe-sync"
+PMS_APP_VERSION = "2026-08-10-v112-ical-dedupe"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -3823,6 +3823,33 @@ def _pms_channel_restore_historical_archive_bookings(state, successful_listing_i
     return restored
 
 
+def _pms_channel_dedupe_bookings(rows):
+    """Remove an archived copy when the current iCal returns the same stay."""
+    result = []
+    positions = {}
+    for item in rows or []:
+        if not isinstance(item, dict) or item.get("source") != "ical":
+            result.append(item)
+            continue
+        kind = item.get("booking_type") or ("lock" if item.get("is_locked") else "booking")
+        key = (
+            str(item.get("room_id") or ""),
+            str(item.get("channel_listing_id") or ""),
+            str(item.get("checkin") or ""),
+            str(item.get("checkout") or ""),
+            str(kind),
+        )
+        if key not in positions:
+            positions[key] = len(result)
+            result.append(item)
+            continue
+        old_index = positions[key]
+        old = result[old_index]
+        if old.get("restored_from_archive") and not item.get("restored_from_archive"):
+            result[old_index] = item
+    return result
+
+
 def _pms_channel_sync_room_ids(state, allowed_property_ids, room_id=None):
     allowed_room_ids = {
         room.get("id") for room in state.get("rooms", [])
@@ -4030,6 +4057,7 @@ def _pms_channel_sync_icals(actor=None, property_id=None, room_id=None, incoming
         ]
         new_bookings.extend(_pms_channel_restore_historical_archive_bookings(state, successful_listing_ids, successful_room_ids, today))
         state["bookings"].extend(new_bookings)
+        state["bookings"] = _pms_channel_dedupe_bookings(state.get("bookings", []))
     state["sync_errors"] = sync_errors
     state["last_sync"] = now
     state = _pms_channel_refresh_feed_cache(state, now)
