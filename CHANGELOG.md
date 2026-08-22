@@ -1,5 +1,14 @@
 # PMS Version History
 
+## 2026-08-21 · v117-reliable-ical-sync
+
+Release identifier: `2026-08-21-v117-reliable-ical-sync`
+
+- Makes the authenticated GitHub scheduler wait until every iCal feed is fetched and the Firestore update is saved before reporting success.
+- Fails the scheduler when any channel reports an error instead of returning a false green result from a queued background job.
+- Automatically performs a catch-up sync when a user opens PMS and the saved calendar is more than 20 minutes old.
+- Keeps the last saved state visible if a catch-up attempt fails, so a provider outage does not block the rest of PMS.
+
 ## 2026-08-11 · v116-split-availability
 
 Release identifier: `2026-08-11-v116-split-availability`

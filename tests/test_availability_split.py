@@ -16,8 +16,9 @@ class AvailabilitySplitTests(unittest.TestCase):
         self.assertNotIn("owner.table.availableNights", source)
 
     def test_release_identifier_is_consistent(self):
-        version = "2026-08-11-v116-split-availability"
-        self.assertIn(version, (ROOT / "app.py").read_text(encoding="utf-8"))
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        marker = 'PMS_APP_VERSION = "'
+        version = app_source.split(marker, 1)[1].split('"', 1)[0]
         self.assertIn(version, (ROOT / "pms_bootstrap.py").read_text(encoding="utf-8"))
         self.assertIn(version, (ROOT / "static" / "index.html").read_text(encoding="utf-8"))
 

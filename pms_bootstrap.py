@@ -19,7 +19,7 @@ os.environ.setdefault("PMS_STATE_LOAD_EXTERNAL", "0")
 
 import app  # noqa: E402
 
-app.PMS_APP_VERSION = "2026-08-11-v116-split-availability"
+app.PMS_APP_VERSION = "2026-08-21-v117-reliable-ical-sync"
 
 # Keep only mail events in the normal external-state load path. Historical iCal
 # archive and the old full sync-history shards remain untouched in Firestore for
@@ -115,16 +115,17 @@ def _release_memory():
         pass
 
 
-def _memory_safe_scheduled_ical_sync():
-    if not app._pms_ical_sync_lock.acquire(blocking=False):
-        return
+_base_scheduled_ical_sync = app._pms_run_scheduled_ical_sync
+
+
+def _memory_safe_scheduled_ical_sync(wait_timeout=150, skip_if_fresh_seconds=0):
     try:
-        app.sync_icals()
-    except Exception:
-        traceback.print_exc()
+        return _base_scheduled_ical_sync(
+            wait_timeout=wait_timeout,
+            skip_if_fresh_seconds=skip_if_fresh_seconds,
+        )
     finally:
         _release_memory()
-        app._pms_ical_sync_lock.release()
 
 
 app._pms_run_scheduled_ical_sync = _memory_safe_scheduled_ical_sync
