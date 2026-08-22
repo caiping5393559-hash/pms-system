@@ -34,7 +34,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-08-11-v116-split-availability"
+PMS_APP_VERSION = "2026-08-21-v117-reliable-ical-sync"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -2267,7 +2267,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not user:
                     return
                 loaded_state = user.pop("_pms_loaded_state", None)
-                json_response(self, pms_state_response_for_user(loaded_state if isinstance(loaded_state, dict) else pms_load_state_for_ui(), user))
+                loaded_state = loaded_state if isinstance(loaded_state, dict) else pms_load_state_for_ui()
+                loaded_state = _pms_refresh_stale_ical_state(loaded_state)
+                json_response(self, pms_state_response_for_user(loaded_state, user))
                 return
             if path.startswith("/feed/") and path.endswith(".ics"):
                 room_id = urllib.parse.unquote(path[len("/feed/") : -len(".ics")])
@@ -2301,16 +2303,23 @@ class Handler(BaseHTTPRequestHandler):
                     print(f"Rejected scheduled iCal sync request: {exc}")
                     json_response(self, {"ok": False, "error": "unauthorized"}, status=401)
                     return
-                trigger_status = _pms_queue_scheduled_ical_sync()
+                # Do not acknowledge the scheduler until every iCal feed has
+                # been fetched and the resulting state has been written.  The
+                # old background queue returned HTTP 202 before Firestore was
+                # updated, so GitHub Actions could be green even if Render
+                # restarted or the background sync failed moments later.
+                sync_result = _pms_run_scheduled_ical_sync(wait_timeout=150)
                 json_response(
                     self,
                     {
                         "ok": True,
                         "version": PMS_APP_VERSION,
-                        "sync": trigger_status,
+                        "sync": sync_result.get("status"),
+                        "last_sync": sync_result.get("last_sync"),
+                        "channel_count": sync_result.get("channel_count", 0),
                         "run_id": str(claims.get("run_id") or ""),
                     },
-                    status=202,
+                    status=200,
                 )
                 return
             if path == "/api/login":
@@ -6876,10 +6885,71 @@ def _pms_start_ical_sync_thread(actor=None, property_id=None, room_id=None, inco
     return "queued"
 
 
-def _pms_run_scheduled_ical_sync():
-    if not _pms_ical_sync_lock.acquire(blocking=False):
-        return
-    _pms_execute_locked_ical_sync()
+def _pms_ical_sync_age_seconds(state, now=None):
+    value = str((state or {}).get("last_sync") or "").strip()
+    if not value:
+        return float("inf")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        return max(0.0, (current.astimezone(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds())
+    except Exception:
+        return float("inf")
+
+
+def _pms_ical_sync_is_stale(state, max_age_seconds=None, now=None):
+    if max_age_seconds is None:
+        max_age_seconds = int(os.environ.get("PMS_ICAL_STALE_SECONDS", "1200") or "1200")
+    return _pms_ical_sync_age_seconds(state, now=now) > max(60, int(max_age_seconds))
+
+
+def _pms_ical_sync_result(state, status="completed"):
+    errors = [item for item in (state or {}).get("sync_errors", []) if isinstance(item, dict)]
+    if errors:
+        details = "; ".join(str(item.get("error") or "unknown iCal error") for item in errors[:3])
+        raise RuntimeError(f"iCal sync completed with {len(errors)} channel error(s): {details}")
+    channels = [item for item in (state or {}).get("channelListings", []) if isinstance(item, dict) and item.get("ical_url")]
+    return {
+        "status": status,
+        "last_sync": str((state or {}).get("last_sync") or ""),
+        "channel_count": len(channels),
+    }
+
+
+def _pms_run_scheduled_ical_sync(wait_timeout=150, skip_if_fresh_seconds=0):
+    acquired = _pms_ical_sync_lock.acquire(timeout=max(0.0, float(wait_timeout or 0)))
+    if not acquired:
+        raise RuntimeError("iCal sync lock timed out before the previous sync completed")
+    try:
+        if skip_if_fresh_seconds:
+            current = normalize_state(load_main_state())
+            if not _pms_ical_sync_is_stale(current, skip_if_fresh_seconds):
+                return _pms_ical_sync_result(current, status="fresh")
+        saved = sync_icals()
+        return _pms_ical_sync_result(saved, status="completed")
+    finally:
+        _pms_release_memory()
+        _pms_ical_sync_lock.release()
+
+
+def _pms_refresh_stale_ical_state(state):
+    max_age = int(os.environ.get("PMS_ICAL_STALE_SECONDS", "1200") or "1200")
+    if not _pms_ical_sync_is_stale(state, max_age):
+        return state
+    try:
+        _pms_run_scheduled_ical_sync(wait_timeout=150, skip_if_fresh_seconds=max_age)
+        _pms_ui_state_cache_clear()
+        return normalize_state(load_main_state())
+    except Exception:
+        # A stale calendar must not make the whole PMS unusable.  Keep showing
+        # the last saved state while recording the failure in Render logs; the
+        # authenticated scheduler will also fail visibly and retry later.
+        traceback.print_exc()
+        return state
 
 
 def _pms_queue_manual_ical_sync(actor=None, property_id=None, room_id=None, incoming_channels=None):

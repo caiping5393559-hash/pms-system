@@ -45,9 +45,16 @@ jobs:
             | jq -er '.value'
           )"
 
-          curl --fail-with-body --silent --show-error \
+          SYNC_RESPONSE="$(curl --fail-with-body --silent --show-error \
             --retry 6 --retry-all-errors --retry-delay 10 --retry-max-time 300 \
-            --connect-timeout 30 --max-time 180 \
+            --connect-timeout 30 --max-time 240 \
             --request POST \
             --header "Authorization: Bearer ${OIDC_TOKEN}" \
-            "${PMS_SYNC_URL}"
+            "${PMS_SYNC_URL}")"
+
+          echo "${SYNC_RESPONSE}" | jq -e '
+            .ok == true
+            and .sync == "completed"
+            and (.last_sync | type == "string" and length > 0)
+            and (.channel_count | type == "number" and . > 0)
+          '
