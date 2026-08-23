@@ -1,5 +1,14 @@
 # PMS Version History
 
+## 2026-08-22 · v118-physical-room-inventory
+
+Release identifier: `2026-08-22-v118-physical-room-inventory`
+
+- Treats multiple Airbnb listing links for one real room as one physical inventory unit.
+- Automatically recognizes `新房间1` as the same inventory as `房间1` when both exist, preventing the daily board from showing the same real room as occupied and vacant at once.
+- Deduplicates physical rooms in daily status, future calendar, and reservation statistics while retaining every channel source.
+- Adds a room setting that explicitly links differently named listings to an existing physical room for future cases.
+
 ## 2026-08-21 · v117-reliable-ical-sync
 
 Release identifier: `2026-08-21-v117-reliable-ical-sync`

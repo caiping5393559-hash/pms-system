@@ -751,13 +751,35 @@
     ui.selectedRoomIds = Array.from(new Set((ids || []).map(String).filter(id => valid.has(id))));
     if(!ui.selectedRoomIds.length) ui.selectedRoomIds = Array.from(valid);
   }
-  function roomMatches(roomId){return propMatches(roomPropId(roomId)) && ownerRoomEntityIds().has(roomEntityId(roomId));}
+  function roomEntityMatchesPropertyScope(entityId){
+    return getRooms().some(room => inventoryGroupId(room) === String(entityId || '') && propMatches(roomPropId(room.id)));
+  }
+  function roomMatches(roomId){
+    const entity = roomEntityId(roomId);
+    return roomEntityMatchesPropertyScope(entity) && ownerRoomEntityIds().has(entity);
+  }
   function targetMatches(targetId,type){
     const kind = type === 'common' ? 'common' : 'room';
     if(!propMatches(targetPropId(targetId,kind))) return false;
     return kind === 'common' ? true : roomMatches(targetId);
   }
-  function ownerRooms(){return getRooms().filter(r => roomMatches(r.id));}
+  function roomDisplayPriority(room){
+    const name = String((room && room.name) || '').replace(/\s+/g,'');
+    const entity = inventoryGroupId(room);
+    if(String(room && room.id) === entity) return 0;
+    if(!/^新房间/i.test(name)) return 1;
+    return 2;
+  }
+  function ownerRooms(){
+    const scoped = getRooms().filter(r => roomMatches(r.id) && propMatches(roomPropId(r.id)));
+    const byEntity = new Map();
+    scoped.forEach(room => {
+      const entity = inventoryGroupId(room);
+      const current = byEntity.get(entity);
+      if(!current || roomDisplayPriority(room) < roomDisplayPriority(current)) byEntity.set(entity, room);
+    });
+    return Array.from(byEntity.values());
+  }
   function ownerAreas(){return getAreas().filter(a => targetMatches(a.id,'common'));}
   function selectedProp(){
     const id = ui.selectedPropertyId;
@@ -2037,12 +2059,39 @@
     return add ? (currentLanguage() === 'zh-CN' ? '额外增加' : (currentLanguage() === 'es-ES' ? 'Agregar limpieza' : 'Extra cleaning')) : (currentLanguage() === 'zh-CN' ? '取消保洁' : (currentLanguage() === 'es-ES' ? 'Cancelar limpieza' : 'Cancel cleaning'));
   }
 
+  function inferredInventoryGroupId(room){
+    if(!room || !room.id) return '';
+    const compact = String(room.name || '').trim().replace(/\s+/g,'');
+    const match = compact.match(/^新(房间[0-9a-z]+)$/i);
+    if(!match) return String(room.id);
+    const baseName = match[1].toLowerCase();
+    const base = getRooms().find(candidate => candidate && String(candidate.id) !== String(room.id) && String(candidate.name || '').trim().replace(/\s+/g,'').toLowerCase() === baseName);
+    if(!base) return String(room.id);
+    return String(base.inventory_group_id || base.inventoryGroupId || base.id || room.id);
+  }
   function inventoryGroupId(room){
-    return String((room && (room.inventory_group_id || room.inventoryGroupId)) || (room && room.id) || '');
+    const explicit = room && (room.inventory_group_id || room.inventoryGroupId);
+    return String(explicit || inferredInventoryGroupId(room) || (room && room.id) || '');
   }
   function roomEntityId(roomId){
     const room = getRooms().find(r => String(r.id) === String(roomId));
     return inventoryGroupId(room || {id: roomId});
+  }
+  function physicalRoomOptions(room){
+    const selected = inventoryGroupId(room);
+    const rows = getRooms().filter(candidate => candidate && String(candidate.id) !== String(room.id));
+    const independent = String(room.id) === selected ? ' selected' : '';
+    return `<option value=""${independent}>独立物理房间</option>` + rows.map(candidate => {
+      const entity = inventoryGroupId(candidate);
+      const isSelected = entity === selected && String(room.id) !== selected;
+      return `<option value="${esc(entity)}" ${isSelected?'selected':''}>与 ${esc(propName(roomPropId(candidate.id)))} · ${esc(candidate.name || candidate.id)} 共用库存</option>`;
+    }).join('');
+  }
+  function physicalRoomSummary(room){
+    const entity = inventoryGroupId(room);
+    if(!entity || entity === String(room.id)) return '独立物理房间';
+    const base = getRooms().find(candidate => String(candidate.id) === entity) || getRooms().find(candidate => inventoryGroupId(candidate) === entity && String(candidate.id) !== String(room.id));
+    return `与 ${base ? roomName(base.id) : entity} 共用库存`;
   }
   function isLockedBooking(b){
     if(!b) return false;
@@ -3746,8 +3795,8 @@
     const editing = ui.editingRoom === room.id;
     const channels = channelRows(room.id);
     const roomHead = editing
-      ? `<div class="room-basics"><div><label>房间名称</label><input id="roomName_${safe(room.id)}" value="${esc(room.name || '')}"></div><div><label>单次保洁费</label><input id="roomFee_${safe(room.id)}" type="number" value="${esc(room.cleaning_fee || 0)}"></div><div><label>卫生间</label><select id="roomBathroom_${safe(room.id)}">${roomBathroomOptions(room.bathroom_type || 'private')}</select></div><div><label>房间厨房</label><div class="check-grid"><label><input id="roomKitchen_${safe(room.id)}" type="checkbox" ${roomHasKitchen(room) ? 'checked' : ''}> 房间内有厨房/小厨房</label></div><div class="small">默认不选；不选时房间保洁不包含厨房打扫。</div></div><div><label>房间独有电器</label>${roomApplianceCheckboxes(room)}<div class="small">默认不选；只有勾选后才会生成家电细节清洁任务。</div></div><div class="property-actions"><button class="smallbtn primary" onclick="saveRoomBasics('${esc(room.id)}',this)">保存</button><button class="smallbtn" onclick="cancelRoomBasics()">取消</button></div></div>`
-      : `<div><strong>${esc(room.name || room.id)}</strong><div class="small">清洁费：${money(room.cleaning_fee || 0)} · ${roomBathroomLabel(room)} · ${roomKitchenLabel(room)} · 电器：${esc(roomApplianceLabel(room))} · ${channels.length} 个渠道</div></div><div class="property-actions"><button class="smallbtn" onclick="editRoomBasics('${esc(room.id)}')">修改</button><button class="smallbtn" onclick="deleteRoomUi('${esc(room.id)}',this)">删除</button></div>`;
+      ? `<div class="room-basics"><div><label>房间名称</label><input id="roomName_${safe(room.id)}" value="${esc(room.name || '')}"></div><div><label>单次保洁费</label><input id="roomFee_${safe(room.id)}" type="number" value="${esc(room.cleaning_fee || 0)}"></div><div><label>物理房间库存</label><select id="roomInventory_${safe(room.id)}">${physicalRoomOptions(room)}</select><div class="small">同一物理房间的多个上架链接只占一个库存；订单会合并计算。</div></div><div><label>卫生间</label><select id="roomBathroom_${safe(room.id)}">${roomBathroomOptions(room.bathroom_type || 'private')}</select></div><div><label>房间厨房</label><div class="check-grid"><label><input id="roomKitchen_${safe(room.id)}" type="checkbox" ${roomHasKitchen(room) ? 'checked' : ''}> 房间内有厨房/小厨房</label></div><div class="small">默认不选；不选时房间保洁不包含厨房打扫。</div></div><div><label>房间独有电器</label>${roomApplianceCheckboxes(room)}<div class="small">默认不选；只有勾选后才会生成家电细节清洁任务。</div></div><div class="property-actions"><button class="smallbtn primary" onclick="saveRoomBasics('${esc(room.id)}',this)">保存</button><button class="smallbtn" onclick="cancelRoomBasics()">取消</button></div></div>`
+      : `<div><strong>${esc(room.name || room.id)}</strong><div class="small">清洁费：${money(room.cleaning_fee || 0)} · ${esc(physicalRoomSummary(room))} · ${roomBathroomLabel(room)} · ${roomKitchenLabel(room)} · 电器：${esc(roomApplianceLabel(room))} · ${channels.length} 个渠道</div></div><div class="property-actions"><button class="smallbtn" onclick="editRoomBasics('${esc(room.id)}')">修改</button><button class="smallbtn" onclick="deleteRoomUi('${esc(room.id)}',this)">删除</button></div>`;
     const sync = ui.syncResults['room:' + room.id];
     return `<div class="room-setting-card"><div class="room-head">${roomHead}</div><div class="property-subcard"><div class="property-detail-head"><div><h3 style="margin:0">渠道 / iCal</h3><div class="small">同一个真实房间只建一次；多个 Airbnb 账号或平台都作为渠道挂在这里。</div></div><div class="property-actions"><button class="smallbtn" onclick="syncRoomIcal('${esc(room.id)}',this)">同步本房间 iCal</button><button class="smallbtn primary" onclick="addChannelListing('${esc(room.id)}',this)">添加渠道</button>${sync?`<span class="sync-status ${sync.kind || ''}">${esc(sync.text || '')}</span>`:''}</div></div><div class="channel-list">${channels.length ? channels.map(ch => renderChannel(room,ch)).join('') : '<div class="empty-panel">还没有渠道。点击“添加渠道”后粘贴 Airbnb/平台导出的 iCal。</div>'}</div></div></div>`;
   }
@@ -4450,6 +4499,11 @@
       if(roomNameExists(propId,name,id)) return alert('同一个房源里不能有相同房间名。请换一个房间名。');
       room.name = name;
       room.cleaning_fee = Number((qs('roomFee_' + safe(id)) && qs('roomFee_' + safe(id)).value) || 0);
+      const inventoryInput = qs('roomInventory_' + safe(id));
+      const inventoryTarget = String((inventoryInput && inventoryInput.value) || '').trim();
+      // Store the room's own id when the owner explicitly chooses independent;
+      // this overrides the conservative 新房间1 -> 房间1 compatibility inference.
+      room.inventory_group_id = inventoryTarget && inventoryTarget !== String(id) ? roomEntityId(inventoryTarget) : String(id);
       room.bathroom_type = (qs('roomBathroom_' + safe(id)) && qs('roomBathroom_' + safe(id)).value) || room.bathroom_type || 'private';
       room.has_kitchen = readRoomHasKitchen(id);
       room.appliances = readRoomAppliances(id);
