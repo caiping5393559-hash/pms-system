@@ -1743,16 +1743,19 @@
       #calendarGrid .cell.head.weekend-sun{background:#fff7ed!important;color:#9a3412!important;border-color:#fb923c!important}
       #calendarGrid .cell.weekend{outline:2px solid #f59e0b!important;outline-offset:-2px}
       #calendarGrid .cell.weekend-sun{outline-color:#f97316!important}
-      #calendarGrid .cell.checkout-only,#calendarGrid .cell.checkin-only,#calendarGrid .cell.turnover{background:#fff!important;border-color:#5eead4!important;color:#0f766e!important}
-      #calendarGrid .cell.stay-only{display:flex;align-items:center;justify-content:center;background:#ccfbf1!important;border-color:#5eead4!important;color:#0f766e!important;text-align:center}
+      #calendarGrid .cell.checkout-only,#calendarGrid .cell.checkin-only,#calendarGrid .cell.turnover{background:#fff!important;border-color:var(--booking-border,#5eead4)!important;color:var(--booking-text,#0f766e)!important}
+      #calendarGrid .cell.stay-only{display:flex;align-items:center;justify-content:center;background:var(--booking-bg,#ccfbf1)!important;border-color:var(--booking-border,#5eead4)!important;color:var(--booking-text,#0f766e)!important;text-align:center}
       #calendarGrid .cell.checkout-only:before,#calendarGrid .cell.checkin-only:before{content:"";position:absolute;inset:0;z-index:0}
-      #calendarGrid .cell.checkout-only:before{background:linear-gradient(to bottom right,#ccfbf1 0 calc(50% - 1px),transparent calc(50% + 1px) 100%)}
-      #calendarGrid .cell.checkin-only:before{background:linear-gradient(to bottom right,transparent 0 calc(50% - 1px),#ccfbf1 calc(50% + 1px) 100%)}
-      #calendarGrid .cell.turnover{background:#ccfbf1!important;border-color:#14b8a6!important}
-      #calendarGrid .cell.checkout-only:after,#calendarGrid .cell.checkin-only:after,#calendarGrid .cell.turnover:after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom right,transparent 0 calc(50% - 1.2px),#0f766e calc(50% - 1.2px) calc(50% + 1.2px),transparent calc(50% + 1.2px));opacity:.82;z-index:1}
+      #calendarGrid .cell.checkout-only:before{background:linear-gradient(to bottom right,var(--booking-bg,#ccfbf1) 0 calc(50% - 1px),transparent calc(50% + 1px) 100%)}
+      #calendarGrid .cell.checkin-only:before{background:linear-gradient(to bottom right,transparent 0 calc(50% - 1px),var(--booking-bg,#ccfbf1) calc(50% + 1px) 100%)}
+      #calendarGrid .cell.turnover{background:linear-gradient(to bottom right,var(--checkout-bg,#ccfbf1) 0 calc(50% - 1px),var(--checkin-bg,#dbeafe) calc(50% + 1px) 100%)!important;border-color:#64748b!important}
+      #calendarGrid .cell.checkout-only:after,#calendarGrid .cell.checkin-only:after,#calendarGrid .cell.turnover:after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom right,transparent 0 calc(50% - 1.2px),#334155 calc(50% - 1.2px) calc(50% + 1.2px),transparent calc(50% + 1.2px));opacity:.78;z-index:1}
       #calendarGrid .cell.locked{display:flex;align-items:center;justify-content:center;text-align:center;background:#fff1f2!important;border-color:#fda4af!important;color:#9f1239!important;font-weight:900}
       #calendarGrid.vacancy-only .cell.hidden-occupied{outline:none!important;border-color:#e2e8f0!important;background:#fff!important}
-      #calendarGrid .cell .cell-platform{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:900;position:relative;z-index:2}
+      #calendarGrid .cell .cell-platform{display:-webkit-box;max-width:100%;white-space:normal;overflow:hidden;text-overflow:ellipsis;-webkit-box-orient:vertical;-webkit-line-clamp:2;font-size:11px;line-height:1.05;font-weight:900;position:relative;z-index:2}
+      #calendarGrid .cell .split-channel-label{position:absolute;display:block;width:58%;font-size:9px;line-height:1.05;font-weight:900;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;z-index:2}
+      #calendarGrid .cell .split-channel-label.checkout{left:4px;top:5px;text-align:left;color:var(--checkout-text,var(--booking-text,#0f766e))}
+      #calendarGrid .cell .split-channel-label.checkin{right:4px;bottom:5px;text-align:right;color:var(--checkin-text,var(--booking-text,#0f766e))}
       .weekend-label{display:block;font-size:11px;font-weight:900;line-height:1.1;margin-top:2px;color:#b45309}
       .work-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important}
       .work-card h3{white-space:normal!important}
@@ -2117,13 +2120,14 @@
       if(!row || !row.checkin || !row.checkout) return;
       const key = bookingStableKey(row);
       if(!by.has(key)){
-        by.set(key, {...row, _merged_count: 1, _source_labels: [row.platform || row.source || '订单'].filter(Boolean)});
+        by.set(key, {...row, _merged_count: 1, _source_labels: [row.platform || row.source || '订单'].filter(Boolean), _channel_listing_ids: [row.channel_listing_id].filter(Boolean)});
         return;
       }
       const cur = by.get(key);
       cur._merged_count = Number(cur._merged_count || 1) + 1;
       const label = row.platform || row.source || '';
       cur._source_labels = Array.from(new Set([...(cur._source_labels || []), label].filter(Boolean)));
+      cur._channel_listing_ids = Array.from(new Set([...(cur._channel_listing_ids || []), row.channel_listing_id].filter(Boolean)));
       ['guest','platform','status','summary','lock_reason','channel_listing_id'].forEach(field => { if(!cur[field] && row[field]) cur[field] = row[field]; });
     });
     return Array.from(by.values());
@@ -2132,7 +2136,50 @@
     const labels = Array.isArray(b && b._source_labels) && b._source_labels.length ? b._source_labels : [b && (b.platform || b.source || '订单')];
     return Array.from(new Set(labels.filter(Boolean)));
   }
-  function bookingSourceBadges(b){return bookingLabels(b).map(platformBadge).join(' ');}
+  const BOOKING_CHANNEL_TONES = [
+    {bg:'#ccfbf1',border:'#2dd4bf',text:'#115e59'},
+    {bg:'#dbeafe',border:'#60a5fa',text:'#1e40af'},
+    {bg:'#f3e8ff',border:'#c084fc',text:'#6b21a8'},
+    {bg:'#ffedd5',border:'#fb923c',text:'#9a3412'},
+    {bg:'#fce7f3',border:'#f472b6',text:'#9d174d'},
+    {bg:'#dcfce7',border:'#4ade80',text:'#166534'},
+    {bg:'#fef3c7',border:'#fbbf24',text:'#92400e'},
+    {bg:'#e0e7ff',border:'#818cf8',text:'#3730a3'}
+  ];
+  function channelTone(channelId,roomId){
+    const id = String(channelId || '');
+    const entity = roomEntityId(roomId);
+    const peers = getChannels().filter(ch => roomEntityId(ch.room_id) === entity).slice().sort((a,b) => String(a.id || '').localeCompare(String(b.id || '')));
+    let index = peers.findIndex(ch => String(ch.id || '') === id);
+    if(index < 0){
+      let hash = 0;
+      for(const char of id || String(roomId || '')) hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
+      index = Math.abs(hash);
+    }
+    return BOOKING_CHANNEL_TONES[index % BOOKING_CHANNEL_TONES.length];
+  }
+  function bookingChannelInfos(b){
+    const ids = Array.from(new Set([...(Array.isArray(b && b._channel_listing_ids) ? b._channel_listing_ids : []), b && b.channel_listing_id].filter(Boolean).map(String)));
+    const infos = ids.map(id => {
+      const channel = getChannels().find(ch => String(ch.id || '') === id);
+      if(!channel) return null;
+      const platform = String(channel.platform || b.platform || b.source || '订单').trim();
+      const note = String(channel.channel_note || '').trim();
+      return {id,label:note || platform,platform,note,tone:channelTone(id,channel.room_id || b.room_id)};
+    }).filter(Boolean);
+    if(infos.length) return infos;
+    const platform = String((b && (b.platform || b.source)) || '订单').trim();
+    return [{id:'',label:platform,platform,note:'',tone:channelTone('',b && b.room_id)}];
+  }
+  function bookingChannelText(b){return bookingChannelInfos(b).map(info => info.label).join(' / ');}
+  function bookingChannelTitle(b){return bookingChannelInfos(b).map(info => info.note ? `${info.platform} · ${info.note}` : info.platform).join(' / ');}
+  function bookingCellStyle(b,prefix='booking'){
+    const tone = bookingChannelInfos(b)[0].tone;
+    return `--${prefix}-bg:${tone.bg};--${prefix}-border:${tone.border};--${prefix}-text:${tone.text};`;
+  }
+  function bookingSourceBadges(b){
+    return bookingChannelInfos(b).map(info => `<span class="badge" style="background:${info.tone.bg};border-color:${info.tone.border};color:${info.tone.text}" title="${esc(info.platform)}">${esc(info.label)}</span>`).join(' ');
+  }
   function bookingTypeBadge(b){
     const locked = isLockedBooking(b);
     return `<span class="badge ${locked ? 'red' : 'green'}">${esc(t(locked ? 'owner.table.locked' : 'owner.table.booking'))}</span>`;
@@ -3177,20 +3224,28 @@
         const classes = ['cell'].concat(weekendClass(day).split(' ').filter(Boolean));
         const titles = [];
         let body = '';
+        let cellStyle = '';
         const nightBooked = !!(checkin || stay || lock);
         if(checkout && checkin){
           classes.push('calendar-booked','turnover');
-          titles.push(`退房：${bookingLabels(checkout).join('/')} ${checkout.checkin} 到 ${checkout.checkout}`, `入住：${bookingLabels(checkin).join('/')} ${checkin.checkin} 到 ${checkin.checkout}`);
+          cellStyle = bookingCellStyle(checkout,'checkout') + bookingCellStyle(checkin,'checkin');
+          body = `<span class="split-channel-label checkout">${esc(bookingChannelText(checkout))}</span><span class="split-channel-label checkin">${esc(bookingChannelText(checkin))}</span>`;
+          titles.push(`退房：${bookingChannelTitle(checkout)} ${checkout.checkin} 到 ${checkout.checkout}`, `入住：${bookingChannelTitle(checkin)} ${checkin.checkin} 到 ${checkin.checkout}`);
         }else if(checkout){
           classes.push('calendar-booked','checkout-only');
-          titles.push(`退房：${bookingLabels(checkout).join('/')} ${checkout.checkin} 到 ${checkout.checkout}`);
+          cellStyle = bookingCellStyle(checkout);
+          body = `<span class="split-channel-label checkout">${esc(bookingChannelText(checkout))}</span>`;
+          titles.push(`退房：${bookingChannelTitle(checkout)} ${checkout.checkin} 到 ${checkout.checkout}`);
         }else if(checkin){
           classes.push('calendar-booked','checkin-only');
-          titles.push(`入住：${bookingLabels(checkin).join('/')} ${checkin.checkin} 到 ${checkin.checkout}`);
+          cellStyle = bookingCellStyle(checkin);
+          body = `<span class="split-channel-label checkin">${esc(bookingChannelText(checkin))}</span>`;
+          titles.push(`入住：${bookingChannelTitle(checkin)} ${checkin.checkin} 到 ${checkin.checkout}`);
         }else if(stay){
           classes.push('calendar-booked','stay-only');
-          body = `<span class="cell-platform">${esc(bookingLabels(stay).join('/'))}</span>`;
-          titles.push(`在住：${bookingLabels(stay).join('/')} ${stay.checkin} 到 ${stay.checkout}`);
+          cellStyle = bookingCellStyle(stay);
+          body = `<span class="cell-platform">${esc(bookingChannelText(stay))}</span>`;
+          titles.push(`在住：${bookingChannelTitle(stay)} ${stay.checkin} 到 ${stay.checkout}`);
         }else if(lock){
           classes.push('locked');
           body = `<span class="cell-platform">${esc(t('owner.calendar.blocked'))}</span>`;
@@ -3210,7 +3265,7 @@
           body += `<span class="cell-note">${esc(t('owner.calendar.note'))}</span>`;
           titles.push(t('owner.calendar.noteTitle'));
         }
-        html += `<div class="${classes.join(' ')}" title="${esc(titles.join('；'))}">${body}</div>`;
+        html += `<div class="${classes.join(' ')}" style="${esc(cellStyle)}" title="${esc(titles.join('；'))}">${body}</div>`;
       });
     });
     grid.innerHTML = html;
@@ -3789,7 +3844,10 @@
     const syncTime = formatUserDateTime(ch.last_sync);
     const status = urlIssue.moved ? `<span class="sync-status warn">${esc(urlIssue.message)}</span>` : (!urlIssue.ok ? `<span class="sync-status warn">${esc(urlIssue.message)}</span>` : (!hasImportIcal && ch.last_sync ? `<span class="sync-status warn">缺 iCal：只保留旧同步 ${esc(syncTime)} · ${Number(ch.synced_booking_count || 0)} 条</span>` : (!hasImportIcal ? '<span class="sync-status warn">未填写平台导出 iCal</span>' : (ch.sync_error ? `<span class="sync-status error">同步失败：${esc(ch.sync_error)}</span>` : (ch.last_sync ? `<span class="sync-status ok">同步：${esc(syncTime)} · ${Number(ch.synced_booking_count || 0)} 条</span>` : '<span class="sync-status warn">已填 iCal，未同步</span>')))));
     const feedUrl = feedUrlForChannel(room,ch);
-    return `<div class="channel-card"><div class="channel-grid"><div><label>平台</label><select id="${channelInputId(ch.id,'platform')}"><option ${ch.platform==='Airbnb'?'selected':''}>Airbnb</option><option ${ch.platform==='Booking'?'selected':''}>Booking</option><option ${ch.platform==='Vrbo'?'selected':''}>Vrbo</option><option ${ch.platform==='Other'?'selected':''}>Other</option></select></div><div><label>平台导出 iCal</label><input id="${channelInputId(ch.id,'ical')}" value="${esc(ch.ical_url || '')}" placeholder="粘贴平台导出的 .ics/iCal，不是房源页面"></div><div><label>公开房源链接</label><input id="${channelInputId(ch.id,'listing')}" value="${esc(ch.listing_url || '')}" placeholder="粘贴客人可见的公开房源页面"></div><div><label>备注</label><input id="${channelInputId(ch.id,'note')}" value="${esc(ch.channel_note || '')}" placeholder="账号/房源备注"></div><div class="property-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-row"><div>${status}</div><button class="smallbtn" onclick="copyText('${esc(feedUrl)}')">复制防超卖 iCal</button></div><div class="feed-line">${esc(feedUrl)}</div></div>`;
+    const tone = channelTone(ch.id,ch.room_id || room.id);
+    const calendarLabel = String(ch.channel_note || '').trim() || ch.platform || '渠道';
+    const colorBadge = `<span class="badge" style="background:${tone.bg};border-color:${tone.border};color:${tone.text}">日历：${esc(calendarLabel)}</span>`;
+    return `<div class="channel-card" style="border-color:${tone.border}"><div class="channel-grid"><div><label>平台</label><select id="${channelInputId(ch.id,'platform')}"><option ${ch.platform==='Airbnb'?'selected':''}>Airbnb</option><option ${ch.platform==='Booking'?'selected':''}>Booking</option><option ${ch.platform==='Vrbo'?'selected':''}>Vrbo</option><option ${ch.platform==='Other'?'selected':''}>Other</option></select></div><div><label>平台导出 iCal</label><input id="${channelInputId(ch.id,'ical')}" value="${esc(ch.ical_url || '')}" placeholder="粘贴平台导出的 .ics/iCal，不是房源页面"></div><div><label>公开房源链接</label><input id="${channelInputId(ch.id,'listing')}" value="${esc(ch.listing_url || '')}" placeholder="粘贴客人可见的公开房源页面"></div><div><label>备注（显示在日历）</label><input id="${channelInputId(ch.id,'note')}" value="${esc(ch.channel_note || '')}" placeholder="例如：老房源老房间"></div><div class="property-actions"><button class="smallbtn primary" onclick="saveChannelListing('${esc(ch.id)}',this)">保存</button><button class="smallbtn" onclick="deleteChannelListing('${esc(ch.id)}',this)">删除</button></div></div><div class="channel-row"><div>${colorBadge} ${status}</div><button class="smallbtn" onclick="copyText('${esc(feedUrl)}')">复制防超卖 iCal</button></div><div class="feed-line">${esc(feedUrl)}</div></div>`;
   }
   function renderRoomCard(room){
     const editing = ui.editingRoom === room.id;

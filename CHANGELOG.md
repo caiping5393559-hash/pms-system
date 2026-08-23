@@ -1,5 +1,14 @@
 # PMS Version History
 
+## 2026-08-22 · v119-channel-calendar-colors
+
+Release identifier: `2026-08-22-v119-channel-calendar-colors`
+
+- Shows each channel's room-setting remark in future-calendar cells instead of the generic `Airbnb` label.
+- Assigns a stable, different color to each listing channel for the same physical room.
+- Shows both outgoing and incoming channel remarks in split-color turnover cells.
+- Adds the calendar color preview beside every channel in room settings and uses channel remarks in the reservation source column.
+
 ## 2026-08-22 · v118-physical-room-inventory
 
 Release identifier: `2026-08-22-v118-physical-room-inventory`
