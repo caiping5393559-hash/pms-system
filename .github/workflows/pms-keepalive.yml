@@ -58,3 +58,4 @@ jobs:
             and (.last_sync | type == "string" and length > 0)
             and (.channel_count | type == "number" and . > 0)
           '
+          echo "${SYNC_RESPONSE}" | jq '{version, sync, last_sync, channel_count, guest_diagnostics}'

@@ -34,7 +34,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-08-22-v119-channel-calendar-colors"
+PMS_APP_VERSION = "2026-09-14-v120-ical-guest-diagnostics"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -2318,6 +2318,7 @@ class Handler(BaseHTTPRequestHandler):
                         "sync": sync_result.get("status"),
                         "last_sync": sync_result.get("last_sync"),
                         "channel_count": sync_result.get("channel_count", 0),
+                        "guest_diagnostics": sync_result.get("guest_diagnostics", []),
                         "run_id": str(claims.get("run_id") or ""),
                     },
                     status=200,
@@ -2976,6 +2977,59 @@ def _pms_channel_parse_ics(text, listing):
             "description": description[:600],
         })
     return rows
+
+
+def _pms_channel_guest_diagnostic(text, listing=None):
+    """Return privacy-safe evidence about guest-count data in a raw iCal feed."""
+    property_names = set()
+    explicit_guest_fields = set()
+    matched_text_fields = set()
+    detected_counts = set()
+    event_count = 0
+    inside = False
+    guest_key_re = re.compile(r"(?:GUEST|ATTENDEE|PARTY|OCCUPANCY|ADULT|CHILD|INFANT|PERSON|PEOPLE)", re.I)
+    count_re = re.compile(
+        r"(?:number\s+of\s+guests?|guests?|adults?|children?|infants?|入住人数|房客|客人|人数)"
+        r"\s*(?:count)?\s*[:：=\-]?\s*(\d{1,2})\b",
+        re.I,
+    )
+    plus_re = re.compile(r"(?:^|\s)\+(\d{1,2})(?:\s|$)")
+    for raw_line in _pms_channel_unfold_ics(text):
+        token = str(raw_line or "").strip()
+        upper = token.upper()
+        if upper == "BEGIN:VEVENT":
+            inside = True
+            event_count += 1
+            continue
+        if upper == "END:VEVENT":
+            inside = False
+            continue
+        if not inside or ":" not in token:
+            continue
+        left, value = token.split(":", 1)
+        key = left.split(";", 1)[0].strip().upper()
+        if not key:
+            continue
+        property_names.add(key)
+        if guest_key_re.search(key):
+            explicit_guest_fields.add(key)
+        if key in ("SUMMARY", "DESCRIPTION") or guest_key_re.search(key):
+            matches = [int(item) for item in count_re.findall(value)]
+            if key == "SUMMARY":
+                matches.extend(int(item) + 1 for item in plus_re.findall(value))
+            if matches:
+                matched_text_fields.add(key)
+                detected_counts.update(item for item in matches if 1 <= item <= 30)
+    return {
+        "channel_listing_id": _pms_channel_text((listing or {}).get("id")),
+        "channel_note": _pms_channel_text((listing or {}).get("channel_note")),
+        "event_count": event_count,
+        "property_names": sorted(property_names),
+        "explicit_guest_fields": sorted(explicit_guest_fields),
+        "matched_text_fields": sorted(matched_text_fields),
+        "detected_counts": sorted(detected_counts),
+        "has_guest_count_signal": bool(explicit_guest_fields or matched_text_fields),
+    }
 
 
 def _pms_channel_date_overlaps(checkin, checkout, date_text):
@@ -3992,6 +4046,7 @@ def _pms_channel_sync_icals(actor=None, property_id=None, room_id=None, incoming
     successful_listing_ids = set()
     successful_room_ids = set()
     new_bookings = []
+    guest_diagnostics = []
     def _pms_missing_event_key(item):
         return "|".join([
             str(item.get("external_event_uid") or ""),
@@ -4047,6 +4102,7 @@ def _pms_channel_sync_icals(actor=None, property_id=None, room_id=None, incoming
             continue
         try:
             raw_ical_text = fetch_text(url)
+            guest_diagnostics.append(_pms_channel_guest_diagnostic(raw_ical_text, listing))
             archive_enabled = str(os.environ.get("PMS_DISABLE_ICAL_ARCHIVE", "1") or "1").strip().lower() not in ("1", "true", "yes", "on")
             raw_events = _pms_channel_raw_event_snapshots(raw_ical_text, parse_listing) if archive_enabled else []
             imported = _pms_channel_parse_ics(raw_ical_text, parse_listing)
@@ -4135,6 +4191,7 @@ def _pms_channel_sync_icals(actor=None, property_id=None, room_id=None, incoming
         state["bookings"] = _pms_channel_dedupe_bookings(state.get("bookings", []))
     state["sync_errors"] = sync_errors
     state["last_sync"] = now
+    state["ical_guest_diagnostics"] = guest_diagnostics
     state = _pms_channel_refresh_feed_cache(state, now)
     return save_main_state_only(state)
 
@@ -6918,6 +6975,7 @@ def _pms_ical_sync_result(state, status="completed"):
         "status": status,
         "last_sync": str((state or {}).get("last_sync") or ""),
         "channel_count": len(channels),
+        "guest_diagnostics": state.get("ical_guest_diagnostics", []),
     }
 
 
