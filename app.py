@@ -34,7 +34,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-09-14-v121-cleaner-checkins"
+PMS_APP_VERSION = "2026-09-14-v122-ical-guest-proof"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -188,6 +188,7 @@ def _pms_core_default_state():
         "current_group_id": DEFAULT_GROUP_ID,
         "last_sync": "",
         "sync_errors": [],
+        "ical_guest_diagnostics": [],
     }
 
 
@@ -534,7 +535,7 @@ def _pms_core_normalize_state(raw):
     if isinstance(raw, dict):
         if "property_cleaners" in raw and "propertyCleaners" not in raw:
             raw["propertyCleaners"] = raw.get("property_cleaners")
-        for key in STATE_KEYS + ["current_group_id", "last_sync", "sync_errors"]:
+        for key in STATE_KEYS + ["current_group_id", "last_sync", "sync_errors", "ical_guest_diagnostics"]:
             if key in raw:
                 state[key] = plain(raw[key])
     for key in STATE_KEYS:
@@ -721,6 +722,8 @@ def _pms_core_normalize_state(raw):
             booking.setdefault("source", booking.get("source") or "manual")
     if not isinstance(state.get("sync_errors"), list):
         state["sync_errors"] = []
+    if not isinstance(state.get("ical_guest_diagnostics"), list):
+        state["ical_guest_diagnostics"] = []
     if not isinstance(state.get("last_sync"), str):
         state["last_sync"] = str(state.get("last_sync") or "")
     return state

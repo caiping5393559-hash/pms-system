@@ -38,6 +38,11 @@ END:VCALENDAR
         self.assertIn("X-GUEST-COUNT", result["explicit_guest_fields"])
         self.assertIn("DESCRIPTION", result["matched_text_fields"])
 
+    def test_diagnostics_survive_state_normalization(self):
+        diagnostic = {"channel_listing_id": "two", "detected_counts": [3]}
+        state = app.normalize_state({"ical_guest_diagnostics": [diagnostic]})
+        self.assertEqual([diagnostic], state["ical_guest_diagnostics"])
+
 
 if __name__ == "__main__":
     unittest.main()
