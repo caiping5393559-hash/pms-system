@@ -1587,7 +1587,7 @@
     }
     const profileTab = isActualCleaner() ? `<button data-pms-profile-tab="1" onclick="showTab('cleanerProfile', this)">${esc(t('nav.profile'))}</button>` : '';
     const profilePane = isActualCleaner() ? '<div id="cleanerProfile" class="tab-content"></div>' : '';
-    root.innerHTML = `<div id="cleanerDashboardShell"><div id="cleanerSummary"></div><div id="cleanerMetrics" class="grid"></div><div id="cleanerTodayNotes"></div><div class="card"><div class="tabbar"><button class="active" onclick="showTab('cleanerToday', this)">今日保洁</button><button onclick="showTab('cleanerFuture', this)">未来保洁</button><button onclick="showTab('cleanerManual', this)">手动调整记录</button><button onclick="showTab('cleanerHistory', this)">历史保洁</button>${profileTab}</div></div><div id="cleanerToday" class="tab-content active"></div><div id="cleanerFuture" class="tab-content"></div><div id="cleanerManual" class="tab-content"></div><div id="cleanerHistory" class="tab-content"></div>${profilePane}</div>`;
+    root.innerHTML = `<div id="cleanerDashboardShell"><div id="cleanerSummary"></div><div id="cleanerMetrics" class="grid"></div><div id="cleanerTodayNotes"></div><div class="card"><div class="tabbar"><button class="active" onclick="showTab('cleanerToday', this)">今日退房</button><button onclick="showTab('cleanerCheckins', this)">今日入住</button><button onclick="showTab('cleanerFuture', this)">未来保洁</button><button onclick="showTab('cleanerManual', this)">手动调整记录</button><button onclick="showTab('cleanerHistory', this)">历史保洁</button>${profileTab}</div></div><div id="cleanerToday" class="tab-content active"></div><div id="cleanerCheckins" class="tab-content"></div><div id="cleanerFuture" class="tab-content"></div><div id="cleanerManual" class="tab-content"></div><div id="cleanerHistory" class="tab-content"></div>${profilePane}</div>`;
     ensureCleanerProfileTab();
   }
   function ensureCleanerProfileTab(){
@@ -4125,13 +4125,23 @@
     return `<div class="card"><h2>今日特别事项</h2>${rows.map(n => `<div class="note-card ${n.priority === '重要' ? 'important' : ''}"><div class="note-title">${priorityBadge(n.priority)} ${objectBadge(n.target_type)} ${esc(targetName(n.target_id,n.target_type))} ${n.roomDate?'日期事项':''}</div><div>${esc(n.note)}</div></div>`).join('')}</div>`;
   }
   function activeCleanerTab(){
-    const ids = ['cleanerToday','cleanerFuture','cleanerManual','cleanerHistory','cleanerProfile'];
+    const ids = ['cleanerToday','cleanerCheckins','cleanerFuture','cleanerManual','cleanerHistory','cleanerProfile'];
     const active = ids.find(id => qs(id) && qs(id).classList.contains('active'));
     if(active === 'cleanerProfile' && !isActualCleaner()) return 'cleanerToday';
     return active || 'cleanerToday';
   }
   function cleanerRowsForRange(start,end){
     return actualCleaningRowsImpl(start,end,false).filter(r => cleanerCanSeeTarget(r.target_id,r.target_type));
+  }
+  function cleanerTodayCheckins(){
+    const date = today();
+    return dedupeBookings(getBookings()).filter(b => !isLockedBooking(b) && b.checkin === date && cleanerCanSeeTarget(b.room_id,'room')).sort((a,b) => roomName(a.room_id).localeCompare(roomName(b.room_id),'zh-Hans-CN'));
+  }
+  function cleanerCheckinsHtml(){
+    const rows = cleanerTodayCheckins();
+    const empty = currentLanguage() === 'es-ES' ? 'No hay llegadas hoy.' : (currentLanguage() === 'en-US' ? 'No check-ins today.' : '今天没有入住。');
+    if(!rows.length) return `<div class="card"><h2>今日入住</h2><div class="empty-panel">${esc(empty)}</div></div>`;
+    return `<div class="card"><div class="property-detail-head"><div><h2 style="margin:0">今日入住</h2><div class="small">按入住人数准备浴巾；人数未提供时请向房东确认。</div></div><span class="badge green">${rows.length}间</span></div><div class="work-grid">${rows.map(b => {const count=Math.max(0,Number(b.guest_count||b.guestCount||0)); const prep=count?`入住 ${count} 人｜准备 ${count} 条浴巾`:'入住人数未提供｜请确认浴巾数量'; return `<div class="note-card"><div class="note-title"><span class="badge green">${esc(roomName(b.room_id))}</span> ${bookingSourceBadges(b)}</div><div style="font-size:18px;font-weight:800;margin-top:8px">${esc(prep)}</div><div class="small">${esc(b.checkin)} → ${esc(b.checkout)}</div></div>`;}).join('')}</div></div>`;
   }
   function renderCleanerTabContentImpl(tabId, options={}){
     const active = tabId || activeCleanerTab();
@@ -4142,6 +4152,10 @@
     if(active === 'cleanerToday'){
       const rows = options.todayRows || cleanerRowsForRange(today(), today()).filter(r => r.date === today()).sort((a,b) => targetName(a.target_id,a.target_type).localeCompare(targetName(b.target_id,b.target_type),'zh-Hans-CN'));
       const box = qs('cleanerToday'); if(box) box.innerHTML = cleaningTableScoped(rows, true, {compactTasks:true});
+      return;
+    }
+    if(active === 'cleanerCheckins'){
+      const box = qs('cleanerCheckins'); if(box) box.innerHTML = cleanerCheckinsHtml();
       return;
     }
     if(active === 'cleanerFuture'){

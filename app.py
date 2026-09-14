@@ -34,7 +34,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-PMS_APP_VERSION = "2026-09-14-v120-ical-guest-diagnostics"
+PMS_APP_VERSION = "2026-09-14-v121-cleaner-checkins"
 PMS_CLEANING_TASK_LAUNCH_DATE = date(2026, 7, 4)
 PMS_CLEANING_TASK_RAMP_DAYS = 7
 PMS_CLEANING_TASK_DEEP_START_DATE = (PMS_CLEANING_TASK_LAUNCH_DATE + timedelta(days=PMS_CLEANING_TASK_RAMP_DAYS)).isoformat()
@@ -2939,6 +2939,7 @@ def _pms_channel_parse_ics(text, listing):
         summary = ical_clean_text(_pms_channel_field(event, "SUMMARY"))
         description = ical_clean_text(_pms_channel_field(event, "DESCRIPTION"))
         status = ical_clean_text(_pms_channel_field(event, "STATUS"))
+        guest_count = _pms_channel_guest_count(event)
         amount = _pms_extract_money_amount(summary, description)
         uid = _pms_channel_text(_pms_channel_field(event, "UID"))
         if not uid:
@@ -2959,6 +2960,7 @@ def _pms_channel_parse_ics(text, listing):
             "listing_url": listing.get("listing_url") or "",
             "is_new_listing": bool(listing.get("is_new_listing")),
             "guest": _pms_channel_guest_hint(summary, description),
+            "guest_count": guest_count,
             "checkin": checkin,
             "checkout": checkout,
             "checkin_utc": checkin_utc,
@@ -2977,6 +2979,38 @@ def _pms_channel_parse_ics(text, listing):
             "description": description[:600],
         })
     return rows
+
+
+def _pms_channel_guest_count(event_lines):
+    """Extract the total party size when a platform includes it in VEVENT."""
+    count_re = re.compile(
+        r"(?:number\s+of\s+guests?|guest(?:s|\s*count)?|party\s*size|occupancy|adults?|children?|infants?|入住人数|房客|客人|人数)"
+        r"\s*[:：=\-]?\s*(\d{1,2})\b",
+        re.I,
+    )
+    explicit_key_re = re.compile(r"(?:GUEST|PARTY|OCCUPANCY|PERSON|PEOPLE)(?:S|COUNT|SIZE)?", re.I)
+    summary = ""
+    for raw_line in event_lines or []:
+        line = str(raw_line or "")
+        if ":" not in line:
+            continue
+        left, value = line.split(":", 1)
+        key = left.split(";", 1)[0].strip().upper()
+        clean_value = ical_clean_text(value)
+        if key == "SUMMARY":
+            summary = clean_value
+        if explicit_key_re.search(key):
+            direct = re.search(r"\b(\d{1,2})\b", clean_value)
+            if direct and 1 <= int(direct.group(1)) <= 30:
+                return int(direct.group(1))
+        if key in ("SUMMARY", "DESCRIPTION"):
+            match = count_re.search(clean_value)
+            if match and 1 <= int(match.group(1)) <= 30:
+                return int(match.group(1))
+    plus = re.search(r"(?:^|\s)\+(\d{1,2})(?:\s|$)", summary)
+    if plus and 0 <= int(plus.group(1)) <= 29:
+        return int(plus.group(1)) + 1
+    return 0
 
 
 def _pms_channel_guest_diagnostic(text, listing=None):
